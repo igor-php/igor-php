@@ -52,6 +52,7 @@ go install github.com/KevinMartinsDev/igor-php@latest
 ## 🙏 Credits & Inspirations
 
 - **[Phanalist](https://github.com/denzyldick/phanalist)**: Special thanks to `phanalist` and its rule `E0012` (Stateful Service) which inspired Igor's core mutation detection logic.
+- **[Gemini CLI](https://github.com/google/gemini-cli)**: This project was built with the help of Gemini CLI.
 - **[FrankenPHP](https://frankenphp.dev/)**: For the amazing server that makes these checks necessary!
 
 ---
