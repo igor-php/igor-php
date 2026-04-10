@@ -21,7 +21,7 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("Usage: igor <directory>")
+		fmt.Println("Usage: igor-php <directory>")
 		os.Exit(1)
 	}
 	rootPath, _ := filepath.Abs(args[0])

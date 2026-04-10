@@ -27,7 +27,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 Install the binary and let Igor audit your Symfony project (ensure `bin/console` is present for Deep Audit):
 
 ```bash
-igor ./my-symfony-project
+igor-php ./my-symfony-project
 ```
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor will:
