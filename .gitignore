@@ -1,0 +1,16 @@
+# Binaries
+igor
+
+# IDEs
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Go
+vendor/
+*.out
+*.test
+\n# Private\nPLAN.md
