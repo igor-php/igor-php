@@ -1,8 +1,5 @@
 # Binaries
-fcheck
-franken-check
-igor
-symfony-services-list
+igor-php
 
 # IDEs
 .idea/
