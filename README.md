@@ -48,6 +48,43 @@ When a Symfony project is detected, Igor will:
 
 ---
 
+## 🤖 CI/CD Integration
+
+Igor is designed to work out-of-the-box in your CI pipelines. It will exit with **code 1** if any error is found, effectively stopping your build.
+
+### GitHub Actions Example
+
+```yaml
+name: Static Analysis
+on: [push, pull_request]
+
+jobs:
+  igor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Install Dependencies
+        run: composer install --no-progress --prefer-dist
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run Igor
+        run: |
+          go install github.com/KevinMartinsDev/igor-php@latest
+          igor-php .
+```
+
+---
+
 ## ⚙️ Configuration
 
 You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
