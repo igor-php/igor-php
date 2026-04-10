@@ -64,6 +64,13 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 
 ---
 
+## 📋 Prerequisites
+
+- **Go**: Required to compile or install the binary.
+- **PHP 8.1+**: Required for the **Deep Audit** mode. Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
+
+---
+
 ## 🚀 Installation
 
 ### Via Go
