@@ -1,11 +1,11 @@
-# 🧟‍♂️ IgorPHP 
+# 🧟‍♂️⚡ Igor-Php 
 <p align="center">
   <img src="igor-php.png" alt="Igor PHP Logo" width="600">
 </p>
 
 **The faithful assistant for your FrankenPHP Workers.**
 
-`igor` is an ultra-fast static linter written in **Go** that prepares your PHP code for the persistent memory model of **FrankenPHP**, **Swoole**, or **RoadRunner**.
+`igor-php` is an ultra-fast static linter written in **Go** that prepares your **Symfony** application for the persistent memory model of **FrankenPHP**.
 
 Like the legendary assistant, `igor` checks every connection and part of your application to ensure it won't "blow up" when the lightning strikes (Worker Mode).
 
