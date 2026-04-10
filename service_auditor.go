@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,9 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
+
+//go:embed find_class_files.php
+var phpHelperScript []byte
 
 // ServiceAuditor audits Symfony services for statelessness.
 type ServiceAuditor struct {
@@ -58,10 +63,20 @@ func (a *ServiceAuditor) LoadSymfonyContainer(root string) error {
 	a.container = &container
 
 	fmt.Println("🔍 Locating service files via PHP Reflection (PROD vendors)...")
-	cwd, _ := filepath.Abs(".")
-	helperPath := filepath.Join(cwd, "find_class_files.php")
+	
+	// Create a temporary file for the embedded PHP helper
+	tmpHelper, err := ioutil.TempFile("", "igor_helper_*.php")
+	if err != nil {
+		return fmt.Errorf("failed to create temp helper file: %v", err)
+	}
+	defer os.Remove(tmpHelper.Name()) // Clean up after use
 
-	reflectCmd := exec.Command("php", helperPath, root)
+	if _, err := tmpHelper.Write(phpHelperScript); err != nil {
+		return fmt.Errorf("failed to write to temp helper: %v", err)
+	}
+	tmpHelper.Close()
+
+	reflectCmd := exec.Command("php", tmpHelper.Name(), root)
 	reflectCmd.Stdin = bytes.NewReader([]byte(jsonPart))
 	
 	reflectOutput, err := reflectCmd.CombinedOutput()
@@ -265,7 +280,6 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 		fullName = v.namespace + "\\" + v.curClass
 	}
 
-	// Skip if explicitly marked as non-shared in Symfony container OR if in SafeNamespaces
 	if v.isExplicitlyNonShared(fullName) || v.isSafeNamespace(fullName) {
 		return
 	}
