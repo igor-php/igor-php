@@ -29,11 +29,22 @@ Install the binary and let Igor audit your Symfony project (ensure `bin/console`
 ```bash
 igor-php ./my-symfony-project
 ```
+
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor will:
 1. Query the container in **PROD mode** (`--env=prod --no-debug`).
 2. Map every **shared service** to its actual source file via PHP Reflection.
 3. Perform an exhaustive audit of your code and all its dependencies.
+
+### Example Output
+```text
+📂 src/Service/MyService.php
+  ❌ Mutation of state 'cache' in MyService::getData().
+  42 | $this->cache = $result;
+
+⚠️  Property 'tempData' of MyService is mutated but not reset in reset().
+  💡 Hint: Add '$this->tempData = null;' in the reset() method.
+```
 
 ---
 
@@ -50,18 +61,6 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
-
----
-
-## 🙏 Credits & Inspirations
-
-📂 src/Service/MyService.php
-  ❌ Mutation of state 'cache' in MyService::getData().
-  42 | $this->cache = $result;
-
-⚠️  Property 'tempData' of MyService is mutated but not reset in reset().
-  💡 Hint: Add '$this->tempData = null;' in the reset() method.
-```
 
 ---
 
