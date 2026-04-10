@@ -1,4 +1,7 @@
-# 🧟‍♂️⚡  igor-php
+# 🧟‍♂️ IgorPHP 
+<p align="center">
+  <img src="igor-php.png" alt="Igor PHP Logo" width="600">
+</p>
 
 **The faithful assistant for your FrankenPHP Workers.**
 
