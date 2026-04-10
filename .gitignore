@@ -1,5 +1,8 @@
 # Binaries
+fcheck
+franken-check
 igor
+symfony-services-list
 
 # IDEs
 .idea/
@@ -9,8 +12,11 @@ igor
 # OS
 .DS_Store
 
+# Private
+PLAN.md
+conductor/
+
 # Go
 vendor/
 *.out
 *.test
-\n# Private\nPLAN.md

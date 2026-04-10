@@ -14,5 +14,18 @@ type Result struct {
 }
 
 type Config struct {
-	Exclude []string `json:"exclude"`
+	Exclude        []string `json:"exclude"`
+	SafeNamespaces []string `json:"safe_namespaces"`
+}
+
+// SymfonyContainer represents the output of debug:container --format=json
+type SymfonyContainer struct {
+	Definitions map[string]SymfonyService `json:"definitions"`
+	Aliases     map[string]interface{}    `json:"aliases"`
+}
+
+type SymfonyService struct {
+	Class  string `json:"class"`
+	Public bool   `json:"public"`
+	Shared bool   `json:"shared"`
 }
