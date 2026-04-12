@@ -20,14 +20,13 @@ builds:
         goarch: arm64
     main: .
     binary: igor-php
-    # Use zig cc for cross-compilation
     flags:
       - -trimpath
     ldflags:
       - -s -w -X main.Version={{.Version}}
     
-    # Use zig as the C compiler
-    toolchain: zig
+    # Enable Zig for cross-compilation (GoReleaser v2 way)
+    zig: true
 
 archives:
   - format: tar.gz
