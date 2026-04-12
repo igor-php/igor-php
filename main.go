@@ -33,6 +33,30 @@ func main() {
 	reporter := NewReporter()
 
 	// 2. Detect Symfony project
+	detectSymfony(rootPath, auditor)
+
+	// 3. Collect Files to Audit
+	auditList := collectFiles(rootPath, config, auditor)
+
+	reporter.PrintHeader(len(auditList))
+
+	// 4. Parallel Audit
+	results := runParallelAudit(auditList, auditor)
+
+	// 5. Report Results
+	var finalResults []AuditStatus
+	for res := range results {
+		finalResults = append(finalResults, res)
+		reporter.PrintFindings(res, rootPath)
+	}
+
+	success := reporter.PrintSummary(finalResults)
+	if !success {
+		os.Exit(1)
+	}
+}
+
+func detectSymfony(rootPath string, auditor *Auditor) {
 	projectRoot := rootPath
 	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err != nil {
 		projectRoot = filepath.Dir(rootPath)
@@ -48,8 +72,9 @@ func main() {
 			fmt.Println("👉 Falling back to standard directory scan mode.")
 		}
 	}
+}
 
-	// 3. Collect Files to Audit
+func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatus {
 	var auditList []AuditStatus
 	if auditor.Symfony != nil {
 		fmt.Println("🎯 Deep Audit mode: Auditing ALL shared services (including vendors)...")
@@ -83,10 +108,10 @@ func main() {
 			return nil
 		})
 	}
+	return auditList
+}
 
-	reporter.PrintHeader(len(auditList))
-
-	// 4. Parallel Audit
+func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditStatus {
 	resultsChan := make(chan AuditStatus, len(auditList))
 	jobsChan := make(chan AuditStatus, len(auditList))
 	var wg sync.WaitGroup
@@ -122,18 +147,11 @@ func main() {
 		jobsChan <- job
 	}
 	close(jobsChan)
-	wg.Wait()
-	close(resultsChan)
 
-	// 5. Report Results
-	var finalResults []AuditStatus
-	for res := range resultsChan {
-		finalResults = append(finalResults, res)
-		reporter.PrintFindings(res, projectRoot)
-	}
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
 
-	success := reporter.PrintSummary(finalResults)
-	if !success {
-		os.Exit(1)
-	}
+	return resultsChan
 }

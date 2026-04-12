@@ -36,62 +36,23 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 
 	switch nodeType {
 	case "namespace_definition":
-		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-			v.namespace = v.getContent(nameNode)
-		}
-
+		v.handleNamespace(n)
 	case "class_declaration", "trait_declaration", "anonymous_class":
-		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-			v.curClass = v.getContent(nameNode)
-		} else {
-			v.curClass = "AnonymousClass"
-		}
-
-		fullName := v.curClass
-		if v.namespace != "" {
-			fullName = v.namespace + "\\" + v.curClass
-		}
-		
-		// Signal to auditor that we found a class
-		if v.auditor != nil {
-			v.auditor.recordClassAudited(fullName)
-		}
-
-		classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
-		v.isReset = strings.Contains(classText, "resetinterface") || strings.Contains(classText, "resettableinterface")
-		
-		v.mutated = make(map[string]mutationInfo)
-		v.resetted = make(map[string]bool)
-
+		v.handleClass(n)
 	case "method_declaration", "function_definition":
 		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 			v.curMethod = v.getContent(nameNode)
 		}
-
 	case "assignment_expression", "augmented_assignment_expression":
 		v.handleMutation(n.ChildByFieldName("left"))
-
 	case "update_expression":
 		v.handleMutation(n)
-
 	case "exit_statement", "exit":
 		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
-
 	case "function_call_expression":
-		nameNode := n.ChildByFieldName("name")
-		if nameNode != nil {
-			name := strings.ToLower(v.getContent(nameNode))
-			if name == "die" || name == "exit" {
-				v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
-			}
-		}
-
+		v.handleFunctionCall(n)
 	case "variable_name":
-		name := v.getContent(n)
-		if isSuperglobal(name) {
-			v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is forbidden in Worker mode.", name), "Use Symfony Request object instead.", "ERROR")
-		}
-
+		v.handleVariable(n)
 	case "static_variable_declaration":
 		v.addFinding(n, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
 	}
@@ -107,6 +68,52 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.curClass, v.isReset = oldClass, oldIsRes
 	} else if nodeType == "method_declaration" || nodeType == "function_definition" {
 		v.curMethod = oldMethod
+	}
+}
+
+func (v *PHPVisitor) handleNamespace(n *sitter.Node) {
+	if nameNode := n.ChildByFieldName("name"); nameNode != nil {
+		v.namespace = v.getContent(nameNode)
+	}
+}
+
+func (v *PHPVisitor) handleClass(n *sitter.Node) {
+	if nameNode := n.ChildByFieldName("name"); nameNode != nil {
+		v.curClass = v.getContent(nameNode)
+	} else {
+		v.curClass = "AnonymousClass"
+	}
+
+	fullName := v.curClass
+	if v.namespace != "" {
+		fullName = v.namespace + "\\" + v.curClass
+	}
+	
+	if v.auditor != nil {
+		v.auditor.recordClassAudited(fullName)
+	}
+
+	classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
+	v.isReset = strings.Contains(classText, "resetinterface") || strings.Contains(classText, "resettableinterface")
+	
+	v.mutated = make(map[string]mutationInfo)
+	v.resetted = make(map[string]bool)
+}
+
+func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
+	nameNode := n.ChildByFieldName("name")
+	if nameNode != nil {
+		name := strings.ToLower(v.getContent(nameNode))
+		if name == "die" || name == "exit" {
+			v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
+		}
+	}
+}
+
+func (v *PHPVisitor) handleVariable(n *sitter.Node) {
+	name := v.getContent(n)
+	if isSuperglobal(name) {
+		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is forbidden in Worker mode.", name), "Use Symfony Request object instead.", "ERROR")
 	}
 }
 
@@ -134,38 +141,46 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 
 	switch n.Kind() {
 	case "member_access_expression":
-		obj := n.ChildByFieldName("object")
-		if obj != nil {
-			objContent := v.getContent(obj)
-			if strings.Contains(objContent, "$this") {
-				nameNode := n.ChildByFieldName("name")
-				if nameNode != nil {
-					v.logMutation(n, v.getContent(nameNode), false)
-				}
-			} else if obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression" {
-				v.handleMutation(obj)
-			}
-		}
+		v.handleMemberAccess(n)
 	case "subscript_expression":
 		if n.ChildCount() > 0 {
 			v.handleMutation(n.Child(0))
 		}
 	case "scoped_property_access_expression":
-		scope := n.ChildByFieldName("scope")
-		if scope != nil {
-			s := strings.ToLower(v.getContent(scope))
-			if s == "self" || s == "static" {
-				nameNode := n.ChildByFieldName("name")
-				if nameNode != nil {
-					v.logMutation(n, v.getContent(nameNode), true)
-				}
-			}
-		}
+		v.handleScopedAccess(n)
 	case "update_expression":
 		for i := uint(0); i < n.ChildCount(); i++ {
 			c := n.Child(i)
 			if c.Kind() != "++" && c.Kind() != "--" {
 				v.handleMutation(c)
+			}
+		}
+	}
+}
+
+func (v *PHPVisitor) handleMemberAccess(n *sitter.Node) {
+	obj := n.ChildByFieldName("object")
+	if obj != nil {
+		objContent := v.getContent(obj)
+		if strings.Contains(objContent, "$this") {
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				v.logMutation(n, v.getContent(nameNode), false)
+			}
+		} else if obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression" {
+			v.handleMutation(obj)
+		}
+	}
+}
+
+func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
+	scope := n.ChildByFieldName("scope")
+	if scope != nil {
+		s := strings.ToLower(v.getContent(scope))
+		if s == "self" || s == "static" {
+			nameNode := n.ChildByFieldName("name")
+			if nameNode != nil {
+				v.logMutation(n, v.getContent(nameNode), true)
 			}
 		}
 	}

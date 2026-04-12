@@ -64,7 +64,9 @@ func (b *SymfonyBridge) LoadContainer() error {
 	if _, err := tmpHelper.Write(phpHelperScript); err != nil {
 		return fmt.Errorf("failed to write to temp helper: %v", err)
 	}
-	tmpHelper.Close()
+	if err := tmpHelper.Close(); err != nil {
+		return fmt.Errorf("failed to close temp helper: %v", err)
+	}
 
 	reflectCmd := exec.Command("php", tmpHelper.Name(), b.Root)
 	reflectCmd.Stdin = bytes.NewReader([]byte(jsonPart))
