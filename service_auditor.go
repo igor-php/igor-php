@@ -64,12 +64,11 @@ func (a *ServiceAuditor) LoadSymfonyContainer(root string) error {
 
 	fmt.Println("🔍 Locating service files via PHP Reflection (PROD vendors)...")
 	
-	// Create a temporary file for the embedded PHP helper
 	tmpHelper, err := ioutil.TempFile("", "igor_helper_*.php")
 	if err != nil {
 		return fmt.Errorf("failed to create temp helper file: %v", err)
 	}
-	defer os.Remove(tmpHelper.Name()) // Clean up after use
+	defer os.Remove(tmpHelper.Name())
 
 	if _, err := tmpHelper.Write(phpHelperScript); err != nil {
 		return fmt.Errorf("failed to write to temp helper: %v", err)
@@ -217,7 +216,6 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 			v.curClass = "AnonymousClass"
 		}
 
-		// Track this class as audited
 		fullName := v.curClass
 		if v.namespace != "" {
 			fullName = v.namespace + "\\" + v.curClass
@@ -244,16 +242,25 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.handleMutation(n)
 
 	case "exit_statement", "exit":
-		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "", "ERROR")
+		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
 
 	case "function_call_expression":
 		nameNode := n.ChildByFieldName("name")
 		if nameNode != nil {
 			name := strings.ToLower(v.getContent(nameNode))
 			if name == "die" || name == "exit" {
-				v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "", "ERROR")
+				v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
 			}
 		}
+
+	case "variable_name":
+		name := v.getContent(n)
+		if isSuperglobal(name) {
+			v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is forbidden in Worker mode.", name), "Use Symfony Request object instead.", "ERROR")
+		}
+
+	case "static_variable_declaration":
+		v.addFinding(n, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
 	}
 
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -268,6 +275,14 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	} else if nodeType == "method_declaration" || nodeType == "function_definition" {
 		v.curMethod = oldMethod
 	}
+}
+
+func isSuperglobal(name string) bool {
+	switch name {
+	case "$_GET", "$_POST", "$_SESSION", "$_SERVER", "$_FILES", "$_COOKIE", "$_REQUEST", "$_ENV":
+		return true
+	}
+	return false
 }
 
 func (v *PHPVisitor) handleMutation(n *sitter.Node) {

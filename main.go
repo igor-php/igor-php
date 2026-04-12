@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const Version = "0.1.0"
+
 type AuditStatus struct {
 	ServiceID string
 	FilePath  string
@@ -18,7 +20,14 @@ type AuditStatus struct {
 }
 
 func main() {
+	versionFlag := flag.Bool("version", false, "Display version information")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("igor-php version %s\n", Version)
+		os.Exit(0)
+	}
+
 	args := flag.Args()
 	if len(args) < 1 {
 		fmt.Println("Usage: igor-php <directory>")
@@ -28,7 +37,7 @@ func main() {
 	start := time.Now()
 
 	config := loadConfig(rootPath)
-	auditor := NewServiceAuditor(config) // Pass config here
+	auditor := NewServiceAuditor(config)
 
 	// 1. Detect Symfony
 	isSymfony := false
@@ -38,8 +47,12 @@ func main() {
 	}
 	
 	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err == nil {
+		fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
 		if err := auditor.LoadSymfonyContainer(projectRoot); err == nil {
 			isSymfony = true
+		} else {
+			fmt.Printf("⚠️  Warning: Could not load Symfony container properly: %v\n", err)
+			fmt.Println("👉 Falling back to standard directory scan mode.")
 		}
 	}
 
@@ -63,7 +76,9 @@ func main() {
 			}
 		}
 	} else {
-		fmt.Println("⚠️  Non-Symfony project: Standard directory scan mode.")
+		if !isSymfony {
+			fmt.Println("ℹ️  Standard mode: Scanning directory for PHP files.")
+		}
 		_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() && strings.HasSuffix(path, ".php") {
 				rel, _ := filepath.Rel(rootPath, path)
@@ -154,6 +169,9 @@ func main() {
 				if f.Severity == "WARNING" { color = "\033[33m" }
 				fmt.Printf("  %s%s\033[0m\n", color, f.Message)
 				fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
+				if f.Remediation != "" {
+					fmt.Printf("  \033[36m💡 Hint: %s\033[0m\n", f.Remediation)
+				}
 			}
 		}
 	}

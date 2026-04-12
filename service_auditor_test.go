@@ -45,6 +45,12 @@ func TestAuditFixtures(t *testing.T) {
 			expectedErrors: 1, // Only IncompleteResetService should fail/warn
 			contains:       "not reset in reset()",
 		},
+		{
+			name:           "Security risks (superglobals & static vars)",
+			fixture:        "security_risks.php",
+			expectedErrors: 6, // 5 superglobals + 1 static var
+			contains:       "forbidden in Worker mode",
+		},
 	}
 
 	for _, tt := range tests {
