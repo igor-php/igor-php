@@ -46,10 +46,22 @@ func TestAuditFixtures(t *testing.T) {
 			contains:       "not reset in reset()",
 		},
 		{
+			name:           "ResetInterface partial cleanup (3 props, 2 reset)",
+			fixture:        "reset_incomplete.php",
+			expectedErrors: 1,
+			contains:       "Property 'prop3' of IncompleteService is mutated but not reset",
+		},
+		{
 			name:           "Security risks (superglobals & static vars)",
 			fixture:        "security_risks.php",
 			expectedErrors: 6, // 5 superglobals + 1 static var
 			contains:       "forbidden in Worker mode",
+		},
+		{
+			name:           "Complex mutations (nested & dynamic)",
+			fixture:        "complex_mutations.php",
+			expectedErrors: 2, // Nested + Dynamic (Reference is harder to detect without data flow)
+			contains:       "Mutation of state",
 		},
 	}
 

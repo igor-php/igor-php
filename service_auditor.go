@@ -302,13 +302,20 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 	switch n.Kind() {
 	case "member_access_expression":
 		obj := n.ChildByFieldName("object")
-		if obj != nil && strings.Contains(v.getContent(obj), "$this") {
-			nameNode := n.ChildByFieldName("name")
-			if nameNode != nil {
-				v.logMutation(n, v.getContent(nameNode), false)
+		if obj != nil {
+			objContent := v.getContent(obj)
+			if strings.Contains(objContent, "$this") {
+				nameNode := n.ChildByFieldName("name")
+				if nameNode != nil {
+					v.logMutation(n, v.getContent(nameNode), false)
+				}
+			} else if obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression" {
+				// Handle nested: $this->a->b = val
+				v.handleMutation(obj)
 			}
 		}
 	case "subscript_expression":
+		// Handle $this->prop[] = val
 		if n.ChildCount() > 0 {
 			v.handleMutation(n.Child(0))
 		}
@@ -345,7 +352,7 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 		v.mutated[key] = mutationInfo{line: int(n.StartPosition().Row) + 1, code: v.lines[n.StartPosition().Row]}
 	} else if v.curClass != "" || static {
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
-		v.addFinding(n, msg, "", "ERROR")
+		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
 	}
 }
 
