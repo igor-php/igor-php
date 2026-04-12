@@ -195,11 +195,12 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 		key = "static::" + prop
 	}
 
-	if v.curMethod == "reset" {
+	switch {
+	case v.curMethod == "reset":
 		v.resetted[key] = true
-	} else if v.isReset {
+	case v.isReset:
 		v.mutated[key] = mutationInfo{line: int(n.StartPosition().Row) + 1, code: v.lines[n.StartPosition().Row]}
-	} else if v.curClass != "" || static {
+	case v.curClass != "" || static:
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
 		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
 	}

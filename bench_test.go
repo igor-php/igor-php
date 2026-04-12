@@ -12,7 +12,7 @@ func BenchmarkAuditor(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Generate 100 dummy files
 	for i := 0; i < 100; i++ {
