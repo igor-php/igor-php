@@ -6,34 +6,41 @@ before:
     - go mod tidy
 
 builds:
-  - env:
+  - id: linux
+    env:
       - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-linux
+      - CXX=zig c++ -target x86_64-linux
     goos:
       - linux
-      - darwin
-      - windows
     goarch:
       - amd64
-      - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
     main: .
     binary: igor-php
     flags:
       - -trimpath
     ldflags:
       - -s -w -X main.Version={{.Version}}
-    
-    # Enable Zig for cross-compilation (GoReleaser v2 way)
-    zig: true
+
+  - id: linux-arm64
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target aarch64-linux
+      - CXX=zig c++ -target aarch64-linux
+    goos:
+      - linux
+    goarch:
+      - arm64
+    main: .
+    binary: igor-php
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
 archives:
   - format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    format_overrides:
-      - goos: windows
-        format: zip
 
 checksum:
   name_template: "checksums.txt"
