@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +55,7 @@ func (b *SymfonyBridge) LoadContainer() error {
 	b.Container = &container
 
 	// 2. Locate files
-	tmpHelper, err := ioutil.TempFile("", "igor_helper_*.php")
+	tmpHelper, err := os.CreateTemp("", "igor_helper_*.php")
 	if err != nil {
 		return fmt.Errorf("failed to create temp helper file: %v", err)
 	}

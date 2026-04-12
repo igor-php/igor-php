@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
@@ -20,7 +20,7 @@ func DefaultConfig() Config {
 // LoadConfig loads the configuration from igor.json in the given root directory.
 func LoadConfig(root string) Config {
 	c := DefaultConfig()
-	data, err := ioutil.ReadFile(filepath.Join(root, "igor.json"))
+	data, err := os.ReadFile(filepath.Join(root, "igor.json"))
 	if err != nil {
 		return c
 	}

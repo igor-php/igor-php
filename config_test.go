@@ -1,14 +1,13 @@
 package main
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestLoadConfig(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "igor_config_test")
+	tmpDir, err := os.MkdirTemp("", "igor_config_test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +25,7 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("Valid config file", func(t *testing.T) {
 		content := `{"exclude": ["custom"], "safe_namespaces": ["My\\"]}`
-		err := ioutil.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
+		err := os.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +40,7 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("Corrupted config file", func(t *testing.T) {
 		content := `{ invalid json }`
-		err := ioutil.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
+		err := os.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
 		if err != nil {
 			t.Fatal(err)
 		}

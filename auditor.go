@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strings"
 	"sync"
 
@@ -28,7 +28,7 @@ func NewAuditor(cfg Config) *Auditor {
 
 // Audit analyzes a single PHP file and returns findings.
 func (a *Auditor) Audit(path string) ([]Finding, error) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", path, err)
 	}
@@ -59,7 +59,7 @@ func (a *Auditor) Audit(path string) ([]Finding, error) {
 
 // ExtractFQCN extracts the full class name from a file.
 func (a *Auditor) ExtractFQCN(path string) (string, error) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}

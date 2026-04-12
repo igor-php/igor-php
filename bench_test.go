@@ -2,14 +2,13 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
 func BenchmarkAuditor(b *testing.B) {
-	tmpDir, err := ioutil.TempDir("", "igor_bench")
+	tmpDir, err := os.MkdirTemp("", "igor_bench")
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -22,7 +21,7 @@ class Service%d {
     private $prop;
     public function set($v) { $this->prop = $v; }
 }`, i)
-		err := ioutil.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("service%d.php", i)), []byte(content), 0644)
+		err := os.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("service%d.php", i)), []byte(content), 0644)
 		if err != nil {
 			b.Fatal(err)
 		}

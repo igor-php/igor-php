@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +8,7 @@ import (
 
 func TestSymfonyIntegration(t *testing.T) {
 	// 1. Create a temporary Symfony project structure
-	tmpDir, err := ioutil.TempDir("", "mock_symfony_deep")
+	tmpDir, err := os.MkdirTemp("", "mock_symfony_deep")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +30,7 @@ class MyService {
 }
 `
 	servicePath := filepath.Join(srcDir, "MyService.php")
-	err = ioutil.WriteFile(servicePath, []byte(serviceContent), 0644)
+	err = os.WriteFile(servicePath, []byte(serviceContent), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +43,7 @@ spl_autoload_register(function ($class) {
     }
 });
 `
-	err = ioutil.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte(autoloaderContent), 0644)
+	err = os.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte(autoloaderContent), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +63,7 @@ if ($argv[1] === 'debug:container') {
     ]);
 }
 `
-	err = ioutil.WriteFile(filepath.Join(binDir, "console"), []byte(mockConsoleContent), 0755)
+	err = os.WriteFile(filepath.Join(binDir, "console"), []byte(mockConsoleContent), 0755)
 	if err != nil {
 		t.Fatal(err)
 	}
