@@ -11,15 +11,26 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
     main: .
     binary: igor-php
+    # Use zig cc for cross-compilation
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+    
+    # Use zig as the C compiler
+    toolchain: zig
 
 archives:
   - format: tar.gz
-    # this name template makes the archive name contain the target os and arch
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
