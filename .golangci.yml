@@ -1,0 +1,32 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - revive
+    - gocritic
+    - cyclop
+    - misspell
+    - nolintlint
+
+linters-settings:
+  cyclop:
+    max-complexity: 15
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
