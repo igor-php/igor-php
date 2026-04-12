@@ -1,186 +1,18 @@
 package main
 
 import (
-	"bytes"
-	_ "embed"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
-	"sync"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
-
-//go:embed find_class_files.php
-var phpHelperScript []byte
-
-// ServiceAuditor audits Symfony services for statelessness.
-type ServiceAuditor struct {
-	container      *SymfonyContainer
-	AuditedClasses map[string]bool
-	classToFile    map[string]string
-	mu             sync.Mutex
-	Config         Config
-}
-
-// NewServiceAuditor creates a new instance of ServiceAuditor.
-func NewServiceAuditor(cfg Config) *ServiceAuditor {
-	return &ServiceAuditor{
-		AuditedClasses: make(map[string]bool),
-		classToFile:    make(map[string]string),
-		Config:         cfg,
-	}
-}
-
-// LoadSymfonyContainer fetches definitions and LOCATES files via PHP Reflection in PROD mode.
-func (a *ServiceAuditor) LoadSymfonyContainer(root string) error {
-	consolePath := filepath.Join(root, "bin", "console")
-	
-	fmt.Println("🚀 Querying Symfony container in PROD mode...")
-	cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env=prod", "--no-debug")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to execute debug:container: %v", err)
-	}
-
-	strOutput := string(output)
-	start := strings.Index(strOutput, "{")
-	end := strings.LastIndex(strOutput, "}")
-	if start == -1 || end == -1 || end < start {
-		return fmt.Errorf("could not find a valid JSON object in Symfony output")
-	}
-	jsonPart := strOutput[start : end+1]
-
-	var container SymfonyContainer
-	if err := json.Unmarshal([]byte(jsonPart), &container); err != nil {
-		return fmt.Errorf("failed to parse Symfony container JSON: %v", err)
-	}
-	a.container = &container
-
-	fmt.Println("🔍 Locating service files via PHP Reflection (PROD vendors)...")
-	
-	tmpHelper, err := ioutil.TempFile("", "igor_helper_*.php")
-	if err != nil {
-		return fmt.Errorf("failed to create temp helper file: %v", err)
-	}
-	defer os.Remove(tmpHelper.Name())
-
-	if _, err := tmpHelper.Write(phpHelperScript); err != nil {
-		return fmt.Errorf("failed to write to temp helper: %v", err)
-	}
-	tmpHelper.Close()
-
-	reflectCmd := exec.Command("php", tmpHelper.Name(), root)
-	reflectCmd.Stdin = bytes.NewReader([]byte(jsonPart))
-	
-	reflectOutput, err := reflectCmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to locate files via reflection: %v", err)
-	}
-
-	var mapping map[string]string
-	if err := json.Unmarshal(reflectOutput, &mapping); err != nil {
-		return fmt.Errorf("failed to parse reflection mapping: %v", err)
-	}
-	
-	a.classToFile = mapping
-	fmt.Printf("✅ Located %d production service files for auditing.\n", len(mapping))
-
-	return nil
-}
-
-// Audit analyzes a PHP file for state mutations in classes.
-func (a *ServiceAuditor) Audit(path string) ([]Finding, error) {
-	content, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	p := sitter.NewParser()
-	lang := sitter.NewLanguage(php.LanguagePHP())
-	_ = p.SetLanguage(lang)
-
-	tree := p.Parse(content, nil)
-	if tree == nil {
-		return nil, fmt.Errorf("failed to parse %s", path)
-	}
-	defer tree.Close()
-
-	v := &PHPVisitor{
-		content:   content,
-		lines:     strings.Split(string(content), "\n"),
-		mutated:   make(map[string]mutationInfo),
-		resetted:  make(map[string]bool),
-		container: a.container,
-		auditor:   a,
-	}
-	v.walk(tree.RootNode())
-
-	return v.findings, nil
-}
-
-// ExtractFQCN returns the Full Qualified Class Name from a PHP file.
-func (a *ServiceAuditor) ExtractFQCN(path string) (string, error) {
-	content, err := ioutil.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-
-	p := sitter.NewParser()
-	lang := sitter.NewLanguage(php.LanguagePHP())
-	_ = p.SetLanguage(lang)
-
-	tree := p.Parse(content, nil)
-	if tree == nil {
-		return "", fmt.Errorf("failed to parse %s", path)
-	}
-	defer tree.Close()
-
-	var namespace string
-	var className string
-
-	var walk func(*sitter.Node)
-	walk = func(n *sitter.Node) {
-		if n == nil { return }
-		
-		switch n.Kind() {
-		case "namespace_definition":
-			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-				namespace = string(content[nameNode.StartByte():nameNode.EndByte()])
-			}
-		case "class_declaration", "trait_declaration":
-			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-				className = string(content[nameNode.StartByte():nameNode.EndByte()])
-			}
-		}
-		
-		if className != "" { return }
-
-		for i := uint(0); i < n.ChildCount(); i++ {
-			walk(n.Child(i))
-		}
-	}
-	walk(tree.RootNode())
-
-	if className == "" {
-		return "", nil
-	}
-	if namespace == "" {
-		return className, nil
-	}
-	return namespace + "\\" + className, nil
-}
 
 type mutationInfo struct {
 	line int
 	code string
 }
 
+// PHPVisitor analyzes a single PHP file using tree-sitter.
 type PHPVisitor struct {
 	content   []byte
 	lines     []string
@@ -191,8 +23,7 @@ type PHPVisitor struct {
 	isReset   bool
 	mutated   map[string]mutationInfo
 	resetted  map[string]bool
-	container *SymfonyContainer
-	auditor   *ServiceAuditor
+	auditor   *Auditor
 }
 
 func (v *PHPVisitor) walk(n *sitter.Node) {
@@ -220,9 +51,11 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		if v.namespace != "" {
 			fullName = v.namespace + "\\" + v.curClass
 		}
-		v.auditor.mu.Lock()
-		v.auditor.AuditedClasses[fullName] = true
-		v.auditor.mu.Unlock()
+		
+		// Signal to auditor that we found a class
+		if v.auditor != nil {
+			v.auditor.recordClassAudited(fullName)
+		}
 
 		classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
 		v.isReset = strings.Contains(classText, "resetinterface") || strings.Contains(classText, "resettableinterface")
@@ -295,7 +128,7 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 		fullName = v.namespace + "\\" + v.curClass
 	}
 
-	if v.isExplicitlyNonShared(fullName) || v.isSafeNamespace(fullName) {
+	if v.auditor != nil && (v.auditor.isExplicitlyNonShared(fullName) || v.auditor.isSafeNamespace(fullName)) {
 		return
 	}
 
@@ -310,12 +143,10 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 					v.logMutation(n, v.getContent(nameNode), false)
 				}
 			} else if obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression" {
-				// Handle nested: $this->a->b = val
 				v.handleMutation(obj)
 			}
 		}
 	case "subscript_expression":
-		// Handle $this->prop[] = val
 		if n.ChildCount() > 0 {
 			v.handleMutation(n.Child(0))
 		}
@@ -368,30 +199,6 @@ func (v *PHPVisitor) performResetCheck() {
 			})
 		}
 	}
-}
-
-func (v *PHPVisitor) isSafeNamespace(className string) bool {
-	className = strings.TrimPrefix(className, "\\")
-	for _, ns := range v.auditor.Config.SafeNamespaces {
-		if strings.HasPrefix(className, strings.TrimPrefix(ns, "\\")) {
-			return true
-		}
-	}
-	return false
-}
-
-func (v *PHPVisitor) isExplicitlyNonShared(className string) bool {
-	if v.container == nil {
-		return false
-	}
-	className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
-	for _, def := range v.container.Definitions {
-		defClass := strings.TrimPrefix(def.Class, "\\")
-		if defClass == className {
-			return !def.Shared
-		}
-	}
-	return false
 }
 
 func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {

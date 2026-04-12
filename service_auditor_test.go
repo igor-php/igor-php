@@ -8,7 +8,7 @@ import (
 
 func TestAuditFixtures(t *testing.T) {
 	cfg := Config{}
-	auditor := NewServiceAuditor(cfg)
+	auditor := NewAuditor(cfg)
 
 	tests := []struct {
 		name           string

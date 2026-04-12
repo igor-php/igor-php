@@ -29,7 +29,7 @@ class Service%d {
 	}
 
 	cfg := Config{}
-	auditor := NewServiceAuditor(cfg)
+	auditor := NewAuditor(cfg)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {

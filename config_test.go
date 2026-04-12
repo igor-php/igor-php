@@ -15,7 +15,7 @@ func TestLoadConfig(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	t.Run("Default config when file missing", func(t *testing.T) {
-		cfg := loadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir)
 		if len(cfg.Exclude) == 0 {
 			t.Error("Expected default excludes")
 		}
@@ -30,7 +30,7 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := loadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir)
 		if cfg.Exclude[0] != "custom" {
 			t.Errorf("Expected 'custom' exclude, got %v", cfg.Exclude)
 		}
@@ -45,8 +45,8 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := loadConfig(tmpDir)
-		// Should fallback to default values (from struct initialization in loadConfig)
+		cfg := LoadConfig(tmpDir)
+		// Should fallback to default values (from struct initialization in LoadConfig)
 		if len(cfg.Exclude) == 0 {
 			t.Error("Expected default excludes on parse error")
 		}
