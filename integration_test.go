@@ -12,14 +12,14 @@ func TestSymfonyIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binDir := filepath.Join(tmpDir, "bin")
 	vendorDir := filepath.Join(tmpDir, "vendor")
 	srcDir := filepath.Join(tmpDir, "src", "Service")
-	os.MkdirAll(binDir, 0755)
-	os.MkdirAll(vendorDir, 0755)
-	os.MkdirAll(srcDir, 0755)
+	if err := os.MkdirAll(binDir, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(vendorDir, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(srcDir, 0755); err != nil { t.Fatal(err) }
 
 	// 2. Create a dummy service file
 	serviceContent := `<?php
@@ -30,8 +30,7 @@ class MyService {
 }
 `
 	servicePath := filepath.Join(srcDir, "MyService.php")
-	err = os.WriteFile(servicePath, []byte(serviceContent), 0644)
-	if err != nil {
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,8 +42,7 @@ spl_autoload_register(function ($class) {
     }
 });
 `
-	err = os.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte(autoloaderContent), 0644)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(vendorDir, "autoload.php"), []byte(autoloaderContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,8 +61,7 @@ if ($argv[1] === 'debug:container') {
     ]);
 }
 `
-	err = os.WriteFile(filepath.Join(binDir, "console"), []byte(mockConsoleContent), 0755)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(binDir, "console"), []byte(mockConsoleContent), 0755); err != nil {
 		t.Fatal(err)
 	}
 

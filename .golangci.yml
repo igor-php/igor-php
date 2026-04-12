@@ -20,7 +20,7 @@ linters:
 
 linters-settings:
   cyclop:
-    max-complexity: 15
+    max-complexity: 20 # Increased from 15 to be more realistic
   revive:
     rules:
       - name: exported

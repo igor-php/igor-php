@@ -55,13 +55,18 @@ func (b *SymfonyBridge) LoadContainer() error {
 	b.Container = &container
 
 	// 2. Locate files
+	return b.locateFilesViaReflection(jsonPart)
+}
+
+func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 	tmpHelper, err := os.CreateTemp("", "igor_helper_*.php")
 	if err != nil {
 		return fmt.Errorf("failed to create temp helper file: %v", err)
 	}
-	defer os.Remove(tmpHelper.Name())
+	defer func() { _ = os.Remove(tmpHelper.Name()) }()
 
 	if _, err := tmpHelper.Write(phpHelperScript); err != nil {
+		_ = tmpHelper.Close()
 		return fmt.Errorf("failed to write to temp helper: %v", err)
 	}
 	if err := tmpHelper.Close(); err != nil {
