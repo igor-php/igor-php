@@ -160,16 +160,19 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 
 func (v *PHPVisitor) handleMemberAccess(n *sitter.Node) {
 	obj := n.ChildByFieldName("object")
-	if obj != nil {
-		objContent := v.getContent(obj)
-		if strings.Contains(objContent, "$this") {
-			nameNode := n.ChildByFieldName("name")
-			if nameNode != nil {
-				v.logMutation(n, v.getContent(nameNode), false)
-			}
-		} else if obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression" {
-			v.handleMutation(obj)
+	if obj == nil {
+		return
+	}
+
+	objContent := v.getContent(obj)
+	switch {
+	case strings.Contains(objContent, "$this"):
+		nameNode := n.ChildByFieldName("name")
+		if nameNode != nil {
+			v.logMutation(n, v.getContent(nameNode), false)
 		}
+	case obj.Kind() == "member_access_expression" || obj.Kind() == "subscript_expression":
+		v.handleMutation(obj)
 	}
 }
 

@@ -12,7 +12,12 @@ func TestSymfonyIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() {
+		err := os.RemoveAll(tmpDir)
+		if err != nil {
+			t.Logf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	binDir := filepath.Join(tmpDir, "bin")
 	vendorDir := filepath.Join(tmpDir, "vendor")
