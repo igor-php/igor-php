@@ -11,60 +11,80 @@ builds:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-linux
       - CXX=zig c++ -target x86_64-linux
-    goos: [linux]
-    goarch: [amd64]
+    goos:
+      - linux
+    goarch:
+      - amd64
     main: .
     binary: igor-php
-    flags: [-trimpath]
-    ldflags: [-s, -w, -X main.Version={{.Version}}]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
   - id: linux-arm64
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target aarch64-linux
       - CXX=zig c++ -target aarch64-linux
-    goos: [linux]
-    goarch: [arm64]
+    goos:
+      - linux
+    goarch:
+      - arm64
     main: .
     binary: igor-php
-    flags: [-trimpath]
-    ldflags: [-s, -w, -X main.Version={{.Version}}]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
   - id: darwin-amd64
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-macos
       - CXX=zig c++ -target x86_64-macos
-    goos: [darwin]
-    goarch: [amd64]
+    goos:
+      - darwin
+    goarch:
+      - amd64
     main: .
     binary: igor-php
-    flags: [-trimpath]
-    ldflags: [-s, -w, -X main.Version={{.Version}}]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
   - id: darwin-arm64
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target aarch64-macos
       - CXX=zig c++ -target aarch64-macos
-    goos: [darwin]
-    goarch: [arm64]
+    goos:
+      - darwin
+    goarch:
+      - arm64
     main: .
     binary: igor-php
-    flags: [-trimpath]
-    ldflags: [-s, -w, -X main.Version={{.Version}}]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
   - id: windows-amd64
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-windows
       - CXX=zig c++ -target x86_64-windows
-    goos: [windows]
-    goarch: [amd64]
+    goos:
+      - windows
+    goarch:
+      - amd64
     main: .
     binary: igor-php
-    flags: [-trimpath]
-    ldflags: [-s, -w, -X main.Version={{.Version}}]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
 
 archives:
   - format: tar.gz
