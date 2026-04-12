@@ -5,36 +5,28 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    name: Build & Release
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          go-version: '1.21'
+          fetch-depth: 0
 
-      - name: Build Binaries
-        run: |
-          mkdir -p dist
-          # Linux
-          GOOS=linux GOARCH=amd64 go build -o dist/igor-php-linux-amd64 .
-          GOOS=linux GOARCH=arm64 go build -o dist/igor-php-linux-arm64 .
-          # macOS
-          GOOS=darwin GOARCH=amd64 go build -o dist/igor-php-macos-amd64 .
-          GOOS=darwin GOARCH=arm64 go build -o dist/igor-php-macos-arm64 .
-          # Windows
-          GOOS=windows GOARCH=amd64 go build -o dist/igor-php-windows-amd64.exe .
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          files: |
-            dist/igor-php-linux-amd64
-            dist/igor-php-linux-arm64
-            dist/igor-php-macos-amd64
-            dist/igor-php-macos-arm64
-            dist/igor-php-windows-amd64.exe
+          go-version: '1.23'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
