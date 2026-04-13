@@ -1,7 +1,7 @@
 #!/usr/bin/env php
 <?php
 
-$version = '0.1.0';
+$version = '0.1.2';
 $binDir = __DIR__ . '/../resources/bin';
 $os = strtolower(PHP_OS_FAMILY);
 $arch = php_uname('m');
