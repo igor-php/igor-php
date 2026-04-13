@@ -18,3 +18,4 @@ conductor/
 vendor/
 *.out
 *.test
+dist/
