@@ -13,9 +13,18 @@ if ($arch === 'x86_64') {
     $arch = 'arm64';
 }
 
+// OS Mapping for GoReleaser
+if ($os === 'darwin') {
+    $os = 'darwin';
+} elseif ($os === 'windows') {
+    $os = 'windows';
+} else {
+    $os = 'linux';
+}
+
 $extension = ($os === 'windows') ? '.exe' : '';
-$binaryName = "igor-php-{$os}-{$arch}{$extension}";
-$localBinary = "{$binDir}/{$binaryName}";
+$binaryName = "igor-php";
+$localBinary = "{$binDir}/{$binaryName}{$extension}";
 
 if (!file_exists($localBinary)) {
     if (!is_dir($binDir)) {
@@ -24,21 +33,22 @@ if (!file_exists($localBinary)) {
 
     echo "🧟 Igor is waking up... Downloading binary for {$os}/{$arch} (v{$version})...\n";
     
-    $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/igor-php_{{$version}}_{$os}_{$arch}.tar.gz";
+    // GoReleaser format: igor-php_0.1.0_linux_arm64.tar.gz
+    $archiveName = "igor-php_{$version}_{$os}_{$arch}";
+    $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/{$archiveName}.tar.gz";
+    
     if ($os === 'windows') {
-        $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/igor-php_{{$version}}_{$os}_{$arch}.zip";
+        $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/{$archiveName}.zip";
     }
 
-    // Simple download logic (could be improved with curl if available)
-    $content = file_get_contents($url);
+    $content = @file_get_contents($url);
     if ($content === false) {
-        die("❌ Igor couldn't reach the laboratory. Please check your internet connection or GitHub availability.\n");
+        die("❌ Igor couldn't reach the laboratory. URL: $url\nPlease check your internet connection or if the release v$version exists on GitHub.\n");
     }
 
     $tempFile = sys_get_temp_dir() . '/igor.tmp';
     file_put_contents($tempFile, $content);
 
-    // Extract logic (using system tools for simplicity in this example)
     if ($os === 'windows') {
         exec("powershell Expand-Archive -Path $tempFile -DestinationPath $binDir");
     } else {
@@ -46,10 +56,11 @@ if (!file_exists($localBinary)) {
     }
     
     unlink($tempFile);
-    chmod($localBinary, 0755);
+    if (file_exists($localBinary)) {
+        chmod($localBinary, 0755);
+    }
 }
 
-// Forward all arguments to the real binary
 $args = array_slice($argv, 1);
 $cmd = escapeshellarg($localBinary) . ' ' . implode(' ', array_map('escapeshellarg', $args));
 
