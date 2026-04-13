@@ -6,7 +6,7 @@ $binDir = __DIR__ . '/../resources/bin';
 $versionFile = $binDir . '/.version';
 
 // Get version from cache or fetch latest from GitHub
-if (file_exists($versionFile) && (time() - file_mtime($versionFile) < 86400)) {
+if (file_exists($versionFile) && (time() - filemtime($versionFile) < 86400)) {
     $version = trim(file_get_contents($versionFile));
 } else {
     $opts = [
