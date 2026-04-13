@@ -1,8 +1,38 @@
 #!/usr/bin/env php
 <?php
 
-$version = '0.1.3';
+$repo = 'igor-php/igor-php';
 $binDir = __DIR__ . '/../resources/bin';
+$versionFile = $binDir . '/.version';
+
+// Get version from cache or fetch latest from GitHub
+if (file_exists($versionFile) && (time() - file_mtime($versionFile) < 86400)) {
+    $version = trim(file_get_contents($versionFile));
+} else {
+    $opts = [
+        'http' => [
+            'method' => 'GET',
+            'header' => [
+                'User-Agent: Igor-PHP-Bootstrapper'
+            ]
+        ]
+    ];
+    $context = stream_context_create($opts);
+    $response = @file_get_contents("https://api.github.com/repos/{$repo}/releases/latest", false, $context);
+    
+    if ($response) {
+        $data = json_decode($response, true);
+        $version = ltrim($data['tag_name'], 'v');
+        if (!is_dir($binDir)) {
+            mkdir($binDir, 0755, true);
+        }
+        file_put_contents($versionFile, $version);
+    } else {
+        // Fallback to a safe version if API fails
+        $version = file_exists($versionFile) ? trim(file_get_contents($versionFile)) : '0.1.4';
+    }
+}
+
 $os = strtolower(PHP_OS_FAMILY);
 $arch = php_uname('m');
 
