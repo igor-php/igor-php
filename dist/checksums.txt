@@ -1,0 +1,3 @@
+1cefe712fa49dc0b0951690c6de77cd0c66439e6aad86e996fe4a2ce02fe920a  igor-php_0.1.7-next_linux_amd64.tar.gz
+33a10096cf5aebcd46a7b8e2f20d0f8af46d8e4bd75ac432274b1355452b17ef  igor-php_0.1.7-next_linux_arm64.tar.gz
+a71f2674d12df4d34ea2a33919fbd2ac63b5efe3c64d426638de03cf12f7ba82  igor-php_0.1.7-next_windows_amd64.zip

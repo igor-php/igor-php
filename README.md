@@ -79,7 +79,7 @@ jobs:
 
       - name: Run Igor
         run: |
-          go install github.com/KevinMartinsDev/igor-php@latest
+          go install github.com/igor-php/igor-php@latest
           igor-php .
 ```
 
@@ -112,7 +112,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 
 ### Via Go
 ```bash
-go install github.com/KevinMartinsDev/igor-php@latest
+go install github.com/igor-php/igor-php@latest
 ```
 
 ---

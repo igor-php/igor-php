@@ -35,10 +35,10 @@ if (!file_exists($localBinary)) {
     
     // GoReleaser format: igor-php_0.1.0_linux_arm64.tar.gz
     $archiveName = "igor-php_{$version}_{$os}_{$arch}";
-    $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/{$archiveName}.tar.gz";
+    $url = "https://github.com/igor-php/igor-php/releases/download/v{$version}/{$archiveName}.tar.gz";
     
     if ($os === 'windows') {
-        $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/{$archiveName}.zip";
+        $url = "https://github.com/igor-php/igor-php/releases/download/v{$version}/{$archiveName}.zip";
     }
 
     $content = @file_get_contents($url);

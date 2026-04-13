@@ -1,5 +1,5 @@
 {
-    "name": "kevinmartinsdev/igor-php",
+    "name": "igor-php/igor-php",
     "description": "The faithful assistant for your FrankenPHP Workers.",
     "keywords": ["frankenphp", "linter", "static-analysis", "symfony", "worker"],
     "type": "library",

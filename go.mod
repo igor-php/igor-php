@@ -1,4 +1,4 @@
-module github.com/KevinMartinsDev/igor-php
+module github.com/igor-php/igor-php
 
 go 1.23
 
