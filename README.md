@@ -22,12 +22,37 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 
 ---
 
+## 📋 Prerequisites
+
+- **Go**: Required to compile or install the binary.
+- **PHP 8.1+**: Required for the **Deep Audit** mode. Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
+
+---
+
+## 🚀 Installation
+
+### Via Composer (Recommended)
+```bash
+composer require --dev igor-php/igor-php
+```
+
+### Via Go
+```bash
+go install github.com/igor-php/igor-php@latest
+```
+
+---
+
 ## 🛠️ Usage
 
 Install the binary and let Igor audit your Symfony project (ensure `bin/console` is present for Deep Audit):
 
 ```bash
-igor-php ./my-symfony-project
+# If installed via Composer
+./vendor/bin/igor-php .
+
+# If installed via Go
+igor-php .
 ```
 
 ### Deep Audit Mode (Symfony)
@@ -45,6 +70,22 @@ When a Symfony project is detected, Igor will:
 ⚠️  Property 'tempData' of MyService is mutated but not reset in reset().
   💡 Hint: Add '$this->tempData = null;' in the reset() method.
 ```
+
+---
+
+## ⚙️ Configuration
+
+You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
+
+```json
+{
+  "exclude": ["vendor", "tests", "Entity"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"]
+}
+```
+
+- **exclude**: List of directories to skip during indexing.
+- **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
 
 ---
 
@@ -75,44 +116,12 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
 
       - name: Run Igor
         run: |
           go install github.com/igor-php/igor-php@latest
           igor-php .
-```
-
----
-
-## ⚙️ Configuration
-
-You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
-
-```json
-{
-  "exclude": ["vendor", "tests", "Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"]
-}
-```
-
-- **exclude**: List of directories to skip during indexing.
-- **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
-
----
-
-## 📋 Prerequisites
-
-- **Go**: Required to compile or install the binary.
-- **PHP 8.1+**: Required for the **Deep Audit** mode. Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
-
----
-
-## 🚀 Installation
-
-### Via Go
-```bash
-go install github.com/igor-php/igor-php@latest
 ```
 
 ---
