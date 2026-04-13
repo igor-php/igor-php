@@ -1,0 +1,24 @@
+{
+    "name": "kevinmartins/igor-php",
+    "description": "The faithful assistant for your FrankenPHP Workers.",
+    "keywords": ["frankenphp", "linter", "static-analysis", "symfony", "worker"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Kevin MARTINS",
+            "email": "kevin.martins@me.com"
+        }
+    ],
+    "require": {
+        "php": ">=8.1"
+    },
+    "bin": [
+        "bin/igor-php"
+    ],
+    "autoload": {
+        "psr-4": {
+            "KevinMartinsDev\\IgorPhp\\": "src/php/"
+        }
+    }
+}

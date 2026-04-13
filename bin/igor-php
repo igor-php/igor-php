@@ -1,0 +1,57 @@
+#!/usr/bin/env php
+<?php
+
+$version = '0.1.0';
+$binDir = __DIR__ . '/../resources/bin';
+$os = strtolower(PHP_OS_FAMILY);
+$arch = php_uname('m');
+
+// Map architecture names
+if ($arch === 'x86_64') {
+    $arch = 'amd64';
+} elseif ($arch === 'arm64' || $arch === 'aarch64') {
+    $arch = 'arm64';
+}
+
+$extension = ($os === 'windows') ? '.exe' : '';
+$binaryName = "igor-php-{$os}-{$arch}{$extension}";
+$localBinary = "{$binDir}/{$binaryName}";
+
+if (!file_exists($localBinary)) {
+    if (!is_dir($binDir)) {
+        mkdir($binDir, 0755, true);
+    }
+
+    echo "🧟 Igor is waking up... Downloading binary for {$os}/{$arch} (v{$version})...\n";
+    
+    $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/igor-php_{{$version}}_{$os}_{$arch}.tar.gz";
+    if ($os === 'windows') {
+        $url = "https://github.com/KevinMartinsDev/igor-php/releases/download/v{$version}/igor-php_{{$version}}_{$os}_{$arch}.zip";
+    }
+
+    // Simple download logic (could be improved with curl if available)
+    $content = file_get_contents($url);
+    if ($content === false) {
+        die("❌ Igor couldn't reach the laboratory. Please check your internet connection or GitHub availability.\n");
+    }
+
+    $tempFile = sys_get_temp_dir() . '/igor.tmp';
+    file_put_contents($tempFile, $content);
+
+    // Extract logic (using system tools for simplicity in this example)
+    if ($os === 'windows') {
+        exec("powershell Expand-Archive -Path $tempFile -DestinationPath $binDir");
+    } else {
+        exec("tar -xzf $tempFile -C $binDir");
+    }
+    
+    unlink($tempFile);
+    chmod($localBinary, 0755);
+}
+
+// Forward all arguments to the real binary
+$args = array_slice($argv, 1);
+$cmd = escapeshellarg($localBinary) . ' ' . implode(' ', array_map('escapeshellarg', $args));
+
+passthru($cmd, $exitCode);
+exit($exitCode);

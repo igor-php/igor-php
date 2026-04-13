@@ -1,5 +1,6 @@
 # Binaries
 igor-php
+!bin/igor-php
 
 # IDEs
 .idea/
