@@ -9,11 +9,22 @@ import (
 	"sync"
 )
 
-const Version = "0.1.0"
+var Version = "dev"
 
 func main() {
 	versionFlag := flag.Bool("version", false, "Display version information")
 	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
+		fmt.Fprintf(os.Stderr, "Usage: igor-php [options] <directory>\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  igor-php .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --console app/console ./my-project\n")
+	}
+
 	flag.Parse()
 
 	if *versionFlag {
@@ -64,19 +75,32 @@ func detectSymfony(rootPath string, config Config, auditor *Auditor) {
 	projectRoot := rootPath
 	consolePath := config.ConsolePath
 
-	if _, err := os.Stat(filepath.Join(projectRoot, consolePath)); err != nil {
+	// 1. Check if the console exists at the specified path
+	fullPath := filepath.Join(projectRoot, consolePath)
+	if _, err := os.Stat(fullPath); err != nil {
+		// If custom path was provided but doesn't exist, fail fast
+		if consolePath != "bin/console" {
+			fmt.Printf("❌ Error: Symfony console not found at %s\n", fullPath)
+			os.Exit(1)
+		}
+		
+		// Fallback for default bin/console: try parent dir (useful for vendor/bin context)
 		projectRoot = filepath.Dir(rootPath)
+		fullPath = filepath.Join(projectRoot, consolePath)
+		if _, err := os.Stat(fullPath); err != nil {
+			return // Not a Symfony project or bin/console missing at default location
+		}
 	}
 
-	if _, err := os.Stat(filepath.Join(projectRoot, consolePath)); err == nil {
-		fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
-		sb := NewSymfonyBridge(projectRoot, consolePath)
-		if err := sb.LoadContainer(); err == nil {
-			auditor.Symfony = sb
-		} else {
-			fmt.Printf("⚠️  Warning: Could not load Symfony container: %v\n", err)
-			fmt.Println("👉 Falling back to standard directory scan mode.")
-		}
+	// 2. If we found a console, try to load the container
+	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
+	sb := NewSymfonyBridge(projectRoot, consolePath)
+	if err := sb.LoadContainer(); err == nil {
+		auditor.Symfony = sb
+	} else {
+		fmt.Printf("❌ Error: Could not load Symfony container: %v\n", err)
+		fmt.Println("👉 Ensure your project is bootable in 'prod' environment.")
+		os.Exit(1)
 	}
 }
 
