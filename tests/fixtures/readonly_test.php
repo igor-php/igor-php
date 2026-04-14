@@ -32,9 +32,4 @@ class MixedService {
         // it can only happen once.
         $this->id = $val; 
     }
-
-    public function hiddenMutation($data) {
-        $this->cache->set('last', $data); // DANGEROUS: Interior mutability
-        $this->items->add($data);         // DANGEROUS
-    }
 }
