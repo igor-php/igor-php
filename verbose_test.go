@@ -12,7 +12,7 @@ import (
 func TestVerboseOutput(t *testing.T) {
 	// 1. Setup mock Symfony project
 	tmpDir, _ := os.MkdirTemp("", "igor_verbose_test")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	binDir := filepath.Join(tmpDir, "bin")
 	_ = os.MkdirAll(binDir, 0755)
@@ -64,7 +64,7 @@ if ($argv[1] === 'debug:container') {
 	_ = collectFiles(tmpDir, config, auditor)
 
 	// Restore Stdout
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	os.Stdout = oldStdout
