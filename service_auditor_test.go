@@ -71,8 +71,8 @@ func TestAuditFixtures(t *testing.T) {
 		{
 			name:           "Readonly support (PHP 8.1+)",
 			fixture:        "readonly_test.php",
-			expectedErrors: 1,
-			contains:       "Mutation of state 'counter'",
+			expectedErrors: 3, // 1 regular mutation + 2 hidden mutations (cache->set, items->add)
+			contains:       "Possible hidden state mutation",
 		},
 	}
 

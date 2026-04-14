@@ -51,7 +51,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.handleMutation(n)
 	case "exit_statement", "exit":
 		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
-	case "function_call_expression":
+	case "function_call_expression", "member_call_expression":
 		v.handleFunctionCall(n)
 	case "variable_name":
 		v.handleVariable(n)
@@ -180,13 +180,45 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 }
 
 func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
-	nameNode := n.ChildByFieldName("name")
-	if nameNode != nil {
+	if n.Kind() == "function_call_expression" {
+		nameNode := n.ChildByFieldName("name")
+		if nameNode == nil {
+			return
+		}
 		name := strings.ToLower(v.getContent(nameNode))
 		if name == "die" || name == "exit" {
 			v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
 		}
+		return
 	}
+
+	if n.Kind() == "member_call_expression" {
+		obj := n.ChildByFieldName("object")
+		methodNode := n.ChildByFieldName("name")
+		if obj != nil && methodNode != nil {
+			objContent := v.getContent(obj)
+			methodName := v.getContent(methodNode)
+
+			// If it's a call on a property of $this (e.g. $this->cache->set)
+			if strings.HasPrefix(objContent, "$this->") {
+				if isMutableMethod(methodName) {
+					propName := strings.TrimPrefix(objContent, "$this->")
+					v.addFinding(n, fmt.Sprintf("Possible hidden state mutation: calling '%s()' on property '%s'.", methodName, propName), "Ensure the internal state of this object is correctly reset between requests.", "WARNING")
+				}
+			}
+		}
+	}
+}
+
+func isMutableMethod(name string) bool {
+	name = strings.ToLower(name)
+	prefixes := []string{"set", "add", "push", "put", "append", "clear", "remove", "delete", "write"}
+	for _, p := range prefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
