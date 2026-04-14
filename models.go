@@ -20,6 +20,8 @@ type Config struct {
 	Exclude        []string `json:"exclude"`
 	SafeNamespaces []string `json:"safe_namespaces"`
 	ConsolePath    string   `json:"console_path"`
+	Env            string   `json:"env"`
+	Verbose        bool     `json:"verbose"`
 }
 
 // SymfonyContainer represents the output of debug:container --format=json.

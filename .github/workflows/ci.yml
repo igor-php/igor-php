@@ -17,9 +17,10 @@ jobs:
           go-version: '1.23'
           cache: false
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          args: --timeout=5m
 
   test:
     name: Test

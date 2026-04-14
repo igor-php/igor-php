@@ -55,19 +55,19 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 	// 2. If we found a console, try to initialize the bridge
 	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
 	sb := NewSymfonyBridge(projectRoot, consolePath)
-	if err := sb.LoadContainer(); err != nil {
-		return nil, fmt.Errorf("could not load Symfony container: %v\n👉 Ensure your project is bootable in 'prod' environment.", err)
+	if err := sb.LoadContainer(config.Env); err != nil {
+		return nil, fmt.Errorf("could not load Symfony container: %v\n👉 Ensure your project is bootable in '%s' environment.", err, config.Env)
 	}
 
 	return sb, nil
 }
 
-// LoadContainer fetches definitions and locates files via PHP Reflection in PROD mode.
-func (b *SymfonyBridge) LoadContainer() error {
+// LoadContainer fetches definitions and locates files via PHP Reflection in the configured environment.
+func (b *SymfonyBridge) LoadContainer(env string) error {
 	consolePath := filepath.Join(b.Root, b.ConsolePath)
 	
 	// 1. Get definitions
-	cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env=prod", "--no-debug")
+	cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env="+env, "--no-debug")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to execute debug:container: %v", err)
@@ -77,7 +77,7 @@ func (b *SymfonyBridge) LoadContainer() error {
 	start := strings.Index(strOutput, "{")
 	end := strings.LastIndex(strOutput, "}")
 	if start == -1 || end == -1 || end < start {
-		return fmt.Errorf("could not find a valid JSON object in Symfony output")
+		return fmt.Errorf("could not find a valid JSON object in Symfony output (check if your %s environment is valid)", env)
 	}
 	jsonPart := strOutput[start : end+1]
 

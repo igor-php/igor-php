@@ -57,7 +57,7 @@ igor-php --console app/console .
 
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor will:
-1. Query the container in **PROD mode** (`--env=prod --no-debug`).
+1. Query the container in the configured environment (`--env=prod --no-debug` by default).
 2. Map every **shared service** to its actual source file via PHP Reflection.
 3. Perform an exhaustive audit of your code and all its dependencies.
 
@@ -81,13 +81,28 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 {
   "exclude": ["vendor", "tests", "Entity"],
   "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"],
-  "console_path": "bin/console"
+  "console_path": "bin/console",
+  "env": "prod",
+  "verbose": false
 }
 ```
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
+- **env**: Symfony environment to use for container analysis. Defaults to `prod`.
+- **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
+
+---
+
+## 🔍 Understanding Deep Audit Filtering
+
+When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services than your total container count. Use the `--verbose` flag to see exactly why a service was skipped. Common reasons include:
+
+- **🔄 Duplicate File**: Multiple Service IDs (aliases, locators, etc.) pointing to the same PHP file. Igor only audits each unique file once.
+- **♻️ Non-shared (Prototype)**: Services marked as `shared: false` are recreated on every request and don't persist state between workers. They are safe by design.
+- **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
+- **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\` or `Doctrine\`).
 
 ---
 
