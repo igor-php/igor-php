@@ -222,6 +222,16 @@ func (v *PHPVisitor) performResetCheck() {
 
 func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 	row := int(n.StartPosition().Row)
+	lineContent := v.lines[row]
+
+	// Check if the current line or the previous line contains @igor-ignore
+	if strings.Contains(lineContent, "@igor-ignore") {
+		return
+	}
+	if row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore") {
+		return
+	}
+
 	v.findings = append(v.findings, Finding{Message: msg, Line: row + 1, Code: v.lines[row], Remediation: hint, Severity: severity})
 }
 

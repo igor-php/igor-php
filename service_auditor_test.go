@@ -62,6 +62,12 @@ func TestAuditFixtures(t *testing.T) {
 			expectedErrors: 2, // Nested + Dynamic (Reference is harder to detect without data flow)
 			contains:       "Mutation of state",
 		},
+		{
+			name:           "Ignore annotation (@igor-ignore)",
+			fixture:        "ignore_annotation.php",
+			expectedErrors: 1,
+			contains:       "Mutation of state",
+		},
 	}
 
 	for _, tt := range tests {
