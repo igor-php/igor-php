@@ -19,6 +19,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset.
 - **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
 - **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
+- **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment.
 
 ---
 
@@ -92,6 +93,17 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
 - **env**: Symfony environment to use for container analysis. Defaults to `prod`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
+
+### Selective Ignoring
+
+If you have a specific line that you know is safe, you can use the `// @igor-ignore` annotation:
+
+```php
+// @igor-ignore
+$this->cache = $data; // This line will be ignored
+
+$this->counter++; // @igor-ignore - This line too
+```
 
 ---
 
