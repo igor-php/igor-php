@@ -17,21 +17,23 @@ var phpHelperScript []byte
 // SymfonyBridge handles all interactions with the Symfony Framework.
 type SymfonyBridge struct {
 	Root        string
+	ConsolePath string
 	Container   *SymfonyContainer
 	ClassToFile map[string]string
 }
 
 // NewSymfonyBridge creates a new bridge for a given project root.
-func NewSymfonyBridge(root string) *SymfonyBridge {
+func NewSymfonyBridge(root string, consolePath string) *SymfonyBridge {
 	return &SymfonyBridge{
 		Root:        root,
+		ConsolePath: consolePath,
 		ClassToFile: make(map[string]string),
 	}
 }
 
 // LoadContainer fetches definitions and locates files via PHP Reflection in PROD mode.
 func (b *SymfonyBridge) LoadContainer() error {
-	consolePath := filepath.Join(b.Root, "bin", "console")
+	consolePath := filepath.Join(b.Root, b.ConsolePath)
 	
 	// 1. Get definitions
 	cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env=prod", "--no-debug")

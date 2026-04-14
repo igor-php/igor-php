@@ -13,6 +13,7 @@ const Version = "0.1.0"
 
 func main() {
 	versionFlag := flag.Bool("version", false, "Display version information")
+	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -29,11 +30,14 @@ func main() {
 
 	// 1. Initialize Components
 	config := LoadConfig(rootPath)
+	if *consoleFlag != "" {
+		config.ConsolePath = *consoleFlag
+	}
 	auditor := NewAuditor(config)
 	reporter := NewReporter()
 
 	// 2. Detect Symfony project
-	detectSymfony(rootPath, auditor)
+	detectSymfony(rootPath, config, auditor)
 
 	// 3. Collect Files to Audit
 	auditList := collectFiles(rootPath, config, auditor)
@@ -56,15 +60,17 @@ func main() {
 	}
 }
 
-func detectSymfony(rootPath string, auditor *Auditor) {
+func detectSymfony(rootPath string, config Config, auditor *Auditor) {
 	projectRoot := rootPath
-	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err != nil {
+	consolePath := config.ConsolePath
+
+	if _, err := os.Stat(filepath.Join(projectRoot, consolePath)); err != nil {
 		projectRoot = filepath.Dir(rootPath)
 	}
 
-	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err == nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, consolePath)); err == nil {
 		fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
-		sb := NewSymfonyBridge(projectRoot)
+		sb := NewSymfonyBridge(projectRoot, consolePath)
 		if err := sb.LoadContainer(); err == nil {
 			auditor.Symfony = sb
 		} else {

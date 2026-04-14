@@ -72,7 +72,7 @@ if ($argv[1] === 'debug:container') {
 
 	// 5. Test Full Audit Pipeline
 	t.Run("Bridge should load container and LOCATE files via Reflection", func(t *testing.T) {
-		bridge := NewSymfonyBridge(tmpDir)
+		bridge := NewSymfonyBridge(tmpDir, "bin/console")
 		err := bridge.LoadContainer()
 		if err != nil {
 			t.Fatalf("LoadContainer failed: %v", err)
@@ -94,6 +94,23 @@ if ($argv[1] === 'debug:container') {
 
 		if realLocatedPath != realServicePath {
 			t.Errorf("Expected path %s, got %s", realServicePath, realLocatedPath)
+		}
+	})
+
+	t.Run("Bridge should support custom console path", func(t *testing.T) {
+		customBinDir := filepath.Join(tmpDir, "app")
+		if err := os.MkdirAll(customBinDir, 0755); err != nil { t.Fatal(err) }
+		customConsole := filepath.Join(customBinDir, "console")
+		if err := os.Rename(filepath.Join(binDir, "console"), customConsole); err != nil { t.Fatal(err) }
+
+		bridge := NewSymfonyBridge(tmpDir, "app/console")
+		err := bridge.LoadContainer()
+		if err != nil {
+			t.Fatalf("LoadContainer with custom path failed: %v", err)
+		}
+
+		if _, found := bridge.ClassToFile["App\\Service\\MyService"]; !found {
+			t.Error("Should still be able to find services with custom console path")
 		}
 	})
 

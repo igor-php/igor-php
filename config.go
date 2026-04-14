@@ -14,6 +14,7 @@ func DefaultConfig() Config {
 			"Symfony\\",
 			"Doctrine\\",
 		},
+		ConsolePath: "bin/console",
 	}
 }
 
