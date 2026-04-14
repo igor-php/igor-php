@@ -5,6 +5,9 @@ function get_data() {
     $name = $_GET['name'];
     $post = $_POST['data'];
     $session = $_SESSION['user'];
+    $cookie = $_COOKIE['session_id'];
+    $request = $_REQUEST['any'];
+    $env = $_ENV['APP_ENV'];
     
     // Local static variable (KO)
     static $counter = 0;

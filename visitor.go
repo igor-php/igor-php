@@ -113,7 +113,7 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
 	name := v.getContent(n)
 	if isSuperglobal(name) {
-		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is forbidden in Worker mode.", name), "Use Symfony Request object instead.", "ERROR")
+		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), "Use the Symfony Request object ($request->query, $request->request, etc.) instead.", "WARNING")
 	}
 }
 
