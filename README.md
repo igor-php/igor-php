@@ -46,14 +46,23 @@ go install github.com/igor-php/igor-php@latest
 
 ## 🛠️ Usage
 
-Install the binary and let Igor audit your Symfony project (ensure `bin/console` is present for Deep Audit):
+### 🪄 Quick Start
+Igor can automatically detect your project type Symfony and generate a default configuration for you:
+
+```bash
+# Initialize igor.json
+igor-php init
+```
+
+### 🔍 Audit your project
+Once initialized (or using defaults), let Igor audit your project:
 
 ```bash
 # Standard usage
 igor-php .
 
-# Custom console path (e.g. for legacy projects or subdirectories)
-igor-php --console app/console .
+# Custom console path, environment and verbose mode
+igor-php --console app/console --env stage --verbose .
 ```
 
 ### Deep Audit Mode (Symfony)

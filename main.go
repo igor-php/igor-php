@@ -19,13 +19,15 @@ func main() {
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
-		fmt.Fprintf(os.Stderr, "Usage: igor-php [options] <directory>\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
+		fmt.Fprintf(os.Stderr, "  igor-php init [directory]         Initialize a new igor.json config\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php init\n")
 		fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --console app/console .\n")
 	}
 
 	flag.Parse()
@@ -36,8 +38,21 @@ func main() {
 	}
 
 	args := flag.Args()
+	if len(args) > 0 && args[0] == "init" {
+		targetDir := "."
+		if len(args) > 1 {
+			targetDir = args[1]
+		}
+		rootPath, _ := filepath.Abs(targetDir)
+		if err := InitConfig(rootPath); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	if len(args) < 1 {
-		fmt.Println("Usage: igor-php <directory>")
+		flag.Usage()
 		os.Exit(1)
 	}
 	rootPath, _ := filepath.Abs(args[0])

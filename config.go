@@ -9,7 +9,7 @@ import (
 // DefaultConfig returns the standard linter configuration.
 func DefaultConfig() Config {
 	return Config{
-		Exclude: []string{"vendor", "var", "cache", "tests", "Entity", "Dto", "ApiResource"},
+		Exclude: []string{},
 		SafeNamespaces: []string{
 			"Symfony\\",
 			"Doctrine\\",
