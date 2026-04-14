@@ -110,6 +110,13 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 
 Igor is designed to work out-of-the-box in your CI pipelines. It will exit with **code 1** if any error is found, effectively stopping your build.
 
+### GitHub Actions support
+When running inside GitHub Actions, Igor automatically generates **inline annotations**. This means errors will appear directly in your Pull Request review, right next to the code causing the issue.
+
+<p align="center">
+  <img src="review.png" alt="Igor GitHub Review" width="800">
+</p>
+
 ### GitHub Actions Example
 
 ```yaml

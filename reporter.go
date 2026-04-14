@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -9,12 +11,14 @@ import (
 // Reporter handles the output formatting of audit results.
 type Reporter struct {
 	StartTime time.Time
+	isGitHub  bool
 }
 
 // NewReporter creates a new reporter.
 func NewReporter() *Reporter {
 	return &Reporter{
 		StartTime: time.Now(),
+		isGitHub:  os.Getenv("GITHUB_ACTIONS") == "true",
 	}
 }
 
@@ -31,8 +35,17 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string) {
 
 	displayPath := res.FilePath
 	// Use relative path for cleaner output if possible
-	if rel, err := strings.CutPrefix(res.FilePath, projectRoot); err {
-		displayPath = strings.TrimPrefix(rel, "/")
+	relPath := res.FilePath
+	if rel, found := strings.CutPrefix(res.FilePath, projectRoot); found && rel != "" {
+		relPath = strings.TrimPrefix(rel, "/")
+		displayPath = relPath
+	} else {
+		// Fallback: try to get relative path from current working directory
+		if cwd, err := os.Getwd(); err == nil {
+			if rel, err := filepath.Rel(cwd, res.FilePath); err == nil {
+				relPath = rel
+			}
+		}
 	}
 
 	fmt.Printf("\n📂 \033[1m%s\033[0m\n", displayPath)
@@ -41,14 +54,28 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string) {
 	}
 
 	for _, f := range res.Findings {
+		severity := "error"
 		color := "\033[31m" // Red for Error
 		if f.Severity == "WARNING" {
+			severity = "warning"
 			color = "\033[33m" // Yellow for Warning
 		}
+
+		// Standard CLI output
 		fmt.Printf("  %s%s\033[0m\n", color, f.Message)
 		fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
 		if f.Remediation != "" {
-			fmt.Printf("  \033[36m💡 Hint: %s\033[0m\n", f.Remediation)
+			fmt.Printf("  %s💡 Hint: %s\033[0m\n", "\033[36m", f.Remediation)
+		}
+
+		// GitHub Action Annotation
+		if r.isGitHub {
+			msg := fmt.Sprintf("[Igor] %s", f.Message)
+			if f.Remediation != "" {
+				msg += fmt.Sprintf(" %%0A 💡 Hint: %s", f.Remediation)
+			}
+			// Format: ::error file={name},line={line},col={col}::{message}
+			fmt.Printf("::%s file=%s,line=%d::%s\n", severity, relPath, f.Line, msg)
 		}
 	}
 }
