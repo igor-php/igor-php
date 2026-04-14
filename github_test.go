@@ -11,7 +11,7 @@ import (
 func TestGitHubAnnotations(t *testing.T) {
 	// 1. Force GitHub Actions environment
 	_ = os.Setenv("GITHUB_ACTIONS", "true")
-	defer os.Unsetenv("GITHUB_ACTIONS")
+	defer func() { _ = os.Unsetenv("GITHUB_ACTIONS") }()
 
 	// 2. Setup Reporter and a dummy result
 	reporter := NewReporter()
@@ -40,7 +40,7 @@ func TestGitHubAnnotations(t *testing.T) {
 
 	reporter.PrintFindings(res, "/tmp") // dummy project root
 
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	os.Stdout = oldStdout
