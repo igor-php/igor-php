@@ -1,5 +1,6 @@
 <?php
 
+// This file is part of Igor-PHP tests.
 namespace App\Service;
 
 class StatefulService
