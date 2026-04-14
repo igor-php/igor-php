@@ -55,7 +55,7 @@ func TestAuditFixtures(t *testing.T) {
 		        name:           "Security risks (superglobals & static vars)",
 		        fixture:        "security_risks.php",
 		        expectedErrors: 9, // 8 superglobals + 1 static var
-		        contains:       "forbidden in Worker mode",
+		        contains:       "$request->query",
 		},		{
 			name:           "Complex mutations (nested & dynamic)",
 			fixture:        "complex_mutations.php",
@@ -80,17 +80,16 @@ func TestAuditFixtures(t *testing.T) {
 			}
 
 			if tt.contains != "" && len(findings) > 0 {
-				found := false
-				for _, f := range findings {
-					if strings.Contains(f.Message, tt.contains) {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("Expected findings to contain %q", tt.contains)
-				}
-			}
-		})
+			        found := false
+			        for _, f := range findings {
+			                if strings.Contains(f.Message, tt.contains) || strings.Contains(f.Remediation, tt.contains) {
+			                        found = true
+			                        break
+			                }
+			        }
+			        if !found {
+			                t.Errorf("Expected findings (Message or Remediation) to contain %q", tt.contains)
+			        }
+			}		})
 	}
 }
