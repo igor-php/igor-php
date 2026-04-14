@@ -31,6 +31,37 @@ func NewSymfonyBridge(root string, consolePath string) *SymfonyBridge {
 	}
 }
 
+// DetectSymfony attempts to find a Symfony project and initialize the bridge.
+func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
+	projectRoot := rootPath
+	consolePath := config.ConsolePath
+
+	// 1. Check if the console exists at the specified path
+	fullPath := filepath.Join(projectRoot, consolePath)
+	if _, err := os.Stat(fullPath); err != nil {
+		// If custom path was provided but doesn't exist, it's an error
+		if consolePath != "bin/console" {
+			return nil, fmt.Errorf("Symfony console not found at %s", fullPath)
+		}
+
+		// Fallback for default bin/console: try parent dir (useful for vendor/bin context)
+		projectRoot = filepath.Dir(rootPath)
+		fullPath = filepath.Join(projectRoot, consolePath)
+		if _, err := os.Stat(fullPath); err != nil {
+			return nil, nil // Not a Symfony project
+		}
+	}
+
+	// 2. If we found a console, try to initialize the bridge
+	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
+	sb := NewSymfonyBridge(projectRoot, consolePath)
+	if err := sb.LoadContainer(); err != nil {
+		return nil, fmt.Errorf("could not load Symfony container: %v\n👉 Ensure your project is bootable in 'prod' environment.", err)
+	}
+
+	return sb, nil
+}
+
 // LoadContainer fetches definitions and locates files via PHP Reflection in PROD mode.
 func (b *SymfonyBridge) LoadContainer() error {
 	consolePath := filepath.Join(b.Root, b.ConsolePath)
