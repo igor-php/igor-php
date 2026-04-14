@@ -166,12 +166,17 @@ func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditSta
 				job.Findings = findings
 				job.Status = "✅ OK"
 				if len(findings) > 0 {
-					job.Status = "❌ KO"
+					hasError := false
 					for _, f := range findings {
-						if f.Severity == "WARNING" {
-							job.Status = "⚠️  WARN"
+						if f.Severity == "ERROR" {
+							hasError = true
 							break
 						}
+					}
+					if hasError {
+						job.Status = "❌ KO"
+					} else {
+						job.Status = "⚠️  WARN"
 					}
 				}
 				resultsChan <- job

@@ -107,6 +107,12 @@ func (r *Reporter) PrintSummary(results []AuditStatus) bool {
 		return false
 	}
 
+	if totalWarn > 0 {
+		fmt.Println("\n\033[33m⚠️  CAUTION: Your application contains possible state mutations (Warnings).")
+		fmt.Println("Please review these services to ensure they are compatible with Worker Mode.\033[0m")
+		return true
+	}
+
 	fmt.Println("\n\033[32m✨ CONGRATULATIONS: Your application and all its dependencies are compatible with Worker Mode!\033[0m")
 	return true
 }

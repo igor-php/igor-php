@@ -68,6 +68,12 @@ func TestAuditFixtures(t *testing.T) {
 			expectedErrors: 1,
 			contains:       "Mutation of state",
 		},
+		{
+			name:           "Readonly support (PHP 8.1+)",
+			fixture:        "readonly_test.php",
+			expectedErrors: 1, // Only the regular mutation on 'counter'
+			contains:       "Mutation of state 'counter'",
+		},
 	}
 
 	for _, tt := range tests {
