@@ -38,17 +38,3 @@ jobs:
       
       - name: Run Tests
         run: go test -v ./...
-
-  demo-annotations:
-    name: Demo Annotations
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-      - name: Build Igor
-        run: go build -o igor-php .
-      - name: Run Igor on state_mutation.php
-        run: ./igor-php tests/fixtures/state_mutation.php
-        continue-on-error: true
