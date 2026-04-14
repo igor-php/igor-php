@@ -35,9 +35,16 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string) {
 	displayPath := res.FilePath
 	// Use relative path for cleaner output if possible
 	relPath := res.FilePath
-	if rel, found := strings.CutPrefix(res.FilePath, projectRoot); found {
+	if rel, found := strings.CutPrefix(res.FilePath, projectRoot); found && rel != "" {
 		relPath = strings.TrimPrefix(rel, "/")
 		displayPath = relPath
+	} else {
+		// Fallback: try to get relative path from current working directory
+		if cwd, err := os.Getwd(); err == nil {
+			if rel, err := filepath.Rel(cwd, res.FilePath); err == nil {
+				relPath = rel
+			}
+		}
 	}
 
 	fmt.Printf("\n📂 \033[1m%s\033[0m\n", displayPath)
