@@ -9,10 +9,22 @@ import (
 	"sync"
 )
 
-const Version = "0.1.0"
+var Version = "dev"
 
 func main() {
 	versionFlag := flag.Bool("version", false, "Display version information")
+	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
+		fmt.Fprintf(os.Stderr, "Usage: igor-php [options] <directory>\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExamples:\n")
+		fmt.Fprintf(os.Stderr, "  igor-php .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --console app/console ./my-project\n")
+	}
+
 	flag.Parse()
 
 	if *versionFlag {
@@ -29,11 +41,19 @@ func main() {
 
 	// 1. Initialize Components
 	config := LoadConfig(rootPath)
+	if *consoleFlag != "" {
+		config.ConsolePath = *consoleFlag
+	}
 	auditor := NewAuditor(config)
 	reporter := NewReporter()
 
 	// 2. Detect Symfony project
-	detectSymfony(rootPath, auditor)
+	sb, err := DetectSymfony(rootPath, config)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		os.Exit(1)
+	}
+	auditor.Symfony = sb
 
 	// 3. Collect Files to Audit
 	auditList := collectFiles(rootPath, config, auditor)
@@ -53,24 +73,6 @@ func main() {
 	success := reporter.PrintSummary(finalResults)
 	if !success {
 		os.Exit(1)
-	}
-}
-
-func detectSymfony(rootPath string, auditor *Auditor) {
-	projectRoot := rootPath
-	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err != nil {
-		projectRoot = filepath.Dir(rootPath)
-	}
-
-	if _, err := os.Stat(filepath.Join(projectRoot, "bin", "console")); err == nil {
-		fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
-		sb := NewSymfonyBridge(projectRoot)
-		if err := sb.LoadContainer(); err == nil {
-			auditor.Symfony = sb
-		} else {
-			fmt.Printf("⚠️  Warning: Could not load Symfony container: %v\n", err)
-			fmt.Println("👉 Falling back to standard directory scan mode.")
-		}
 	}
 }
 

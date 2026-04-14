@@ -48,11 +48,11 @@ go install github.com/igor-php/igor-php@latest
 Install the binary and let Igor audit your Symfony project (ensure `bin/console` is present for Deep Audit):
 
 ```bash
-# If installed via Composer
-./vendor/bin/igor-php .
-
-# If installed via Go
+# Standard usage
 igor-php .
+
+# Custom console path (e.g. for legacy projects or subdirectories)
+igor-php --console app/console .
 ```
 
 ### Deep Audit Mode (Symfony)
@@ -80,12 +80,14 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 ```json
 {
   "exclude": ["vendor", "tests", "Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"]
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"],
+  "console_path": "bin/console"
 }
 ```
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
+- **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
 
 ---
 
