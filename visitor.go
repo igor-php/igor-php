@@ -21,6 +21,8 @@ type PHPVisitor struct {
 	namespace string
 	curMethod string
 	isReset   bool
+	isReadonlyClass bool
+	readonlyProps map[string]bool
 	mutated   map[string]mutationInfo
 	resetted  map[string]bool
 	auditor   *Auditor
@@ -32,7 +34,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	}
 	nodeType := n.Kind()
 
-	oldClass, oldMethod, oldIsRes := v.curClass, v.curMethod, v.isReset
+	oldClass, oldMethod, oldIsRes, oldIsReadonly, oldReadonlyProps := v.curClass, v.curMethod, v.isReset, v.isReadonlyClass, v.readonlyProps
 
 	switch nodeType {
 	case "namespace_definition":
@@ -65,7 +67,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		if v.isReset {
 			v.performResetCheck()
 		}
-		v.curClass, v.isReset = oldClass, oldIsRes
+		v.curClass, v.isReset, v.isReadonlyClass, v.readonlyProps = oldClass, oldIsRes, oldIsReadonly, oldReadonlyProps
 	} else if nodeType == "method_declaration" || nodeType == "function_definition" {
 		v.curMethod = oldMethod
 	}
@@ -94,10 +96,87 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	}
 
 	classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
-	v.isReset = strings.Contains(classText, "resetinterface") || strings.Contains(classText, "resettableinterface")
-	
+	headerEnd := strings.Index(classText, "{")
+	if headerEnd == -1 {
+		headerEnd = len(classText)
+	}
+	classHeader := classText[:headerEnd]
+
+	v.isReset = strings.Contains(classHeader, "resetinterface") || strings.Contains(classHeader, "resettableinterface")
+	v.isReadonlyClass = strings.Contains(classHeader, "readonly")
+
 	v.mutated = make(map[string]mutationInfo)
 	v.resetted = make(map[string]bool)
+	v.readonlyProps = make(map[string]bool)
+
+	v.scanReadonlyProps(n)
+}
+
+func (v *PHPVisitor) scanReadonlyProps(classNode *sitter.Node) {
+	body := classNode.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+
+	for i := uint(0); i < body.ChildCount(); i++ {
+		member := body.Child(i)
+		// 1. Regular property declarations
+		if member.Kind() == "property_declaration" {
+			v.scanPropertyNode(member)
+		}
+		// 2. Constructor promotion
+		if member.Kind() == "method_declaration" {
+			nameNode := member.ChildByFieldName("name")
+			if nameNode != nil && strings.ToLower(v.getContent(nameNode)) == "__construct" {
+				params := member.ChildByFieldName("parameters")
+				if params != nil {
+					for j := uint(0); j < params.ChildCount(); j++ {
+						param := params.Child(j)
+						if param.Kind() == "parameter_declaration" || param.Kind() == "property_promotion_parameter" {
+							v.scanPropertyNode(param)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
+	isReadonly := false
+	// Check for readonly modifier
+	for j := uint(0); j < n.ChildCount(); j++ {
+		child := n.Child(j)
+		if (child.Kind() == "modifier" || child.Kind() == "readonly_modifier") && strings.Contains(v.getContent(child), "readonly") {
+			isReadonly = true
+			break
+		}
+	}
+
+	if isReadonly {
+		// For property_declaration, properties are in property_element
+		// For parameter_declaration/property_promotion_parameter, look for variable_name child
+		if n.Kind() == "property_declaration" {
+			for j := uint(0); j < n.ChildCount(); j++ {
+				child := n.Child(j)
+				if child.Kind() == "property_element" {
+					nameNode := child.ChildByFieldName("name")
+					if nameNode != nil {
+						v.readonlyProps[strings.TrimPrefix(v.getContent(nameNode), "$")] = true
+					}
+				}
+			}
+		} else {
+			// Find the variable_name child
+			for j := uint(0); j < n.ChildCount(); j++ {
+				child := n.Child(j)
+				if child.Kind() == "variable_name" {
+					v.readonlyProps[strings.TrimPrefix(v.getContent(child), "$")] = true
+					break
+				}
+			}
+		}
+	}
 }
 
 func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
@@ -126,7 +205,7 @@ func isSuperglobal(name string) bool {
 }
 
 func (v *PHPVisitor) handleMutation(n *sitter.Node) {
-	if n == nil || v.curMethod == "__construct" || (v.curMethod == "" && v.curClass != "AnonymousClass" && v.curClass != "") {
+	if n == nil || v.isReadonlyClass || v.curMethod == "__construct" || (v.curMethod == "" && v.curClass != "AnonymousClass" && v.curClass != "") {
 		return
 	}
 
@@ -193,6 +272,11 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 	key := prop
 	if static {
 		key = "static::" + prop
+	}
+
+	// Skip if property is readonly
+	if !static && v.readonlyProps[prop] {
+		return
 	}
 
 	switch {
