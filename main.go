@@ -14,6 +14,8 @@ var Version = "dev"
 func main() {
 	versionFlag := flag.Bool("version", false, "Display version information")
 	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
+	envFlag := flag.String("env", "", "Symfony environment (default: prod)")
+	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -22,7 +24,8 @@ func main() {
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --console app/console ./my-project\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --console app/console .\n")
 	}
 
 	flag.Parse()
@@ -43,6 +46,12 @@ func main() {
 	config := LoadConfig(rootPath)
 	if *consoleFlag != "" {
 		config.ConsolePath = *consoleFlag
+	}
+	if *envFlag != "" {
+		config.Env = *envFlag
+	}
+	if *verboseFlag {
+		config.Verbose = true
 	}
 	auditor := NewAuditor(config)
 	reporter := NewReporter()
@@ -83,15 +92,40 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 		processedFiles := make(map[string]bool)
 		for id, def := range auditor.Symfony.Container.Definitions {
 			if strings.HasPrefix(id, ".errored.") {
+				if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
+				}
 				continue
 			}
-			if def.Shared && def.Class != "" {
-				if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
-					if !processedFiles[path] {
-						auditList = append(auditList, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
-						processedFiles[path] = true
-					}
+			if !def.Shared {
+				if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
 				}
+				continue
+			}
+			if def.Class == "" {
+				if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': no class defined\n", id)
+				}
+				continue
+			}
+
+			if auditor.isSafeNamespace(def.Class) {
+				if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
+				}
+				continue
+			}
+
+			if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
+				if !processedFiles[path] {
+					auditList = append(auditList, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
+					processedFiles[path] = true
+				} else if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
+				}
+			} else if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
 			}
 		}
 	} else {

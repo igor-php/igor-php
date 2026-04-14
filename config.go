@@ -15,6 +15,8 @@ func DefaultConfig() Config {
 			"Doctrine\\",
 		},
 		ConsolePath: "bin/console",
+		Env:         "prod",
+		Verbose:     false,
 	}
 }
 

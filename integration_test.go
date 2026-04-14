@@ -73,7 +73,7 @@ if ($argv[1] === 'debug:container') {
 	// 5. Test Full Audit Pipeline
 	t.Run("Bridge should load container and LOCATE files via Reflection", func(t *testing.T) {
 		bridge := NewSymfonyBridge(tmpDir, "bin/console")
-		err := bridge.LoadContainer()
+		err := bridge.LoadContainer("prod")
 		if err != nil {
 			t.Fatalf("LoadContainer failed: %v", err)
 		}
@@ -104,7 +104,7 @@ if ($argv[1] === 'debug:container') {
 		if err := os.Rename(filepath.Join(binDir, "console"), customConsole); err != nil { t.Fatal(err) }
 
 		bridge := NewSymfonyBridge(tmpDir, "app/console")
-		err := bridge.LoadContainer()
+		err := bridge.LoadContainer("prod")
 		if err != nil {
 			t.Fatalf("LoadContainer with custom path failed: %v", err)
 		}
