@@ -191,7 +191,7 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 			}
 			rel, _ := filepath.Rel(rootPath, path)
 			for _, ex := range config.Exclude {
-				if strings.Contains(rel, ex+string(os.PathSeparator)) {
+				if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) {
 					return nil
 				}
 			}
