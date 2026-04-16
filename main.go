@@ -142,9 +142,45 @@ func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath strin
 
 func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatus {
 	var auditList []AuditStatus
+	processedFiles := make(map[string]bool)
+
+	// --- STEP 1: Scan local project files (Reliability: 100% for project) ---
+	// We scan everything in the root directory except vendor and var.
+	_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
+			return nil
+		}
+
+		rel, _ := filepath.Rel(rootPath, path)
+		
+		// Skip standard exclusions (igor.json)
+		for _, ex := range config.Exclude {
+			if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) {
+				return nil
+			}
+		}
+
+		// Skip vendor/var during local walk to avoid noise
+		if strings.HasPrefix(rel, "vendor"+string(os.PathSeparator)) || strings.HasPrefix(rel, "var"+string(os.PathSeparator)) {
+			return nil
+		}
+
+		// Filter out data paths (Entity, DTO, etc.) to keep noise low
+		if auditor.IsDataPath(path) {
+			if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped '%s': data path\n", rel)
+			}
+			return nil
+		}
+
+		auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+		processedFiles[path] = true
+		return nil
+	})
+
+	// --- STEP 2: Add shared services from vendors (via Symfony) ---
 	if auditor.Symfony != nil {
-		fmt.Println("🎯 Deep Audit mode: Auditing ALL shared services (including vendors)...")
-		processedFiles := make(map[string]bool)
+		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
 		for id, def := range auditor.Symfony.Container.Definitions {
 			if strings.HasPrefix(id, ".errored.") {
 				if config.Verbose {
@@ -173,6 +209,7 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 			}
 
 			if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
+				// Only add if it hasn't been processed yet (avoids project duplicates)
 				if !processedFiles[path] {
 					auditList = append(auditList, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
 					processedFiles[path] = true
@@ -183,22 +220,8 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 				fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
 			}
 		}
-	} else {
-		fmt.Println("ℹ️  Standard mode: Scanning directory for PHP files.")
-		_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
-				return nil
-			}
-			rel, _ := filepath.Rel(rootPath, path)
-			for _, ex := range config.Exclude {
-				if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) {
-					return nil
-				}
-			}
-			auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
-			return nil
-		})
 	}
+
 	return auditList
 }
 
