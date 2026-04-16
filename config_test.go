@@ -15,8 +15,8 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("Default config when file missing", func(t *testing.T) {
 		cfg := LoadConfig(tmpDir)
-		if len(cfg.Exclude) == 0 {
-			t.Error("Expected default excludes")
+		if len(cfg.Exclude) != 0 {
+			t.Errorf("Expected 0 default excludes, got %d", len(cfg.Exclude))
 		}
 		if len(cfg.SafeNamespaces) == 0 {
 			t.Error("Expected default safe namespaces")
@@ -46,8 +46,8 @@ func TestLoadConfig(t *testing.T) {
 		}
 		cfg := LoadConfig(tmpDir)
 		// Should fallback to default values (from struct initialization in LoadConfig)
-		if len(cfg.Exclude) == 0 {
-			t.Error("Expected default excludes on parse error")
+		if len(cfg.Exclude) != 0 {
+			t.Errorf("Expected 0 default excludes on parse error, got %d", len(cfg.Exclude))
 		}
 	})
 }
