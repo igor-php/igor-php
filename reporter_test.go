@@ -90,11 +90,11 @@ func TestReporter_PrintFindings(t *testing.T) {
 
 			r.PrintFindings(tt.res, projectRoot, tt.res.IsVendor(projectRoot))
 
-			w_out.Close()
+			_ = w_out.Close()
 			os.Stdout = old
 
 			var buf bytes.Buffer
-			io.Copy(&buf, r_out)
+			_, _ = io.Copy(&buf, r_out)
 			output := stripANSI(buf.String())
 
 			for _, exp := range tt.expected {
@@ -137,15 +137,15 @@ func TestReporter_PrintSummary(t *testing.T) {
 
 	r.PrintSummary(results, projectRoot)
 
-	w_out.Close()
+	_ = w_out.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r_out)
+	_, _ = io.Copy(&buf, r_out)
 	output := stripANSI(buf.String())
 
 	expected := []string{
-		"💡 RECOMMANDATIONS:",
+		"💡 RECOMMENDATIONS:",
 		"[PROJECT] Since this is your code",
 		"[VENDOR]  This is third-party code",
 		"max_requests",

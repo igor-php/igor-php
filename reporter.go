@@ -130,7 +130,7 @@ func (r *Reporter) PrintSummary(results []AuditStatus, projectRoot string) bool 
 
 	// Detailed Recommendations
 	if totalKO > 0 || totalWarn > 0 {
-		fmt.Println("\n\033[1m💡 RECOMMANDATIONS:\033[0m")
+		fmt.Println("\n\033[1m💡 RECOMMENDATIONS:\033[0m")
 		
 		if projKO > 0 || projWarn > 0 {
 			fmt.Println("  \033[34m[PROJECT]\033[0m Since this is your code, you should refactor these services to be stateless")
