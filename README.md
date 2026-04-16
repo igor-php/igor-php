@@ -67,10 +67,11 @@ igor-php --console app/console --env stage --verbose .
 ```
 
 ### Deep Audit Mode (Symfony)
-When a Symfony project is detected, Igor will:
-1. Query the container in the configured environment (`--env=prod --no-debug` by default).
-2. Map every **shared service** to its actual source file via PHP Reflection.
-3. Perform an exhaustive audit of your code and all its dependencies.
+When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
+
+1.  **Level 1: Project Code (Recursive Scan)**: Igor scans all PHP files in your project directory (excluding `vendor`, `var`, `tests`, etc.). This ensures that even if Symfony "inlines" or "hides" a service for optimization, Igor will still find and audit it.
+2.  **Level 2: Trusted Vendors (Recursive Scan)**: By using the `scan_vendors` configuration, you can force a full recursive scan of specific vendor directories (like your company's internal bundles).
+3.  **Level 3: Global Ecosystem (Smart Scan)**: Igor queries the Symfony Service Container to identify all other active shared services in the `vendor/` directory. This covers the "long tail" of third-party dependencies without the performance hit of scanning tens of thousands of files.
 
 ### Example Output
 ```text
@@ -112,6 +113,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 {
   "exclude": ["vendor", "tests", "Entity"],
   "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"],
+  "scan_vendors": ["my-company/internal-bundle", "trusted/library"],
   "console_path": "bin/console",
   "env": "prod",
   "verbose": false
@@ -120,6 +122,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
+- **scan_vendors**: List of sub-directories within `vendor/` to scan recursively. Useful for internal bundles that might not be registered as official Symfony services but still run in your process.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
 - **env**: Symfony environment to use for container analysis. Defaults to `prod`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
