@@ -85,16 +85,40 @@ func main() {
 	reporter.PrintHeader(len(auditList))
 
 	// 4. Parallel Audit
-	results := runParallelAudit(auditList, auditor)
+	resultsChan := runParallelAudit(auditList, auditor)
 
-	// 5. Report Results
+	// 5. Collect and Sort Results
 	var finalResults []AuditStatus
-	for res := range results {
+	for res := range resultsChan {
 		finalResults = append(finalResults, res)
-		reporter.PrintFindings(res, rootPath)
 	}
 
-	success := reporter.PrintSummary(finalResults)
+	// 6. Report Results (Project first, then Vendor)
+	hasProjectFindings := false
+	for _, res := range finalResults {
+		isVendor := res.IsVendor(rootPath)
+		if !isVendor && len(res.Findings) > 0 {
+			if !hasProjectFindings {
+				fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
+				hasProjectFindings = true
+			}
+			reporter.PrintFindings(res, rootPath, isVendor)
+		}
+	}
+
+	hasVendorFindings := false
+	for _, res := range finalResults {
+		isVendor := res.IsVendor(rootPath)
+		if isVendor && len(res.Findings) > 0 {
+			if !hasVendorFindings {
+				fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
+				hasVendorFindings = true
+			}
+			reporter.PrintFindings(res, rootPath, isVendor)
+		}
+	}
+
+	success := reporter.PrintSummary(finalResults, rootPath)
 	if !success {
 		os.Exit(1)
 	}

@@ -38,7 +38,7 @@ func TestGitHubAnnotations(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	reporter.PrintFindings(res, "/tmp") // dummy project root
+	reporter.PrintFindings(res, "/tmp", false) // dummy project root, not a vendor
 
 	_ = w.Close()
 	var buf bytes.Buffer
