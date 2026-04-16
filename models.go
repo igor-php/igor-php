@@ -1,5 +1,10 @@
 package main
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // Finding represents a single issue detected by the linter.
 type Finding struct {
 	Message     string
@@ -43,4 +48,19 @@ type AuditStatus struct {
 	FilePath  string
 	Status    string // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
 	Findings  []Finding
+}
+
+// IsVendor returns true if the file is part of the vendor directory.
+func (a AuditStatus) IsVendor(projectRoot string) bool {
+	relPath := a.FilePath
+	if rel, found := strings.CutPrefix(a.FilePath, projectRoot); found && rel != "" {
+		relPath = strings.TrimPrefix(rel, "/")
+	}
+
+	if strings.HasPrefix(relPath, "vendor/") {
+		return true
+	}
+
+	absPath, _ := filepath.Abs(a.FilePath)
+	return strings.Contains(absPath, "/vendor/")
 }

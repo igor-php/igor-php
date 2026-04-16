@@ -12,6 +12,47 @@ import (
 var Version = "dev"
 
 func main() {
+	config, rootPath, shouldExit := parseFlagsAndInit()
+	if shouldExit {
+		return
+	}
+
+	// 1. Initialize Components
+	auditor := NewAuditor(config)
+	reporter := NewReporter()
+
+	// 2. Detect Symfony project
+	sb, err := DetectSymfony(rootPath, config)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		os.Exit(1)
+	}
+	auditor.Symfony = sb
+
+	// 3. Collect Files to Audit
+	auditList := collectFiles(rootPath, config, auditor)
+
+	reporter.PrintHeader(len(auditList))
+
+	// 4. Parallel Audit
+	resultsChan := runParallelAudit(auditList, auditor)
+
+	// 5. Collect Results
+	var finalResults []AuditStatus
+	for res := range resultsChan {
+		finalResults = append(finalResults, res)
+	}
+
+	// 6. Report Results (Project first, then Vendor)
+	reportAllFindings(reporter, finalResults, rootPath)
+
+	success := reporter.PrintSummary(finalResults, rootPath)
+	if !success {
+		os.Exit(1)
+	}
+}
+
+func parseFlagsAndInit() (Config, string, bool) {
 	versionFlag := flag.Bool("version", false, "Display version information")
 	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
 	envFlag := flag.String("env", "", "Symfony environment (default: prod)")
@@ -34,7 +75,7 @@ func main() {
 
 	if *versionFlag {
 		fmt.Printf("igor-php version %s\n", Version)
-		os.Exit(0)
+		return Config{}, "", true
 	}
 
 	args := flag.Args()
@@ -48,7 +89,7 @@ func main() {
 			fmt.Printf("❌ Error: %v\n", err)
 			os.Exit(1)
 		}
-		os.Exit(0)
+		return Config{}, "", true
 	}
 
 	if len(args) < 1 {
@@ -57,7 +98,6 @@ func main() {
 	}
 	rootPath, _ := filepath.Abs(args[0])
 
-	// 1. Initialize Components
 	config := LoadConfig(rootPath)
 	if *consoleFlag != "" {
 		config.ConsolePath = *consoleFlag
@@ -68,35 +108,35 @@ func main() {
 	if *verboseFlag {
 		config.Verbose = true
 	}
-	auditor := NewAuditor(config)
-	reporter := NewReporter()
 
-	// 2. Detect Symfony project
-	sb, err := DetectSymfony(rootPath, config)
-	if err != nil {
-		fmt.Printf("❌ Error: %v\n", err)
-		os.Exit(1)
-	}
-	auditor.Symfony = sb
+	return config, rootPath, false
+}
 
-	// 3. Collect Files to Audit
-	auditList := collectFiles(rootPath, config, auditor)
-
-	reporter.PrintHeader(len(auditList))
-
-	// 4. Parallel Audit
-	results := runParallelAudit(auditList, auditor)
-
-	// 5. Report Results
-	var finalResults []AuditStatus
-	for res := range results {
-		finalResults = append(finalResults, res)
-		reporter.PrintFindings(res, rootPath)
+func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath string) {
+	// Report Project Results first
+	hasProjectFindings := false
+	for _, res := range results {
+		isVendor := res.IsVendor(rootPath)
+		if !isVendor && len(res.Findings) > 0 {
+			if !hasProjectFindings {
+				fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
+				hasProjectFindings = true
+			}
+			reporter.PrintFindings(res, rootPath, isVendor)
+		}
 	}
 
-	success := reporter.PrintSummary(finalResults)
-	if !success {
-		os.Exit(1)
+	// Report Vendor Results second
+	hasVendorFindings := false
+	for _, res := range results {
+		isVendor := res.IsVendor(rootPath)
+		if isVendor && len(res.Findings) > 0 {
+			if !hasVendorFindings {
+				fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
+				hasVendorFindings = true
+			}
+			reporter.PrintFindings(res, rootPath, isVendor)
+		}
 	}
 }
 

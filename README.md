@@ -19,6 +19,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset. Automatically ignores **`readonly` properties and classes** (PHP 8.1+) as they are immutable by design.
 - **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
 - **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
+- **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
 - **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment.
 
 ---
@@ -73,12 +74,32 @@ When a Symfony project is detected, Igor will:
 
 ### Example Output
 ```text
-📂 src/Service/MyService.php
-  ❌ Mutation of state 'cache' in MyService::getData().
-  42 | $this->cache = $result;
+--- 📂 PROJECT SERVICES ---
 
-⚠️  Property 'tempData' of MyService is mutated but not reset in reset().
-  💡 Hint: Add '$this->tempData = null;' in the reset() method.
+📂 src/Service/MyService.php
+  [PROJECT] ❌ Mutation of state 'cache' in MyService::getData().
+  42 | $this->cache = $result;
+  💡 Hint: State mutations persist across requests in Worker mode.
+
+--- 📦 VENDOR SERVICES (THIRD-PARTY) ---
+
+📂 vendor/acme/bundle/Service.php
+  [VENDOR] ❌ Mutation of state 'static::$globalCache' in ::()
+  20 | self::$globalCache = "value";
+  💡 Hint: State mutations persist across requests in Worker mode.
+
+--- 🏁 DEEP AUDIT COMPLETE ---
+Total unique service files: 15
+✅ OK (Stateless):           13
+❌ KO (Dangerous State):     2 (Project: 1, Vendor: 1)
+⚠️  WARN (Review reset):      0 (Project: 0, Vendor: 0)
+Time taken: 1.2s
+
+💡 RECOMMENDATIONS:
+  [PROJECT] Since this is your code, you should refactor these services to be stateless
+            or implement ResetInterface to clear the state between requests.
+  [VENDOR]  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit
+            in your Worker configuration to mitigate memory leaks.
 ```
 
 ---
