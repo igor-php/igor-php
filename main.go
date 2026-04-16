@@ -144,35 +144,23 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	var auditList []AuditStatus
 	processedFiles := make(map[string]bool)
 
-	// --- STEP 1: Scan local project files (Reliability: 100% for project) ---
-	// We scan everything in the root directory except vendor and var.
+	// --- STEP 1: Scan local project files ---
 	_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 			return nil
 		}
-
 		rel, _ := filepath.Rel(rootPath, path)
-		
-		// Skip standard exclusions (igor.json)
 		for _, ex := range config.Exclude {
 			if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) {
 				return nil
 			}
 		}
-
-		// Skip vendor/var during local walk to avoid noise
 		if strings.HasPrefix(rel, "vendor"+string(os.PathSeparator)) || strings.HasPrefix(rel, "var"+string(os.PathSeparator)) {
 			return nil
 		}
-
-		// Filter out data paths (Entity, DTO, etc.) to keep noise low
 		if auditor.IsDataPath(path) {
-			if config.Verbose {
-				fmt.Printf("  ⏭️  Skipped '%s': data path\n", rel)
-			}
 			return nil
 		}
-
 		auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
 		processedFiles[path] = true
 		return nil
@@ -209,7 +197,6 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 			}
 
 			if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
-				// Only add if it hasn't been processed yet (avoids project duplicates)
 				if !processedFiles[path] {
 					auditList = append(auditList, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
 					processedFiles[path] = true
@@ -219,6 +206,24 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 			} else if config.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
 			}
+		}
+	}
+
+	// --- STEP 3: Forced Vendor Scan ---
+	if len(config.ScanVendors) > 0 {
+		fmt.Println("🔍 Forced Vendor Scan: Auditing specific vendor paths...")
+		for _, vendorSubPath := range config.ScanVendors {
+			fullVendorPath := filepath.Join(rootPath, "vendor", vendorSubPath)
+			_ = filepath.Walk(fullVendorPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
+					return nil
+				}
+				if !processedFiles[path] {
+					auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+					processedFiles[path] = true
+				}
+				return nil
+			})
 		}
 	}
 

@@ -24,6 +24,7 @@ type Result struct {
 type Config struct {
 	Exclude        []string `json:"exclude"`
 	SafeNamespaces []string `json:"safe_namespaces"`
+	ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively
 	ConsolePath    string   `json:"console_path"`
 	Env            string   `json:"env"`
 	Verbose        bool     `json:"verbose"`
