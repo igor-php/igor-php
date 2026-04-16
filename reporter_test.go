@@ -23,6 +23,7 @@ func TestReporter_PrintFindings(t *testing.T) {
 		name     string
 		res      AuditStatus
 		expected []string
+		notExpected []string
 	}{
 		{
 			name: "Project file finding",
@@ -46,7 +47,9 @@ func TestReporter_PrintFindings(t *testing.T) {
 				"State mutation",
 				"10 | $this->state = 1;",
 				"💡 Hint: Refactor me",
-				"💡 Hint: Since this is your code, you should refactor this service to be stateless",
+			},
+			notExpected: []string{
+				"Since this is your code",
 			},
 		},
 		{
@@ -70,9 +73,10 @@ func TestReporter_PrintFindings(t *testing.T) {
 				"Service: vendor.service",
 				"State mutation in vendor",
 				"20 | self::$cache = [];",
-				"💡 Hint: This is third-party code",
+			},
+			notExpected: []string{
+				"This is third-party code",
 				"max_requests",
-				"Determine whether the issue is simply a memory leak",
 			},
 		},
 	}
@@ -98,6 +102,59 @@ func TestReporter_PrintFindings(t *testing.T) {
 					t.Errorf("Expected output to contain %q, but it didn't.\nOutput:\n%s", exp, output)
 				}
 			}
+			for _, nexp := range tt.notExpected {
+				if strings.Contains(output, nexp) {
+					t.Errorf("Expected output NOT to contain %q, but it did.\nOutput:\n%s", nexp, output)
+				}
+			}
 		})
+	}
+}
+
+func TestReporter_PrintSummary(t *testing.T) {
+	r := NewReporter()
+	projectRoot := "/tmp/project"
+
+	results := []AuditStatus{
+		{
+			FilePath: "/tmp/project/src/Service.php", // Project
+			Status:   "❌ KO",
+		},
+		{
+			FilePath: "/tmp/project/vendor/Bundle.php", // Vendor
+			Status:   "❌ KO",
+		},
+		{
+			FilePath: "/tmp/project/src/Safe.php",
+			Status:   "✅ OK",
+		},
+	}
+
+	// Capture stdout
+	old := os.Stdout
+	r_out, w_out, _ := os.Pipe()
+	os.Stdout = w_out
+
+	r.PrintSummary(results, projectRoot)
+
+	w_out.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	io.Copy(&buf, r_out)
+	output := stripANSI(buf.String())
+
+	expected := []string{
+		"💡 RECOMMANDATIONS:",
+		"[PROJECT] Since this is your code",
+		"[VENDOR]  This is third-party code",
+		"max_requests",
+		"❌ KO (Dangerous State):     2 (Project: 1, Vendor: 1)",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(output, exp) {
+			t.Errorf("Expected summary to contain %q, but it didn't.\nOutput:\n%s", exp, output)
+		}
 	}
 }

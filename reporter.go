@@ -75,14 +75,7 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string, isVendor b
 			fmt.Printf("  %s💡 Hint: %s\033[0m\n", "\033[36m", f.Remediation)
 		}
 
-		if isVendor {
-			fmt.Printf("  %s💡 Hint: This is third-party code. If you can't fix it, consider setting a 'max_requests' limit in your Worker configuration to mitigate memory leaks.\033[0m\n", "\033[36m")
-			fmt.Printf("           Determine whether the issue is simply a memory leak or the result of a critical data exchange between two requests.\033[0m\n")
-		} else {
-			fmt.Printf("  %s💡 Hint: Since this is your code, you should refactor this service to be stateless or implement ResetInterface to clear the state between requests.\033[0m\n", "\033[36m")
-		}
-
-		// GitHub Action Annotation
+		// GitHub Action Annotation (Keeps all hints)
 		if r.isGitHub {
 			msg := fmt.Sprintf("[Igor] %s", f.Message)
 			if f.Remediation != "" {
@@ -134,6 +127,22 @@ func (r *Reporter) PrintSummary(results []AuditStatus, projectRoot string) bool 
 	fmt.Printf("\n❌ KO (Dangerous State):     %d (Project: %d, Vendor: %d)", totalKO, projKO, vendKO)
 	fmt.Printf("\n⚠️  WARN (Review reset):      %d (Project: %d, Vendor: %d)", totalWarn, projWarn, vendWarn)
 	fmt.Printf("\nTime taken: %v\n", time.Since(r.StartTime))
+
+	// Detailed Recommendations
+	if totalKO > 0 || totalWarn > 0 {
+		fmt.Println("\n\033[1m💡 RECOMMANDATIONS:\033[0m")
+		
+		if projKO > 0 || projWarn > 0 {
+			fmt.Println("  \033[34m[PROJECT]\033[0m Since this is your code, you should refactor these services to be stateless")
+			fmt.Println("            or implement ResetInterface to clear the state between requests.")
+		}
+		
+		if vendKO > 0 || vendWarn > 0 {
+			fmt.Println("  \033[33m[VENDOR]\033[0m  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit")
+			fmt.Println("            in your Worker configuration (e.g. FrankenPHP) to mitigate memory leaks.")
+			fmt.Println("            Determine if the issue is a simple leak or a critical data exchange between requests.")
+		}
+	}
 
 	if totalKO > 0 {
 		fmt.Println("\n\033[31m⚠️  DANGER: Your application or its vendors contain services with shared state.")
