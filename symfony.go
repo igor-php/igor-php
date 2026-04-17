@@ -16,21 +16,22 @@ var phpHelperScript []byte
 
 // SymfonyBridge handles all interactions with the Symfony Framework.
 type SymfonyBridge struct {
-	Root        string
-	ConsolePath string
-	Container   *SymfonyContainer
-	ClassToFile map[string]string
+        Root        string
+        ConsolePath string
+        Config      Config
+        Container   *SymfonyContainer
+        ClassToFile map[string]string
 }
 
 // NewSymfonyBridge creates a new bridge for a given project root.
-func NewSymfonyBridge(root string, consolePath string) *SymfonyBridge {
-	return &SymfonyBridge{
-		Root:        root,
-		ConsolePath: consolePath,
-		ClassToFile: make(map[string]string),
-	}
+func NewSymfonyBridge(root string, consolePath string, config Config) *SymfonyBridge {
+        return &SymfonyBridge{
+                Root:        root,
+                ConsolePath: consolePath,
+                Config:      config,
+                ClassToFile: make(map[string]string),
+        }
 }
-
 // DetectSymfony attempts to find a Symfony project and initialize the bridge.
 func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 	projectRoot := rootPath
@@ -54,8 +55,9 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 
 	// 2. If we found a console, try to initialize the bridge
 	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
-	sb := NewSymfonyBridge(projectRoot, consolePath)
+	sb := NewSymfonyBridge(projectRoot, consolePath, config)
 	if err := sb.LoadContainer(config.Env); err != nil {
+
 		return nil, fmt.Errorf("could not load Symfony container: %v\n👉 Ensure your project is bootable in '%s' environment.", err, config.Env)
 	}
 
@@ -96,6 +98,10 @@ func (b *SymfonyBridge) LoadContainer(env string) error {
 }
 
 func (b *SymfonyBridge) tryLoadFromAgent(env string) bool {
+        if b.Config.NoAgent {
+                return false
+        }
+
         // Possible paths for the agent map
         paths := []string{
                 filepath.Join(b.Root, "var", "cache", env, "igor_service_map.json"),
@@ -127,8 +133,10 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) bool {
         }
 
         if !found {
-                fmt.Printf("💡 Hint: Igor Agent is not active or cache is missing.\n")
-                fmt.Printf("   Run 'php bin/console cache:clear' to generate the service map and speed up the audit.\n\n")
+                fmt.Printf("❌ Error: Igor Agent map not found (var/cache/%s/igor_service_map.json).\n", env)
+                fmt.Printf("   To ensure 100%% accuracy, please run 'php bin/console cache:clear' first.\n")
+                fmt.Printf("   If you want to perform a less precise scan without the agent, use the --no-agent flag.\n")
+                os.Exit(1)
         }
 
         return false

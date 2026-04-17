@@ -53,12 +53,13 @@ func main() {
 }
 
 func parseFlagsAndInit() (Config, string, bool) {
-	versionFlag := flag.Bool("version", false, "Display version information")
-	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
-	envFlag := flag.String("env", "", "Symfony environment (default: prod)")
-	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
+        versionFlag := flag.Bool("version", false, "Display version information")
+        consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
+        envFlag := flag.String("env", "", "Symfony environment (default: dev)")
+        verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
+        noAgentFlag := flag.Bool("no-agent", false, "Disable Igor Agent and fallback to standard scan")
 
-	flag.Usage = func() {
+        flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
@@ -105,9 +106,12 @@ func parseFlagsAndInit() (Config, string, bool) {
 	if *envFlag != "" {
 	        config.Env = *envFlag
 	}
-	if *verboseFlag {
-	        config.Verbose = true
-	}
+        if *verboseFlag {
+                config.Verbose = true
+        }
+        if *noAgentFlag {
+                config.NoAgent = true
+        }
 
 	// Display summary of packages
 	if len(config.ProdPackages) > 0 || len(config.DevPackages) > 0 {

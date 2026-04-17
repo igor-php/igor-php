@@ -28,6 +28,7 @@ type Config struct {
         ConsolePath    string   `json:"console_path"`
         Env            string   `json:"env"`
         Verbose        bool     `json:"verbose"`
+        NoAgent        bool     `json:"-"` // Skip Igor Agent even if available
         ProdPackages   []string `json:"-"` // List of require packages from composer.json
         DevPackages    []string `json:"-"` // List of require-dev packages from composer.json
 }
