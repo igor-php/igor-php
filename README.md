@@ -66,6 +66,28 @@ igor-php .
 igor-php --console app/console --env stage --verbose .
 ```
 
+## 🧪 See it in Action
+
+Want to understand why Igor is vital for your Worker environment? Check these real-world scenarios from our **Leak Lab**:
+
+| **1. Memory Pressure (The "BOOM" effect)** | **2. Global State Poisoning** |
+|:---:|:---:|
+| ![Memory Leak Demo](docs/heavy-load.gif) | ![Global State Leak Demo](docs/timezone-poison.gif) |
+| *Adding data to a shared service without reset will accumulate in RAM until the worker crashes.* | *Modifying global PHP settings (like timezone) "poisons" the worker thread for all future requests.* |
+
+### 🛡️ Igor's Verdict: Catching them all in < 1s
+![Igor Scan Demo](docs/igor-audit.gif)
+*Igor identifies all leaks (Static, Stateful, Incomplete Reset) and dangerous global function calls automatically.*
+
+---
+
+### 🧪 Try the Leak Lab yourself!
+We've built an **interactive laboratory** using Symfony and FrankenPHP. You can run it locally with Docker and see the memory leaks with your own eyes.
+
+[**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
+
+---
+
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
 
