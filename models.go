@@ -22,14 +22,14 @@ type Result struct {
 
 // Config stores linter settings.
 type Config struct {
-	Exclude        []string `json:"exclude"`
-	SafeNamespaces []string `json:"safe_namespaces"`
-	ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively
-	ConsolePath    string   `json:"console_path"`
-	Env            string   `json:"env"`
-	Verbose        bool     `json:"verbose"`
+        Exclude        []string `json:"exclude"`
+        SafeNamespaces []string `json:"safe_namespaces"`
+        ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively
+        ConsolePath    string   `json:"console_path"`
+        Env            string   `json:"env"`
+        Verbose        bool     `json:"verbose"`
+        DevPackages    []string `json:"-"` // List of require-dev packages from composer.json
 }
-
 // SymfonyContainer represents the output of debug:container --format=json.
 type SymfonyContainer struct {
 	Definitions map[string]SymfonyService `json:"definitions"`

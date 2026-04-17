@@ -216,7 +216,14 @@ func collectSymfonyServices(config Config, auditor *Auditor, processed map[strin
 		}
 
 		if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
-			if !processed[path] {
+		        if auditor.IsDevPackagePath(path) {
+		                if config.Verbose {
+		                        fmt.Printf("  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
+		                }
+		                continue
+		        }
+		        if !processed[path] {
+
 				list = append(list, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
 				processed[path] = true
 			} else if config.Verbose {

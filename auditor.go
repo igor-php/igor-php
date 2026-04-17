@@ -130,14 +130,28 @@ func (a *Auditor) IsDataPath(path string) bool {
 }
 
 func (a *Auditor) isExplicitlyNonShared(className string) bool {
-	if a.Symfony == nil || a.Symfony.Container == nil {
-		return false
-	}
-	className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
-	for _, def := range a.Symfony.Container.Definitions {
-		if strings.TrimPrefix(def.Class, "\\") == className {
-			return !def.Shared
-		}
-	}
-	return false
+        if a.Symfony == nil || a.Symfony.Container == nil {
+                return false
+        }
+        className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
+        for _, def := range a.Symfony.Container.Definitions {
+                if strings.TrimPrefix(def.Class, "\\") == className {
+                        return !def.Shared
+                }
+        }
+        return false
 }
+
+// IsDevPackagePath returns true if the file path belongs to a dev package in vendor/.
+func (a *Auditor) IsDevPackagePath(path string) bool {
+        // Convert to slash for cross-platform comparison
+        path = filepath.ToSlash(path)
+        for _, pkg := range a.Config.DevPackages {
+                vendorPath := "vendor/" + pkg + "/"
+                if strings.Contains(path, vendorPath) {
+                        return true
+                }
+        }
+        return false
+}
+

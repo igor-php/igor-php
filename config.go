@@ -22,12 +22,17 @@ func DefaultConfig() Config {
 
 // LoadConfig loads the configuration from igor.json in the given root directory.
 func LoadConfig(root string) Config {
-	c := DefaultConfig()
-	data, err := os.ReadFile(filepath.Join(root, "igor.json"))
-	if err != nil {
-		return c
-	}
+        c := DefaultConfig()
 
+        // Auto-detect dev packages from composer.json
+        if devPackages, err := ParseComposerDev(root); err == nil {
+                c.DevPackages = devPackages
+        }
+
+        data, err := os.ReadFile(filepath.Join(root, "igor.json"))
+        if err != nil {
+                return c
+        }
 	var userConfig Config
 	if err := json.Unmarshal(data, &userConfig); err != nil {
 		// Log or handle error if needed, for now fallback to defaults
