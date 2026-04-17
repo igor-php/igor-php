@@ -109,18 +109,54 @@ Want to understand why Igor is vital for your Worker environment? Check these re
 We've built an **interactive laboratory** using Symfony and FrankenPHP. You can run it locally with Docker and see the memory leaks with your own eyes.
 
 [**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
-
 ---
 
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
 
 1.  **Level 1: Project Code (Recursive Scan)**: Igor scans all PHP files in your project directory (excluding `vendor`, `var`, `tests`, etc.). This ensures that even if Symfony "inlines" or "hides" a service for optimization, Igor will still find and audit it.
-2.  **Level 2: Trusted Vendors (Recursive Scan)**: By using the `scan_vendors` configuration, you can force a full recursive scan of specific vendor directories (like your company's internal bundles).
-3.  **Level 3: Global Ecosystem (Smart Scan)**: Igor queries the Symfony Service Container to identify all other active shared services in the `vendor/` directory. This covers the "long tail" of third-party dependencies without the performance hit of scanning tens of thousands of files.
+2.  **Level 2: Smart Filtering (Composer)**: Igor automatically parses your `composer.json` to identify packages in `require-dev`. It will automatically exclude any service originating from these packages to reduce noise and focus only on production-ready code.
+3.  **Level 3: Igor Agent (Embedded Bundle)**: By enabling the optional PHP bundle, Igor becomes "infallible". The bundle hooks into the Symfony compilation process to export the exact map of all active shared services.
 
-### Example Output
-```text
+---
+
+## 🧠 How it Works
+
+### 1. Smart Filtering
+Igor reads the `require-dev` section of your `composer.json`. When it audits your Symfony container, it checks the physical path of each service. If a service is located inside a `vendor/` directory belonging to a dev package (like `phpunit/phpunit` or `symfony/maker-bundle`), Igor will automatically skip it.
+
+### 2. Igor Agent (The PHP Bundle)
+The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear your Symfony cache (`php bin/console cache:clear`).
+
+- **What it does**: It iterates through the `ContainerBuilder`, identifies all **Shared Services**, and extracts their class names and IDs.
+- **The Cache**: It writes this information into a small JSON file: `var/cache/<env>/igor_service_map.json`.
+- **The Benefit**: The Go binary reads this file instead of executing the heavy `debug:container` command. This makes the audit launch near-instant and ensures 100% accuracy, even for services added by complex compiler passes or decorators.
+
+#### Example `igor_service_map.json`:
+```json
+{
+    "definitions": {
+        "app.mail_service": {
+            "class": "App\\Service\\MailService",
+            "public": true,
+            "shared": true
+        },
+        "logger": {
+            "class": "Monolog\\Logger",
+            "public": true,
+            "shared": true
+        }
+    },
+    "aliases": {
+        "Psr\\Log\\LoggerInterface": "logger"
+    }
+}
+```
+
+---
+
+## ⚙️ Configuration
+
 --- 📂 PROJECT SERVICES ---
 
 📂 src/Service/MyService.php

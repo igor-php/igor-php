@@ -8,18 +8,17 @@ import (
 
 // DefaultConfig returns the standard linter configuration.
 func DefaultConfig() Config {
-	return Config{
-		Exclude: []string{},
-		SafeNamespaces: []string{
-			"Symfony\\",
-			"Doctrine\\",
-		},
-		ConsolePath: "bin/console",
-		Env:         "prod",
-		Verbose:     false,
-	}
+        return Config{
+                Exclude: []string{},
+                SafeNamespaces: []string{
+                        "Symfony\\",
+                        "Doctrine\\",
+                },
+                ConsolePath: "bin/console",
+                Env:         "dev",
+                Verbose:     false,
+        }
 }
-
 // LoadConfig loads the configuration from igor.json in the given root directory.
 func LoadConfig(root string) Config {
         c := DefaultConfig()
