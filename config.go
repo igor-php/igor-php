@@ -24,9 +24,10 @@ func DefaultConfig() Config {
 func LoadConfig(root string) Config {
         c := DefaultConfig()
 
-        // Auto-detect dev packages from composer.json
-        if devPackages, err := ParseComposerDev(root); err == nil {
-                c.DevPackages = devPackages
+        // Auto-detect packages from composer.json
+        if prod, dev, err := ParseComposer(root); err == nil {
+                c.ProdPackages = prod
+                c.DevPackages = dev
         }
 
         data, err := os.ReadFile(filepath.Join(root, "igor.json"))

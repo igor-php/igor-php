@@ -5,6 +5,7 @@ import (
         "os"
         "path/filepath"
         "sort"
+        "strings"
 )
 
 // ComposerJSON represents a minimal composer.json structure.
@@ -13,26 +14,34 @@ type ComposerJSON struct {
         RequireDev map[string]string `json:"require-dev"`
 }
 
-// ParseComposerDev parses composer.json and returns a list of packages in require-dev.
-func ParseComposerDev(root string) ([]string, error) {
+// ParseComposer parses composer.json and returns lists of production and dev packages.
+func ParseComposer(root string) (prod []string, dev []string, err error) {
         data, err := os.ReadFile(filepath.Join(root, "composer.json"))
         if err != nil {
                 if os.IsNotExist(err) {
-                        return []string{}, nil
+                        return []string{}, []string{}, nil
                 }
-                return nil, err
+                return nil, nil, err
         }
 
         var composer ComposerJSON
         if err := json.Unmarshal(data, &composer); err != nil {
-                return nil, err
+                return nil, nil, err
         }
 
-        devPackages := make([]string, 0, len(composer.RequireDev))
+        prod = make([]string, 0, len(composer.Require))
+        for pkg := range composer.Require {
+                if pkg != "php" && !strings.HasPrefix(pkg, "ext-") {
+                        prod = append(prod, pkg)
+                }
+        }
+        sort.Strings(prod)
+
+        dev = make([]string, 0, len(composer.RequireDev))
         for pkg := range composer.RequireDev {
-                devPackages = append(devPackages, pkg)
+                dev = append(dev, pkg)
         }
-        sort.Strings(devPackages)
+        sort.Strings(dev)
 
-        return devPackages, nil
+        return prod, dev, nil
 }

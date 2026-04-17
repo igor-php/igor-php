@@ -100,17 +100,26 @@ func parseFlagsAndInit() (Config, string, bool) {
 
 	config := LoadConfig(rootPath)
 	if *consoleFlag != "" {
-		config.ConsolePath = *consoleFlag
+	        config.ConsolePath = *consoleFlag
 	}
 	if *envFlag != "" {
-		config.Env = *envFlag
+	        config.Env = *envFlag
 	}
 	if *verboseFlag {
-		config.Verbose = true
+	        config.Verbose = true
+	}
+
+	// Display summary of packages
+	if len(config.ProdPackages) > 0 || len(config.DevPackages) > 0 {
+	        fmt.Printf("📦 Composer: %d production packages will be inspected, %d dev packages will be ignored.\n", 
+	                len(config.ProdPackages), len(config.DevPackages))
+	        if !*verboseFlag && len(config.DevPackages) > 0 {
+	                fmt.Println("   (Use --verbose to see which services are being skipped)")
+	        }
 	}
 
 	return config, rootPath, false
-}
+	}
 
 func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath string) {
 	// Report Project Results first

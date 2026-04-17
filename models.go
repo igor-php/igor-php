@@ -28,6 +28,7 @@ type Config struct {
         ConsolePath    string   `json:"console_path"`
         Env            string   `json:"env"`
         Verbose        bool     `json:"verbose"`
+        ProdPackages   []string `json:"-"` // List of require packages from composer.json
         DevPackages    []string `json:"-"` // List of require-dev packages from composer.json
 }
 // SymfonyContainer represents the output of debug:container --format=json.
