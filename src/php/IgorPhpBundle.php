@@ -1,8 +1,8 @@
 <?php
 
-namespace KevinMartinsDev\IgorPhp;
+namespace IgorPhp\IgorBundle;
 
-use KevinMartinsDev\IgorPhp\DependencyInjection\Compiler\IgorDiscoveryPass;
+use IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorDiscoveryPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\Bundle\Bundle;
 

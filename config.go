@@ -13,6 +13,7 @@ func DefaultConfig() Config {
                 SafeNamespaces: []string{
                         "Symfony\\",
                         "Doctrine\\",
+                        "IgorPhp\\IgorBundle\\",
                 },
                 ConsolePath: "bin/console",
                 Env:         "dev",

@@ -46,7 +46,7 @@ Add the bundle to your `config/bundles.php`:
 ```php
 return [
     // ...
-    KevinMartinsDev\IgorPhp\IgorPhpBundle::class => ['dev' => true, 'test' => true],
+    IgorPhp\IgorBundle\IgorPhpBundle::class => ['dev' => true, 'test' => true],
 ];
 ```
 
@@ -57,7 +57,7 @@ public function registerBundles(): iterable
 {
     // ...
     if ($this->getEnvironment() === 'dev') {
-        yield new KevinMartinsDev\IgorPhp\IgorPhpBundle();
+        yield new IgorPhp\IgorBundle\IgorPhpBundle();
     }
 }
 ```
@@ -159,25 +159,17 @@ The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear you
 
 ## ⚙️ Configuration
 
---- 📂 PROJECT SERVICES ---
+You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
 
-📂 src/Service/MyService.php
-  [PROJECT] ❌ Mutation of state 'cache' in MyService::getData().
-  42 | $this->cache = $result;
-  💡 Hint: State mutations persist across requests in Worker mode.
-
---- 📦 VENDOR SERVICES (THIRD-PARTY) ---
-
-📂 vendor/acme/bundle/Service.php
-  [VENDOR] ❌ Mutation of state 'static::$globalCache' in ::()
-  20 | self::$globalCache = "value";
-  💡 Hint: State mutations persist across requests in Worker mode.
-
---- 🏁 DEEP AUDIT COMPLETE ---
-Total unique service files: 15
-✅ OK (Stateless):           13
-❌ KO (Dangerous State):     2 (Project: 1, Vendor: 1)
-⚠️  WARN (Review reset):      0 (Project: 0, Vendor: 0)
+```json
+{
+  "exclude": ["vendor", "var", "src/Entity"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "Twig\\", "IgorPhp\\IgorBundle\\"],
+  "console_path": "bin/console",
+  "env": "dev",
+  "verbose": false
+}
+```
 Time taken: 1.2s
 
 💡 RECOMMENDATIONS:
@@ -196,19 +188,19 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 ```json
 {
   "exclude": ["vendor", "tests", "Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"],
-  "scan_vendors": ["my-company/internal-bundle", "trusted/library"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "IgorPhp\\IgorBundle\\"],
+  "scan_vendors": ["my-company/internal-bundle"],
   "console_path": "bin/console",
-  "env": "prod",
+  "env": "dev",
   "verbose": false
 }
 ```
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
-- **scan_vendors**: List of sub-directories within `vendor/` to scan recursively. Useful for internal bundles that might not be registered as official Symfony services but still run in your process.
+- **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
-- **env**: Symfony environment to use for container analysis. Defaults to `prod`.
+- **env**: Symfony environment to use for container analysis. Defaults to `dev`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
 
 ### Selective Ignoring
