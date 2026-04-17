@@ -72,7 +72,7 @@ if ($argv[1] === 'debug:container') {
 
 func TestSymfonyIntegration(t *testing.T) {
 	tmpDir, servicePath := setupMockSymfonyProject(t)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	t.Run("Bridge should load container and LOCATE files via Reflection", func(t *testing.T) {
 		bridge := NewSymfonyBridge(tmpDir, "bin/console", Config{NoAgent: true})
