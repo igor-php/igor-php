@@ -128,6 +128,8 @@ Igor reads the `require-dev` section of your `composer.json`. When it audits you
 ### 2. Igor Agent (The PHP Bundle)
 The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear your Symfony cache (`php bin/console cache:clear`).
 
+> ⚠️ **Important**: You must run `php bin/console cache:clear` whenever you add or modify services in your Symfony project to ensure the Igor Agent map is up-to-date.
+
 - **What it does**: It iterates through the `ContainerBuilder`, identifies all **Shared Services**, and extracts their class names and IDs.
 - **The Cache**: It writes this information into a small JSON file: `var/cache/<env>/igor_service_map.json`.
 - **The Benefit**: The Go binary reads this file instead of executing the heavy `debug:container` command. This makes the audit launch near-instant and ensures 100% accuracy, even for services added by complex compiler passes or decorators.
