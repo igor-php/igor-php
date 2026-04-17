@@ -233,6 +233,19 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
 - **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\` or `Doctrine\`).
 
+> 💡 **Pro Tip**: If you notice **Entities, DTOs, or Data Models** appearing in the Igor audit, it means they are registered as "Shared Services" in your Symfony container. This is usually a configuration error in your `services.yaml`. You should exclude these directories from autowiring:
+>
+> ```yaml
+> # config/services.yaml
+> services:
+>     App\:
+>         resource: '../src/'
+>         exclude:
+>             - '../src/Entity/'
+>             - '../src/Dto/'
+>             - '../src/Kernel.php'
+> ```
+
 ---
 
 ## 🤖 CI/CD Integration
