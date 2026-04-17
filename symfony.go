@@ -102,30 +102,33 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) bool {
                 filepath.Join(b.Root, "var", "cache", "igor_service_map.json"),
         }
 
+        found := false
         for _, path := range paths {
-                if _, err := os.Stat(path); err != nil {
-                        continue
-                }
+                if _, err := os.Stat(path); err == nil {
+                        found = true
+                        data, err := os.ReadFile(path)
+                        if err != nil {
+                                continue
+                        }
 
-                data, err := os.ReadFile(path)
-                if err != nil {
-                        continue
-                }
+                        var container SymfonyContainer
+                        if err := json.Unmarshal(data, &container); err != nil {
+                                continue
+                        }
 
-                var container SymfonyContainer
-                if err := json.Unmarshal(data, &container); err != nil {
-                        continue
-                }
+                        b.Container = &container
+                        fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
 
-                b.Container = &container
-                fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
-
-                // We still need to locate files because the map only contains classes
-                // Re-serialize to JSON for the reflection helper
-                jsonPart, _ := json.Marshal(container)
-                if err := b.locateFilesViaReflection(string(jsonPart)); err == nil {
-                        return true
+                        jsonPart, _ := json.Marshal(container)
+                        if err := b.locateFilesViaReflection(string(jsonPart)); err == nil {
+                                return true
+                        }
                 }
+        }
+
+        if !found {
+                fmt.Printf("💡 Hint: Igor Agent is not active or cache is missing.\n")
+                fmt.Printf("   Run 'php bin/console cache:clear' to generate the service map and speed up the audit.\n\n")
         }
 
         return false
