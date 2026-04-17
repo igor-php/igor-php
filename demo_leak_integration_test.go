@@ -8,7 +8,7 @@ import (
 
 func TestDemoLeakFeatures(t *testing.T) {
 	root, _ := filepath.Abs("./examples/demo-leak")
-	
+
 	// Ensure we are in the right place
 	if _, err := os.Stat(filepath.Join(root, "composer.json")); err != nil {
 		t.Skip("demo-leak example not found, skipping integration test")
@@ -45,14 +45,14 @@ func TestDemoLeakFeatures(t *testing.T) {
 		cacheDir := filepath.Join(root, "var", "cache", "dev")
 		os.MkdirAll(cacheDir, 0755)
 		mapPath := filepath.Join(cacheDir, "igor_service_map.json")
-		
+
 		mockMap := `{"definitions": {"test.service": {"class": "App\\Service\\StatefulService", "shared": true}}, "aliases": {}}`
 		os.WriteFile(mapPath, []byte(mockMap), 0644)
 		defer os.Remove(mapPath)
 
 		cfg := DefaultConfig()
 		cfg.Env = "dev"
-		
+
 		bridge := NewSymfonyBridge(root, "bin/console", cfg)
 		err := bridge.LoadContainer("dev")
 		if err != nil {

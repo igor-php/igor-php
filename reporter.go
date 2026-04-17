@@ -131,12 +131,12 @@ func (r *Reporter) PrintSummary(results []AuditStatus, projectRoot string) bool 
 	// Detailed Recommendations
 	if totalKO > 0 || totalWarn > 0 {
 		fmt.Println("\n\033[1m💡 RECOMMENDATIONS:\033[0m")
-		
+
 		if projKO > 0 || projWarn > 0 {
 			fmt.Println("  \033[34m[PROJECT]\033[0m Since this is your code, you should refactor these services to be stateless")
 			fmt.Println("            or implement ResetInterface to clear the state between requests.")
 		}
-		
+
 		if vendKO > 0 || vendWarn > 0 {
 			fmt.Println("  \033[33m[VENDOR]\033[0m  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit")
 			fmt.Println("            in your Worker configuration (e.g. FrankenPHP) to mitigate memory leaks.")

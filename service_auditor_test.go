@@ -52,11 +52,11 @@ func TestAuditFixtures(t *testing.T) {
 			contains:       "Property 'prop3' of IncompleteService is mutated but not reset",
 		},
 		{
-		        name:           "Security risks (superglobals & static vars)",
-		        fixture:        "security_risks.php",
-		        expectedErrors: 9, // 8 superglobals + 1 static var
-		        contains:       "$request->query",
-		},		{
+			name:           "Security risks (superglobals & static vars)",
+			fixture:        "security_risks.php",
+			expectedErrors: 9, // 8 superglobals + 1 static var
+			contains:       "$request->query",
+		}, {
 			name:           "Complex mutations (nested & dynamic)",
 			fixture:        "complex_mutations.php",
 			expectedErrors: 2, // Nested + Dynamic (Reference is harder to detect without data flow)
@@ -92,16 +92,17 @@ func TestAuditFixtures(t *testing.T) {
 			}
 
 			if tt.contains != "" && len(findings) > 0 {
-			        found := false
-			        for _, f := range findings {
-			                if strings.Contains(f.Message, tt.contains) || strings.Contains(f.Remediation, tt.contains) {
-			                        found = true
-			                        break
-			                }
-			        }
-			        if !found {
-			                t.Errorf("Expected findings (Message or Remediation) to contain %q", tt.contains)
-			        }
-			}		})
+				found := false
+				for _, f := range findings {
+					if strings.Contains(f.Message, tt.contains) || strings.Contains(f.Remediation, tt.contains) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected findings (Message or Remediation) to contain %q", tt.contains)
+				}
+			}
+		})
 	}
 }

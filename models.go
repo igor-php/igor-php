@@ -22,16 +22,17 @@ type Result struct {
 
 // Config stores linter settings.
 type Config struct {
-        Exclude        []string `json:"exclude"`
-        SafeNamespaces []string `json:"safe_namespaces"`
-        ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively
-        ConsolePath    string   `json:"console_path"`
-        Env            string   `json:"env"`
-        Verbose        bool     `json:"verbose"`
-        NoAgent        bool     `json:"-"` // Skip Igor Agent even if available
-        ProdPackages   []string `json:"-"` // List of require packages from composer.json
-        DevPackages    []string `json:"-"` // List of require-dev packages from composer.json
+	Exclude        []string `json:"exclude"`
+	SafeNamespaces []string `json:"safe_namespaces"`
+	ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively
+	ConsolePath    string   `json:"console_path"`
+	Env            string   `json:"env"`
+	Verbose        bool     `json:"verbose"`
+	NoAgent        bool     `json:"-"` // Skip Igor Agent even if available
+	ProdPackages   []string `json:"-"` // List of require packages from composer.json
+	DevPackages    []string `json:"-"` // List of require-dev packages from composer.json
 }
+
 // SymfonyContainer represents the output of debug:container --format=json.
 type SymfonyContainer struct {
 	Definitions map[string]SymfonyService `json:"definitions"`

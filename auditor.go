@@ -78,7 +78,9 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 	var namespace, className string
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
-		if n == nil { return }
+		if n == nil {
+			return
+		}
 		switch n.Kind() {
 		case "namespace_definition":
 			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
@@ -89,15 +91,21 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 				className = string(content[nameNode.StartByte():nameNode.EndByte()])
 			}
 		}
-		if className != "" { return }
+		if className != "" {
+			return
+		}
 		for i := uint(0); i < n.ChildCount(); i++ {
 			walk(n.Child(i))
 		}
 	}
 	walk(tree.RootNode())
 
-	if className == "" { return "", nil }
-	if namespace == "" { return className, nil }
+	if className == "" {
+		return "", nil
+	}
+	if namespace == "" {
+		return className, nil
+	}
 	return namespace + "\\" + className, nil
 }
 
@@ -121,8 +129,8 @@ func (a *Auditor) isSafeNamespace(className string) bool {
 func (a *Auditor) IsDataPath(path string) bool {
 	dataFolders := []string{"Entity", "DTO", "Dto", "ApiResource", "Migrations", "Document", "tests", "Tests"}
 	for _, folder := range dataFolders {
-		if strings.Contains(path, string(os.PathSeparator)+folder+string(os.PathSeparator)) || 
-		   strings.HasSuffix(filepath.Dir(path), string(os.PathSeparator)+folder) {
+		if strings.Contains(path, string(os.PathSeparator)+folder+string(os.PathSeparator)) ||
+			strings.HasSuffix(filepath.Dir(path), string(os.PathSeparator)+folder) {
 			return true
 		}
 	}
@@ -130,28 +138,27 @@ func (a *Auditor) IsDataPath(path string) bool {
 }
 
 func (a *Auditor) isExplicitlyNonShared(className string) bool {
-        if a.Symfony == nil || a.Symfony.Container == nil {
-                return false
-        }
-        className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
-        for _, def := range a.Symfony.Container.Definitions {
-                if strings.TrimPrefix(def.Class, "\\") == className {
-                        return !def.Shared
-                }
-        }
-        return false
+	if a.Symfony == nil || a.Symfony.Container == nil {
+		return false
+	}
+	className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
+	for _, def := range a.Symfony.Container.Definitions {
+		if strings.TrimPrefix(def.Class, "\\") == className {
+			return !def.Shared
+		}
+	}
+	return false
 }
 
 // IsDevPackagePath returns true if the file path belongs to a dev package in vendor/.
 func (a *Auditor) IsDevPackagePath(path string) bool {
-        // Convert to slash for cross-platform comparison
-        path = filepath.ToSlash(path)
-        for _, pkg := range a.Config.DevPackages {
-                vendorPath := "vendor/" + pkg + "/"
-                if strings.Contains(path, vendorPath) {
-                        return true
-                }
-        }
-        return false
+	// Convert to slash for cross-platform comparison
+	path = filepath.ToSlash(path)
+	for _, pkg := range a.Config.DevPackages {
+		vendorPath := "vendor/" + pkg + "/"
+		if strings.Contains(path, vendorPath) {
+			return true
+		}
+	}
+	return false
 }
-

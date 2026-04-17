@@ -20,9 +20,9 @@ func TestReporter_PrintFindings(t *testing.T) {
 	projectRoot := "/tmp/project"
 
 	tests := []struct {
-		name     string
-		res      AuditStatus
-		expected []string
+		name        string
+		res         AuditStatus
+		expected    []string
 		notExpected []string
 	}{
 		{

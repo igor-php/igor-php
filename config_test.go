@@ -39,28 +39,27 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("Corrupted config file", func(t *testing.T) {
-	        content := `{ invalid json }`
-	        err := os.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
-	        if err != nil {
-	                t.Fatal(err)
-	        }
-	        cfg := LoadConfig(tmpDir)
-	        // Should fallback to default values (from struct initialization in LoadConfig)
-	        if len(cfg.Exclude) != 0 {
-	                t.Errorf("Expected 0 default excludes on parse error, got %d", len(cfg.Exclude))
-	        }
+		content := `{ invalid json }`
+		err := os.WriteFile(filepath.Join(tmpDir, "igor.json"), []byte(content), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := LoadConfig(tmpDir)
+		// Should fallback to default values (from struct initialization in LoadConfig)
+		if len(cfg.Exclude) != 0 {
+			t.Errorf("Expected 0 default excludes on parse error, got %d", len(cfg.Exclude))
+		}
 	})
 
 	t.Run("Composer dev integration", func(t *testing.T) {
-	        composerContent := `{"require-dev": {"phpunit/phpunit": "^11.0"}}`
-	        err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte(composerContent), 0644)
-	        if err != nil {
-	                t.Fatal(err)
-	        }
-	        cfg := LoadConfig(tmpDir)
-	        if len(cfg.DevPackages) != 1 || cfg.DevPackages[0] != "phpunit/phpunit" {
-	                t.Errorf("Expected 'phpunit/phpunit' in dev packages, got %v", cfg.DevPackages)
-	        }
+		composerContent := `{"require-dev": {"phpunit/phpunit": "^11.0"}}`
+		err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte(composerContent), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := LoadConfig(tmpDir)
+		if len(cfg.DevPackages) != 1 || cfg.DevPackages[0] != "phpunit/phpunit" {
+			t.Errorf("Expected 'phpunit/phpunit' in dev packages, got %v", cfg.DevPackages)
+		}
 	})
-	}
-
+}

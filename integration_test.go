@@ -22,9 +22,15 @@ func TestSymfonyIntegration(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 	vendorDir := filepath.Join(tmpDir, "vendor")
 	srcDir := filepath.Join(tmpDir, "src", "Service")
-	if err := os.MkdirAll(binDir, 0755); err != nil { t.Fatal(err) }
-	if err := os.MkdirAll(vendorDir, 0755); err != nil { t.Fatal(err) }
-	if err := os.MkdirAll(srcDir, 0755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(vendorDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	// 2. Create a dummy service file
 	serviceContent := `<?php
@@ -87,7 +93,7 @@ if ($argv[1] === 'debug:container') {
 		if !found {
 			t.Fatal("Expected App\\Service\\MyService to be located via reflection")
 		}
-		
+
 		// Evaluate symlinks to handle /private/var on macOS
 		realServicePath, _ := filepath.EvalSymlinks(servicePath)
 		realLocatedPath, _ := filepath.EvalSymlinks(filePath)
@@ -99,9 +105,13 @@ if ($argv[1] === 'debug:container') {
 
 	t.Run("Bridge should support custom console path", func(t *testing.T) {
 		customBinDir := filepath.Join(tmpDir, "app")
-		if err := os.MkdirAll(customBinDir, 0755); err != nil { t.Fatal(err) }
+		if err := os.MkdirAll(customBinDir, 0755); err != nil {
+			t.Fatal(err)
+		}
 		customConsole := filepath.Join(customBinDir, "console")
-		if err := os.Rename(filepath.Join(binDir, "console"), customConsole); err != nil { t.Fatal(err) }
+		if err := os.Rename(filepath.Join(binDir, "console"), customConsole); err != nil {
+			t.Fatal(err)
+		}
 
 		bridge := NewSymfonyBridge(tmpDir, "app/console", Config{NoAgent: true})
 		err := bridge.LoadContainer("prod")
@@ -115,21 +125,23 @@ if ($argv[1] === 'debug:container') {
 	})
 
 	t.Run("Auditor should correctly audit the mocked service", func(t *testing.T) {
-	        cfg := Config{}
-	        auditor := NewAuditor(cfg)
+		cfg := Config{}
+		auditor := NewAuditor(cfg)
 
-	        findings, err := auditor.Audit(servicePath)
-	        if err != nil {
-	                t.Fatalf("Audit failed: %v", err)
-	        }
+		findings, err := auditor.Audit(servicePath)
+		if err != nil {
+			t.Fatalf("Audit failed: %v", err)
+		}
 
-	        if len(findings) == 0 {
-	                t.Error("Expected 1 finding for stateful service, got 0")
-	        }
+		if len(findings) == 0 {
+			t.Error("Expected 1 finding for stateful service, got 0")
+		}
 	})
-		t.Run("Bridge should prioritize Igor Agent service map", func(t *testing.T) {
+	t.Run("Bridge should prioritize Igor Agent service map", func(t *testing.T) {
 		cacheDir := filepath.Join(tmpDir, "var", "cache", "test")
-		if err := os.MkdirAll(cacheDir, 0755); err != nil { t.Fatal(err) }
+		if err := os.MkdirAll(cacheDir, 0755); err != nil {
+			t.Fatal(err)
+		}
 
 		mapContent := `{
 		        "definitions": {
@@ -142,22 +154,21 @@ if ($argv[1] === 'debug:container') {
 		        "aliases": {}
 		}`
 		if err := os.WriteFile(filepath.Join(cacheDir, "igor_service_map.json"), []byte(mapContent), 0644); err != nil {
-		        t.Fatal(err)
+			t.Fatal(err)
 		}
 
 		bridge := NewSymfonyBridge(tmpDir, "bin/console", Config{})
 		err := bridge.LoadContainer("test")
 		if err != nil {
-		        t.Fatalf("LoadContainer failed: %v", err)
+			t.Fatalf("LoadContainer failed: %v", err)
 		}
 
 		if _, found := bridge.Container.Definitions["agent.service"]; !found {
-		        t.Error("Expected service map to be loaded from Agent")
+			t.Error("Expected service map to be loaded from Agent")
 		}
 
 		if _, found := bridge.ClassToFile["App\\Service\\MyService"]; !found {
-		        t.Error("Reflection should still work with Agent map")
+			t.Error("Reflection should still work with Agent map")
 		}
-		})
-		}
-
+	})
+}

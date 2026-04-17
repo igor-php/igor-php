@@ -16,22 +16,23 @@ var phpHelperScript []byte
 
 // SymfonyBridge handles all interactions with the Symfony Framework.
 type SymfonyBridge struct {
-        Root        string
-        ConsolePath string
-        Config      Config
-        Container   *SymfonyContainer
-        ClassToFile map[string]string
+	Root        string
+	ConsolePath string
+	Config      Config
+	Container   *SymfonyContainer
+	ClassToFile map[string]string
 }
 
 // NewSymfonyBridge creates a new bridge for a given project root.
 func NewSymfonyBridge(root string, consolePath string, config Config) *SymfonyBridge {
-        return &SymfonyBridge{
-                Root:        root,
-                ConsolePath: consolePath,
-                Config:      config,
-                ClassToFile: make(map[string]string),
-        }
+	return &SymfonyBridge{
+		Root:        root,
+		ConsolePath: consolePath,
+		Config:      config,
+		ClassToFile: make(map[string]string),
+	}
 }
+
 // DetectSymfony attempts to find a Symfony project and initialize the bridge.
 func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 	projectRoot := rootPath
@@ -66,80 +67,81 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 
 // LoadContainer fetches definitions and locates files via PHP Reflection in the configured environment.
 func (b *SymfonyBridge) LoadContainer(env string) error {
-        // 1. Try to load from Igor Agent map first (faster, no container boot)
-        if b.tryLoadFromAgent(env) {
-                return nil
-        }
+	// 1. Try to load from Igor Agent map first (faster, no container boot)
+	loaded, err := b.tryLoadFromAgent(env)
+	if err != nil {
+		return err
+	}
+	if loaded {
+		return nil
+	}
 
-        // 2. Fallback to debug:container
-        consolePath := filepath.Join(b.Root, b.ConsolePath)
-        cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env="+env, "--no-debug")
-        output, err := cmd.CombinedOutput()
-        if err != nil {
-                return fmt.Errorf("failed to execute debug:container: %v", err)
-        }
+	// 2. Fallback to debug:container
+	consolePath := filepath.Join(b.Root, b.ConsolePath)
+	cmd := exec.Command("php", consolePath, "debug:container", "--format=json", "--show-hidden", "--env="+env, "--no-debug")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to execute debug:container: %v", err)
+	}
 
-        strOutput := string(output)
-        start := strings.Index(strOutput, "{")
-        end := strings.LastIndex(strOutput, "}")
-        if start == -1 || end == -1 || end < start {
-                return fmt.Errorf("could not find a valid JSON object in Symfony output (check if your %s environment is valid)", env)
-        }
-        jsonPart := strOutput[start : end+1]
+	strOutput := string(output)
+	start := strings.Index(strOutput, "{")
+	end := strings.LastIndex(strOutput, "}")
+	if start == -1 || end == -1 || end < start {
+		return fmt.Errorf("could not find a valid JSON object in Symfony output (check if your %s environment is valid)", env)
+	}
+	jsonPart := strOutput[start : end+1]
 
-        var container SymfonyContainer
-        if err := json.Unmarshal([]byte(jsonPart), &container); err != nil {
-                return fmt.Errorf("failed to parse Symfony container JSON: %v", err)
-        }
-        b.Container = &container
+	var container SymfonyContainer
+	if err := json.Unmarshal([]byte(jsonPart), &container); err != nil {
+		return fmt.Errorf("failed to parse Symfony container JSON: %v", err)
+	}
+	b.Container = &container
 
-        // 3. Locate files
-        return b.locateFilesViaReflection(jsonPart)
+	// 3. Locate files
+	return b.locateFilesViaReflection(jsonPart)
 }
 
-func (b *SymfonyBridge) tryLoadFromAgent(env string) bool {
-        if b.Config.NoAgent {
-                return false
-        }
+func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
+	if b.Config.NoAgent {
+		return false, nil
+	}
 
-        // Possible paths for the agent map
-        paths := []string{
-                filepath.Join(b.Root, "var", "cache", env, "igor_service_map.json"),
-                filepath.Join(b.Root, "var", "cache", "igor_service_map.json"),
-        }
+	// Possible paths for the agent map
+	paths := []string{
+		filepath.Join(b.Root, "var", "cache", env, "igor_service_map.json"),
+		filepath.Join(b.Root, "var", "cache", "igor_service_map.json"),
+	}
 
-        found := false
-        for _, path := range paths {
-                if _, err := os.Stat(path); err == nil {
-                        found = true
-                        data, err := os.ReadFile(path)
-                        if err != nil {
-                                continue
-                        }
+	found := false
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			found = true
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
 
-                        var container SymfonyContainer
-                        if err := json.Unmarshal(data, &container); err != nil {
-                                continue
-                        }
+			var container SymfonyContainer
+			if err := json.Unmarshal(data, &container); err != nil {
+				continue
+			}
 
-                        b.Container = &container
-                        fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
+			b.Container = &container
+			fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
 
-                        jsonPart, _ := json.Marshal(container)
-                        if err := b.locateFilesViaReflection(string(jsonPart)); err == nil {
-                                return true
-                        }
-                }
-        }
+			jsonPart, _ := json.Marshal(container)
+			if err := b.locateFilesViaReflection(string(jsonPart)); err == nil {
+				return true, nil
+			}
+		}
+	}
 
-        if !found {
-                fmt.Printf("❌ Error: Igor Agent map not found (var/cache/%s/igor_service_map.json).\n", env)
-                fmt.Printf("   To ensure 100%% accuracy, please run 'php bin/console cache:clear' first.\n")
-                fmt.Printf("   If you want to perform a less precise scan without the agent, use the --no-agent flag.\n")
-                os.Exit(1)
-        }
+	if !found {
+		return false, fmt.Errorf("Igor Agent map not found (var/cache/%s/igor_service_map.json).\n   To ensure 100%% accuracy, please run 'php bin/console cache:clear' first.\n   If you want to perform a less precise scan without the agent, use the --no-agent flag", env)
+	}
 
-        return false
+	return false, nil
 }
 func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 	tmpHelper, err := os.CreateTemp("", "igor_helper_*.php")
@@ -158,7 +160,7 @@ func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 
 	reflectCmd := exec.Command("php", tmpHelper.Name(), b.Root)
 	reflectCmd.Stdin = bytes.NewReader([]byte(jsonPart))
-	
+
 	reflectOutput, err := reflectCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to locate files via reflection: %v", err)
