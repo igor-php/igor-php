@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -110,6 +111,18 @@ func (a *Auditor) isSafeNamespace(className string) bool {
 	className = strings.TrimPrefix(className, "\\")
 	for _, ns := range a.Config.SafeNamespaces {
 		if strings.HasPrefix(className, strings.TrimPrefix(ns, "\\")) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDataPath returns true if the file path belongs to a directory that usually contains only data (Entity, DTO, etc.)
+func (a *Auditor) IsDataPath(path string) bool {
+	dataFolders := []string{"Entity", "DTO", "Dto", "ApiResource", "Migrations", "Document", "tests", "Tests"}
+	for _, folder := range dataFolders {
+		if strings.Contains(path, string(os.PathSeparator)+folder+string(os.PathSeparator)) || 
+		   strings.HasSuffix(filepath.Dir(path), string(os.PathSeparator)+folder) {
 			return true
 		}
 	}

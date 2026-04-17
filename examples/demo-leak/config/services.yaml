@@ -1,0 +1,10 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: true # FORCE Symfony to reveal every single class as a standalone service
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/Kernel.php'

@@ -1,0 +1,4 @@
+{
+  "exclude": ["vendor", "var"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\"]
+}

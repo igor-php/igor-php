@@ -14,18 +14,18 @@ type mutationInfo struct {
 
 // PHPVisitor analyzes a single PHP file using tree-sitter.
 type PHPVisitor struct {
-	content   []byte
-	lines     []string
-	findings  []Finding
-	curClass  string
-	namespace string
-	curMethod string
-	isReset   bool
+	content         []byte
+	lines           []string
+	findings        []Finding
+	curClass        string
+	namespace       string
+	curMethod       string
+	isReset         bool
 	isReadonlyClass bool
-	readonlyProps map[string]bool
-	mutated   map[string]mutationInfo
-	resetted  map[string]bool
-	auditor   *Auditor
+	readonlyProps   map[string]bool
+	mutated         map[string]mutationInfo
+	resetted        map[string]bool
+	auditor         *Auditor
 }
 
 func (v *PHPVisitor) walk(n *sitter.Node) {
@@ -90,7 +90,7 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	if v.namespace != "" {
 		fullName = v.namespace + "\\" + v.curClass
 	}
-	
+
 	if v.auditor != nil {
 		v.auditor.recordClassAudited(fullName)
 	}
@@ -180,14 +180,21 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 }
 
 func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
-	nameNode := n.ChildByFieldName("name")
+	nameNode := n.ChildByFieldName("function")
+	if nameNode == nil {
+		nameNode = n.ChildByFieldName("name")
+	}
+
 	if nameNode == nil {
 		return
 	}
 
 	name := strings.ToLower(v.getContent(nameNode))
-	if name == "die" || name == "exit" {
-		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
+	switch name {
+	case "date_default_timezone_set", "ini_set", "setlocale", "error_reporting", "putenv":
+		msg := fmt.Sprintf("Function '%s' modifies the global PHP process state.", name)
+		hint := "This change will persist across requests in Worker mode and might affect other users."
+		v.addFinding(n, msg, hint, "WARNING")
 	}
 }
 
