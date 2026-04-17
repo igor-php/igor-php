@@ -42,6 +42,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 	})
 
 	t.Run("Agent Detection in demo-leak", func(t *testing.T) {
+		// 1. Mock Agent Map
 		cacheDir := filepath.Join(root, "var", "cache", "dev")
 		os.MkdirAll(cacheDir, 0755)
 		mapPath := filepath.Join(cacheDir, "igor_service_map.json")
@@ -50,10 +51,25 @@ func TestDemoLeakFeatures(t *testing.T) {
 		os.WriteFile(mapPath, []byte(mockMap), 0644)
 		defer os.Remove(mapPath)
 
+		// 2. Mock vendor/autoload.php (needed for reflection even with agent)
+		vendorDir := filepath.Join(root, "vendor")
+		os.MkdirAll(vendorDir, 0755)
+		autoloadPath := filepath.Join(vendorDir, "autoload.php")
+		// Correct path for StatefulService relative to demo-leak root is src/Service/StatefulService.php
+		autoloadContent := `<?php
+spl_autoload_register(function ($class) {
+    if ($class === 'App\\Service\\StatefulService') {
+        require_once __DIR__ . '/../src/Service/StatefulService.php';
+    }
+});`
+		os.WriteFile(autoloadPath, []byte(autoloadContent), 0644)
+		defer os.Remove(autoloadPath)
+
 		cfg := DefaultConfig()
 		cfg.Env = "dev"
 
 		bridge := NewSymfonyBridge(root, "bin/console", cfg)
+
 		err := bridge.LoadContainer("dev")
 		if err != nil {
 			t.Fatalf("Failed to load container: %v", err)

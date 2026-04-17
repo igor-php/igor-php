@@ -131,9 +131,10 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 			fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
 
 			jsonPart, _ := json.Marshal(container)
-			if err := b.locateFilesViaReflection(string(jsonPart)); err == nil {
-				return true, nil
+			if err := b.locateFilesViaReflection(string(jsonPart)); err != nil {
+				return false, err
 			}
+			return true, nil
 		}
 	}
 
