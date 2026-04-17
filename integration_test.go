@@ -115,16 +115,49 @@ if ($argv[1] === 'debug:container') {
 	})
 
 	t.Run("Auditor should correctly audit the mocked service", func(t *testing.T) {
-		cfg := Config{}
-		auditor := NewAuditor(cfg)
-		
-		findings, err := auditor.Audit(servicePath)
-		if err != nil {
-			t.Fatalf("Audit failed: %v", err)
+	        cfg := Config{}
+	        auditor := NewAuditor(cfg)
+
+	        findings, err := auditor.Audit(servicePath)
+	        if err != nil {
+	                t.Fatalf("Audit failed: %v", err)
+	        }
+
+	        if len(findings) == 0 {
+	                t.Error("Expected 1 finding for stateful service, got 0")
+	        }
+	})
+		t.Run("Bridge should prioritize Igor Agent service map", func(t *testing.T) {
+		cacheDir := filepath.Join(tmpDir, "var", "cache", "test")
+		if err := os.MkdirAll(cacheDir, 0755); err != nil { t.Fatal(err) }
+
+		mapContent := `{
+		        "definitions": {
+		                "agent.service": {
+		                        "class": "App\\Service\\MyService",
+		                        "public": true,
+		                        "shared": true
+		                }
+		        },
+		        "aliases": {}
+		}`
+		if err := os.WriteFile(filepath.Join(cacheDir, "igor_service_map.json"), []byte(mapContent), 0644); err != nil {
+		        t.Fatal(err)
 		}
 
-		if len(findings) == 0 {
-			t.Error("Expected 1 finding for stateful service, got 0")
+		bridge := NewSymfonyBridge(tmpDir, "bin/console")
+		err := bridge.LoadContainer("test")
+		if err != nil {
+		        t.Fatalf("LoadContainer failed: %v", err)
 		}
-	})
-}
+
+		if _, found := bridge.Container.Definitions["agent.service"]; !found {
+		        t.Error("Expected service map to be loaded from Agent")
+		}
+
+		if _, found := bridge.ClassToFile["App\\Service\\MyService"]; !found {
+		        t.Error("Reflection should still work with Agent map")
+		}
+		})
+		}
+
