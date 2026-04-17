@@ -145,6 +145,25 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	processedFiles := make(map[string]bool)
 
 	// --- STEP 1: Scan local project files ---
+	auditList = append(auditList, collectLocalFiles(rootPath, config, auditor, processedFiles)...)
+
+	// --- STEP 2: Add shared services from vendors (via Symfony) ---
+	if auditor.Symfony != nil {
+		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
+		auditList = append(auditList, collectSymfonyServices(config, auditor, processedFiles)...)
+	}
+
+	// --- STEP 3: Forced Vendor Scan ---
+	if len(config.ScanVendors) > 0 {
+		fmt.Println("🔍 Forced Vendor Scan: Auditing specific vendor paths...")
+		auditList = append(auditList, collectForcedVendorFiles(rootPath, config, processedFiles)...)
+	}
+
+	return auditList
+}
+
+func collectLocalFiles(rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
+	var list []AuditStatus
 	_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 			return nil
@@ -161,73 +180,71 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 		if auditor.IsDataPath(path) {
 			return nil
 		}
-		auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
-		processedFiles[path] = true
+		list = append(list, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+		processed[path] = true
 		return nil
 	})
+	return list
+}
 
-	// --- STEP 2: Add shared services from vendors (via Symfony) ---
-	if auditor.Symfony != nil {
-		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
-		for id, def := range auditor.Symfony.Container.Definitions {
-			if strings.HasPrefix(id, ".errored.") {
-				if config.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
-				}
-				continue
+func collectSymfonyServices(config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
+	var list []AuditStatus
+	for id, def := range auditor.Symfony.Container.Definitions {
+		if strings.HasPrefix(id, ".errored.") {
+			if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
 			}
-			if !def.Shared {
-				if config.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
-				}
-				continue
+			continue
+		}
+		if !def.Shared {
+			if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
 			}
-			if def.Class == "" {
-				if config.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': no class defined\n", id)
-				}
-				continue
+			continue
+		}
+		if def.Class == "" {
+			if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped service '%s': no class defined\n", id)
 			}
+			continue
+		}
+		if auditor.isSafeNamespace(def.Class) {
+			if config.Verbose {
+				fmt.Printf("  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
+			}
+			continue
+		}
 
-			if auditor.isSafeNamespace(def.Class) {
-				if config.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
-				}
-				continue
-			}
-
-			if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
-				if !processedFiles[path] {
-					auditList = append(auditList, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
-					processedFiles[path] = true
-				} else if config.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
-				}
+		if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
+			if !processed[path] {
+				list = append(list, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
+				processed[path] = true
 			} else if config.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
+				fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
 			}
+		} else if config.Verbose {
+			fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
 		}
 	}
+	return list
+}
 
-	// --- STEP 3: Forced Vendor Scan ---
-	if len(config.ScanVendors) > 0 {
-		fmt.Println("🔍 Forced Vendor Scan: Auditing specific vendor paths...")
-		for _, vendorSubPath := range config.ScanVendors {
-			fullVendorPath := filepath.Join(rootPath, "vendor", vendorSubPath)
-			_ = filepath.Walk(fullVendorPath, func(path string, info os.FileInfo, err error) error {
-				if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
-					return nil
-				}
-				if !processedFiles[path] {
-					auditList = append(auditList, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
-					processedFiles[path] = true
-				}
+func collectForcedVendorFiles(rootPath string, config Config, processed map[string]bool) []AuditStatus {
+	var list []AuditStatus
+	for _, vendorSubPath := range config.ScanVendors {
+		fullVendorPath := filepath.Join(rootPath, "vendor", vendorSubPath)
+		_ = filepath.Walk(fullVendorPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 				return nil
-			})
-		}
+			}
+			if !processed[path] {
+				list = append(list, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+				processed[path] = true
+			}
+			return nil
+		})
 	}
-
-	return auditList
+	return list
 }
 
 func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditStatus {
