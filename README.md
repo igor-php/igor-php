@@ -38,6 +38,30 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 composer require --dev igor-php/igor-php
 ```
 
+### Enable the Symfony Bundle (Optional but Recommended)
+To make Igor even more reliable, you can enable the embedded PHP bundle. It generates a precise service map directly from your container, which Igor Go will use to audit your services.
+
+Add the bundle to your `config/bundles.php`:
+
+```php
+return [
+    // ...
+    IgorPhp\IgorBundle\IgorPhpBundle::class => ['dev' => true, 'test' => true],
+];
+```
+
+Or manually in your `Kernel.php`:
+
+```php
+public function registerBundles(): iterable
+{
+    // ...
+    if ($this->getEnvironment() === 'dev') {
+        yield new IgorPhp\IgorBundle\IgorPhpBundle();
+    }
+}
+```
+
 ### Via Go
 ```bash
 go install github.com/igor-php/igor-php@latest
@@ -85,37 +109,67 @@ Want to understand why Igor is vital for your Worker environment? Check these re
 We've built an **interactive laboratory** using Symfony and FrankenPHP. You can run it locally with Docker and see the memory leaks with your own eyes.
 
 [**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
-
 ---
 
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
 
 1.  **Level 1: Project Code (Recursive Scan)**: Igor scans all PHP files in your project directory (excluding `vendor`, `var`, `tests`, etc.). This ensures that even if Symfony "inlines" or "hides" a service for optimization, Igor will still find and audit it.
-2.  **Level 2: Trusted Vendors (Recursive Scan)**: By using the `scan_vendors` configuration, you can force a full recursive scan of specific vendor directories (like your company's internal bundles).
-3.  **Level 3: Global Ecosystem (Smart Scan)**: Igor queries the Symfony Service Container to identify all other active shared services in the `vendor/` directory. This covers the "long tail" of third-party dependencies without the performance hit of scanning tens of thousands of files.
+2.  **Level 2: Smart Filtering (Composer)**: Igor automatically parses your `composer.json` to identify packages in `require-dev`. It will automatically exclude any service originating from these packages to reduce noise and focus only on production-ready code.
+3.  **Level 3: Igor Agent (Embedded Bundle)**: By enabling the optional PHP bundle, Igor becomes "infallible". The bundle hooks into the Symfony compilation process to export the exact map of all active shared services.
 
-### Example Output
-```text
---- 📂 PROJECT SERVICES ---
+---
 
-📂 src/Service/MyService.php
-  [PROJECT] ❌ Mutation of state 'cache' in MyService::getData().
-  42 | $this->cache = $result;
-  💡 Hint: State mutations persist across requests in Worker mode.
+## 🧠 How it Works
 
---- 📦 VENDOR SERVICES (THIRD-PARTY) ---
+### 1. Smart Filtering
+Igor reads the `require-dev` section of your `composer.json`. When it audits your Symfony container, it checks the physical path of each service. If a service is located inside a `vendor/` directory belonging to a dev package (like `phpunit/phpunit` or `symfony/maker-bundle`), Igor will automatically skip it.
 
-📂 vendor/acme/bundle/Service.php
-  [VENDOR] ❌ Mutation of state 'static::$globalCache' in ::()
-  20 | self::$globalCache = "value";
-  💡 Hint: State mutations persist across requests in Worker mode.
+### 2. Igor Agent (The PHP Bundle)
+The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear your Symfony cache (`php bin/console cache:clear`).
 
---- 🏁 DEEP AUDIT COMPLETE ---
-Total unique service files: 15
-✅ OK (Stateless):           13
-❌ KO (Dangerous State):     2 (Project: 1, Vendor: 1)
-⚠️  WARN (Review reset):      0 (Project: 0, Vendor: 0)
+> ⚠️ **Important**: You must run `php bin/console cache:clear` whenever you add or modify services in your Symfony project to ensure the Igor Agent map is up-to-date.
+
+- **What it does**: It iterates through the `ContainerBuilder`, identifies all **Shared Services**, and extracts their class names and IDs.
+- **The Cache**: It writes this information into a small JSON file: `var/cache/<env>/igor_service_map.json`.
+- **The Benefit**: The Go binary reads this file instead of executing the heavy `debug:container` command. This makes the audit launch near-instant and ensures 100% accuracy, even for services added by complex compiler passes or decorators.
+
+#### Example `igor_service_map.json`:
+```json
+{
+    "definitions": {
+        "app.mail_service": {
+            "class": "App\\Service\\MailService",
+            "public": true,
+            "shared": true
+        },
+        "logger": {
+            "class": "Monolog\\Logger",
+            "public": true,
+            "shared": true
+        }
+    },
+    "aliases": {
+        "Psr\\Log\\LoggerInterface": "logger"
+    }
+}
+```
+
+---
+
+## ⚙️ Configuration
+
+You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
+
+```json
+{
+  "exclude": ["vendor", "var", "src/Entity"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "Twig\\", "IgorPhp\\IgorBundle\\"],
+  "console_path": "bin/console",
+  "env": "dev",
+  "verbose": false
+}
+```
 Time taken: 1.2s
 
 💡 RECOMMENDATIONS:
@@ -134,19 +188,19 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 ```json
 {
   "exclude": ["vendor", "tests", "Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "My\\Safe\\Namespace\\"],
-  "scan_vendors": ["my-company/internal-bundle", "trusted/library"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "IgorPhp\\IgorBundle\\"],
+  "scan_vendors": ["my-company/internal-bundle"],
   "console_path": "bin/console",
-  "env": "prod",
+  "env": "dev",
   "verbose": false
 }
 ```
 
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
-- **scan_vendors**: List of sub-directories within `vendor/` to scan recursively. Useful for internal bundles that might not be registered as official Symfony services but still run in your process.
+- **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
-- **env**: Symfony environment to use for container analysis. Defaults to `prod`.
+- **env**: Symfony environment to use for container analysis. Defaults to `dev`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
 
 ### Selective Ignoring
@@ -170,6 +224,19 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **♻️ Non-shared (Prototype)**: Services marked as `shared: false` are recreated on every request and don't persist state between workers. They are safe by design.
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
 - **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\` or `Doctrine\`).
+
+> 💡 **Pro Tip**: If you notice **Entities, DTOs, or Data Models** appearing in the Igor audit, it means they are registered as "Shared Services" in your Symfony container. This is usually a configuration error in your `services.yaml`. You should exclude these directories from autowiring:
+>
+> ```yaml
+> # config/services.yaml
+> services:
+>     App\:
+>         resource: '../src/'
+>         exclude:
+>             - '../src/Entity/'
+>             - '../src/Dto/'
+>             - '../src/Kernel.php'
+> ```
 
 ---
 

@@ -53,9 +53,9 @@ if ($argv[1] === 'debug:container') {
 	config := DefaultConfig()
 	config.Verbose = true
 	auditor := NewAuditor(config)
-	
+
 	// We need a Symfony bridge to simulate deep audit
-	sb := NewSymfonyBridge(tmpDir, "bin/console")
+	sb := NewSymfonyBridge(tmpDir, "bin/console", Config{NoAgent: true})
 	// Mock the container loading to avoid actual PHP execution issues in this test environment
 	_ = sb.LoadContainer("prod")
 	auditor.Symfony = sb

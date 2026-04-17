@@ -50,4 +50,16 @@ func TestLoadConfig(t *testing.T) {
 			t.Errorf("Expected 0 default excludes on parse error, got %d", len(cfg.Exclude))
 		}
 	})
+
+	t.Run("Composer dev integration", func(t *testing.T) {
+		composerContent := `{"require-dev": {"phpunit/phpunit": "^11.0"}}`
+		err := os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte(composerContent), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := LoadConfig(tmpDir)
+		if len(cfg.DevPackages) != 1 || cfg.DevPackages[0] != "phpunit/phpunit" {
+			t.Errorf("Expected 'phpunit/phpunit' in dev packages, got %v", cfg.DevPackages)
+		}
+	})
 }
