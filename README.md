@@ -38,6 +38,30 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 composer require --dev igor-php/igor-php
 ```
 
+### Enable the Symfony Bundle (Optional but Recommended)
+To make Igor even more reliable, you can enable the embedded PHP bundle. It generates a precise service map directly from your container, which Igor Go will use to audit your services.
+
+Add the bundle to your `config/bundles.php`:
+
+```php
+return [
+    // ...
+    KevinMartinsDev\IgorPhp\IgorPhpBundle::class => ['dev' => true, 'test' => true],
+];
+```
+
+Or manually in your `Kernel.php`:
+
+```php
+public function registerBundles(): iterable
+{
+    // ...
+    if ($this->getEnvironment() === 'dev') {
+        yield new KevinMartinsDev\IgorPhp\IgorPhpBundle();
+    }
+}
+```
+
 ### Via Go
 ```bash
 go install github.com/igor-php/igor-php@latest
