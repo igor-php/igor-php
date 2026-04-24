@@ -39,8 +39,8 @@ jobs:
       
       - name: Install Labs Dependencies
         run: |
-          cd examples/demo-leak-symfony && composer install --no-interaction --no-progress --quiet
-          cd examples/demo-leak-laravel && composer install --no-interaction --no-progress --quiet
+          (cd examples/demo-leak-symfony && composer install --no-interaction --no-progress --quiet)
+          (cd examples/demo-leak-laravel && composer install --no-interaction --no-progress --quiet)
 
       - name: Run Tests
         run: go test -v ./...
