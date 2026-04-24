@@ -34,7 +34,13 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: '8.4'
+          extensions: pcntl, zip
       
+      - name: Install Labs Dependencies
+        run: |
+          cd examples/demo-leak && composer install --no-interaction --no-progress --quiet
+          cd examples/demo-leak-laravel && composer install --no-interaction --no-progress --quiet
+
       - name: Run Tests
         run: go test -v ./...
