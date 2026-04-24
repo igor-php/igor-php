@@ -22,6 +22,7 @@ type Result struct {
 
 // Config stores linter settings.
 type Config struct {
+	Paths          []string `json:"paths"`
 	Exclude        []string `json:"exclude"`
 	SafeNamespaces []string `json:"safe_namespaces"`
 	ScanVendors    []string `json:"scan_vendors"` // New: paths in vendor/ to scan recursively

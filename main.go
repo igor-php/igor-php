@@ -21,8 +21,8 @@ func main() {
 	auditor := NewAuditor(config)
 	reporter := NewReporter()
 
-	// 2. Detect Framework (default: Symfony)
-	bridge, err := DetectSymfony(rootPath, config)
+	// 2. Detect Framework (Strategy)
+	bridge, err := DetectFramework(rootPath, config)
 	if err != nil {
 		fmt.Printf("❌ Error: %v\n", err)
 		os.Exit(1)
@@ -56,8 +56,9 @@ func main() {
 
 func parseFlagsAndInit() (Config, string, bool) {
 	versionFlag := flag.Bool("version", false, "Display version information")
-	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
-	envFlag := flag.String("env", "", "Symfony environment (default: dev)")
+	consoleFlag := flag.String("console", "", "Custom path to console (e.g. bin/console or artisan)")
+	pathsFlag := flag.String("paths", "", "Comma-separated list of directories to scan")
+	envFlag := flag.String("env", "", "Environment (default: dev/prod)")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
 	noAgentFlag := flag.Bool("no-agent", false, "Disable Igor Agent and fallback to standard scan")
 
@@ -104,6 +105,9 @@ func parseFlagsAndInit() (Config, string, bool) {
 	config := LoadConfig(rootPath)
 	if *consoleFlag != "" {
 		config.ConsolePath = *consoleFlag
+	}
+	if *pathsFlag != "" {
+		config.Paths = strings.Split(*pathsFlag, ",")
 	}
 	if *envFlag != "" {
 		config.Env = *envFlag
@@ -159,10 +163,28 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	var auditList []AuditStatus
 	processedFiles := make(map[string]bool)
 
-	// --- STEP 1: Scan local project files ---
-	auditList = append(auditList, collectLocalFiles(rootPath, config, auditor, processedFiles)...)
+	// --- STEP 1: Determine scan paths ---
+	pathsToScan := config.Paths
+	if len(pathsToScan) == 0 {
+		if auditor.Framework != nil {
+			if auditor.Framework.GetName() == "Laravel" {
+				pathsToScan = []string{"app"}
+			} else if auditor.Framework.GetName() == "Symfony" {
+				pathsToScan = []string{"src"}
+			}
+		}
+		if len(pathsToScan) == 0 {
+			pathsToScan = []string{"."}
+		}
+	}
 
-	// --- STEP 2: Add shared services from vendors (via Framework) ---
+	// --- STEP 2: Scan local project files ---
+	for _, p := range pathsToScan {
+		fullPath := filepath.Join(rootPath, p)
+		auditList = append(auditList, collectLocalFiles(fullPath, rootPath, config, auditor, processedFiles)...)
+	}
+
+	// --- STEP 3: Add shared services from vendors (via Framework) ---
 	if auditor.Framework != nil {
 		fmt.Printf("🎯 %s detected: Auditing shared services from vendors...\n", auditor.Framework.GetName())
 		auditList = append(auditList, collectFrameworkServices(config, auditor, processedFiles)...)
@@ -177,9 +199,9 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	return auditList
 }
 
-func collectLocalFiles(rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
+func collectLocalFiles(scanPath string, rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
 	var list []AuditStatus
-	_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(scanPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 			return nil
 		}
@@ -320,4 +342,27 @@ func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditSta
 	}()
 
 	return resultsChan
+}
+
+// DetectFramework attempts to identify the project framework and returns the appropriate bridge.
+func DetectFramework(rootPath string, config Config) (FrameworkBridge, error) {
+	// Try Laravel first (via artisan)
+	lb, err := DetectLaravel(rootPath, config)
+	if err != nil {
+		return nil, err
+	}
+	if lb != nil {
+		return lb, nil
+	}
+
+	// Fallback to Symfony (via bin/console)
+	sb, err := DetectSymfony(rootPath, config)
+	if err != nil {
+		return nil, err
+	}
+	if sb != nil {
+		return sb, nil
+	}
+
+	return nil, nil
 }

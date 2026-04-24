@@ -14,13 +14,28 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 ## ✨ Highlights
 
 - **⚡ Lightning Fast**: Scans hundreds of files in milliseconds using Go's native multi-threading.
-- **🔍 Deep Audit**: Automatically detects Symfony projects and audits **every shared service** defined in the container, including those in `vendor/` and external bundles.
+- **🔌 Framework Agnostic**: Native support for **Symfony** and **Laravel Octane**.
 - **🎯 Surgical Precision**: Detects complex state mutations (`$this->prop[]`, `static::$prop`, increments) without false positives.
-- **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset. Automatically ignores **`readonly` properties and classes** (PHP 8.1+) as they are immutable by design.
-- **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
-- **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
-- **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
-- **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment.
+- **🧠 Intelligent Cleanup**: Verifies `ResetInterface` (Symfony) and respects `octane.flush` configuration (Laravel).
+- **🛡️ Safety First**: Catches dangerous `exit()` calls, **PHP Superglobals**, and **Global State Poisoning**.
+
+---
+
+## 🛡️ Supported Patterns & Frameworks
+
+Igor adapts its analysis based on the detected framework to provide the most accurate results.
+
+| Feature / Pattern | Symfony | Laravel Octane | Description |
+| :--- | :---: | :---: | :--- |
+| **Auto-Detection** | ✅ | ✅ | Detects via `bin/console` or `artisan`. |
+| **Default Scan Path** | `src/` | `app/` | Automatically targets the logic layer. |
+| **State Mutation** | ✅ | ✅ | Detects `$this->prop = ...` in singletons. |
+| **Static Mutation** | ✅ | ✅ | Detects `static::$prop` (Class-level leaks). |
+| **Native Reset** | `ResetInterface` | `octane.flush` | Validates that services are properly cleaned. |
+| **Stale Injection** | ✅ | ✅ | Warns if `Request` is injected into a singleton. |
+| **Global Poisoning** | ✅ | ✅ | Detects `date_default_timezone_set`, `ini_set`, etc. |
+| **Process Kill** | ✅ | ✅ | Detects `exit()` or `die()` calls. |
+| **Deep Audit** | **Full** (Agent) | **Contextual** | Symfony audits the whole container; Laravel cross-checks with `octane.php`. |
 
 ---
 
