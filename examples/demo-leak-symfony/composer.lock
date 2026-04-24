@@ -8,11 +8,11 @@
     "packages": [
         {
             "name": "igor-php/igor-php",
-            "version": "dev-main",
+            "version": "dev-feat/laravel-support",
             "dist": {
                 "type": "path",
                 "url": "../..",
-                "reference": "781ea88199f2b71ba4f328037bfc9924932236f0"
+                "reference": "009619cdd1f1df818a9d3e16b7bbef4e77b3f590"
             },
             "require": {
                 "php": ">=8.1"
