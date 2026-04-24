@@ -8,7 +8,7 @@
 $root = $argv[1] ?? getcwd();
 $results = [
     'flushed_classes' => [],
-    'class_map' => []
+    'class_map' => (object)[]
 ];
 
 // 1. Load Composer Autoloader
@@ -28,7 +28,6 @@ if (!function_exists('env')) {
 $octaneConfig = $root . '/config/octane.php';
 if (file_exists($octaneConfig)) {
     try {
-        // We include it in a closure to avoid variable pollution
         $loader = function($path) {
             return include $path;
         };
@@ -43,6 +42,7 @@ if (file_exists($octaneConfig)) {
 $appDir = $root . '/app';
 if (is_dir($appDir)) {
     try {
+        $classMap = [];
         $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($appDir));
         foreach ($iterator as $file) {
             if ($file->getExtension() === 'php') {
@@ -51,9 +51,12 @@ if (is_dir($appDir)) {
                 if (preg_match('/namespace\s+(.+?);/', $content, $nsMatch) &&
                     preg_match('/class\s+(.+?)\s+/', $content, $classMatch)) {
                     $fqcn = $nsMatch[1] . '\\' . $classMatch[1];
-                    $results['class_map'][$fqcn] = realpath($path);
+                    $classMap[$fqcn] = realpath($path);
                 }
             }
+        }
+        if (!empty($classMap)) {
+            $results['class_map'] = $classMap;
         }
     } catch (\Throwable $e) { }
 }
