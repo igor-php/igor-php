@@ -44,9 +44,6 @@ func TestLaravelDefaultPaths(t *testing.T) {
 	bridge, _ := DetectLaravel(tmpDir, config)
 	auditor.Framework = bridge
 
-	// Trigger collectFiles logic
-	auditList := collectFiles(tmpDir, config, auditor)
-
 	// Since app/ doesn't exist, it should be empty but the logic should have targeted app/
 	// We can't easily check internal local variables of collectFiles, 
 	// but we can check if it attempted to scan app/ by creating it.
@@ -54,7 +51,7 @@ func TestLaravelDefaultPaths(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(tmpDir, "app"), 0755)
 	_ = os.WriteFile(filepath.Join(tmpDir, "app", "Service.php"), []byte("<?php class Service {}"), 0644)
 	
-	auditList = collectFiles(tmpDir, config, auditor)
+	auditList := collectFiles(tmpDir, config, auditor)
 	found := false
 	for _, item := range auditList {
 		if filepath.Base(item.FilePath) == "Service.php" {
