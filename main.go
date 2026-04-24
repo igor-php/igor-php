@@ -21,13 +21,15 @@ func main() {
 	auditor := NewAuditor(config)
 	reporter := NewReporter()
 
-	// 2. Detect Symfony project
-	sb, err := DetectSymfony(rootPath, config)
+	// 2. Detect Framework (default: Symfony)
+	bridge, err := DetectSymfony(rootPath, config)
 	if err != nil {
 		fmt.Printf("❌ Error: %v\n", err)
 		os.Exit(1)
 	}
-	auditor.Symfony = sb
+	if bridge != nil {
+		auditor.Framework = bridge
+	}
 
 	// 3. Collect Files to Audit
 	auditList := collectFiles(rootPath, config, auditor)
@@ -160,10 +162,10 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	// --- STEP 1: Scan local project files ---
 	auditList = append(auditList, collectLocalFiles(rootPath, config, auditor, processedFiles)...)
 
-	// --- STEP 2: Add shared services from vendors (via Symfony) ---
-	if auditor.Symfony != nil {
-		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
-		auditList = append(auditList, collectSymfonyServices(config, auditor, processedFiles)...)
+	// --- STEP 2: Add shared services from vendors (via Framework) ---
+	if auditor.Framework != nil {
+		fmt.Printf("🎯 %s detected: Auditing shared services from vendors...\n", auditor.Framework.GetName())
+		auditList = append(auditList, collectFrameworkServices(config, auditor, processedFiles)...)
 	}
 
 	// --- STEP 3: Forced Vendor Scan ---
@@ -200,9 +202,12 @@ func collectLocalFiles(rootPath string, config Config, auditor *Auditor, process
 	return list
 }
 
-func collectSymfonyServices(config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
+func collectFrameworkServices(config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
 	var list []AuditStatus
-	for id, def := range auditor.Symfony.Container.Definitions {
+	definitions := auditor.Framework.GetDefinitions()
+	classToFile := auditor.Framework.GetClassToFileMap()
+
+	for id, def := range definitions {
 		if strings.HasPrefix(id, ".errored.") {
 			if config.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
@@ -228,7 +233,7 @@ func collectSymfonyServices(config Config, auditor *Auditor, processed map[strin
 			continue
 		}
 
-		if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
+		if path, found := classToFile[def.Class]; found {
 			if auditor.IsDevPackagePath(path) {
 				if config.Verbose {
 					fmt.Printf("  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
