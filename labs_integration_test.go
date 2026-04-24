@@ -10,7 +10,7 @@ import (
 // and verifies that the number of findings matches our expectations.
 func TestFullLabsAudit(t *testing.T) {
 	// Skip if composer vendor is missing (labs not setup)
-	if _, err := os.Stat("./examples/demo-leak/vendor"); err != nil {
+	if _, err := os.Stat("./examples/demo-leak-symfony/vendor"); err != nil {
 		t.Skip("Symfony lab not setup, skipping integration test")
 	}
 	if _, err := os.Stat("./examples/demo-leak-laravel/vendor"); err != nil {
@@ -18,7 +18,7 @@ func TestFullLabsAudit(t *testing.T) {
 	}
 
 	t.Run("Full Audit: Symfony Lab", func(t *testing.T) {
-		root, _ := filepath.Abs("./examples/demo-leak")
+		root, _ := filepath.Abs("./examples/demo-leak-symfony")
 		config := LoadConfig(root)
 		auditor := NewAuditor(config)
 

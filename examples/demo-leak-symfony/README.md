@@ -26,7 +26,7 @@ Everything you see is stored **exclusively in PHP's RAM**.
 Igor is designed to catch all these issues automatically. Run it on this project:
 
 ```bash
-igor-php examples/demo-leak
+igor-php examples/demo-leak-symfony
 ```
 
 ## 🧹 Cleanup

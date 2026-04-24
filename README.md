@@ -140,7 +140,7 @@ Want to understand why Igor is vital for your Worker environment? Check these re
 ### 🧪 Try the Leak Lab yourself!
 We've built interactive laboratories using **Symfony** and **Laravel Octane** with FrankenPHP. You can run them locally with Docker and see the memory leaks with your own eyes.
 
-- [**Explore the Symfony Leak Lab →**](examples/demo-leak/README.md)
+- [**Explore the Symfony Leak Lab →**](examples/demo-leak-symfony/README.md)
 - [**Explore the Laravel Octane Leak Lab →**](examples/demo-leak-laravel/README.md)
 ---
 

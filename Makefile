@@ -11,9 +11,9 @@ test-go:
 ## test-symfony: Setup and audit the Symfony lab
 test-symfony:
 	@echo "🐘 Auditing Symfony Lab..."
-	cd examples/demo-leak && composer install --quiet
-	cd examples/demo-leak && php bin/console cache:clear --quiet
-	go run . examples/demo-leak/
+	cd examples/demo-leak-symfony && composer install --quiet
+	cd examples/demo-leak-symfony && php bin/console cache:clear --quiet
+	go run . examples/demo-leak-symfony/
 
 ## test-laravel: Setup and audit the Laravel lab
 test-laravel:
@@ -24,7 +24,7 @@ test-laravel:
 ## setup-labs: Reinstall dependencies for all labs
 setup-labs:
 	@echo "📦 Setting up laboratories..."
-	cd examples/demo-leak && composer install
+	cd examples/demo-leak-symfony && composer install
 	cd examples/demo-leak-laravel && composer install
 
 ## help: Show this help message
