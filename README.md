@@ -274,7 +274,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.7'
+          go-version: '1.24.13'
 
       - name: Run Igor
         run: |
