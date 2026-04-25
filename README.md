@@ -266,20 +266,16 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: '8.3'
 
       - name: Install Dependencies
         run: composer install --no-progress --prefer-dist
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.13'
+      - name: Warmup Symfony Cache (for Deep Audit)
+        run: php bin/console cache:warmup --env=dev
 
-      - name: Run Igor
-        run: |
-          go install github.com/igor-php/igor-php@latest
-          igor-php .
+      - name: Run Igor Audit
+        run: vendor/bin/igor-php .
 ```
 
 ---
