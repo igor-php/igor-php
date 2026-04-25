@@ -82,6 +82,12 @@ checksum:
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
+release:
+  github:
+    owner: igor-php
+    name: igor-php
+  replace: true
+
 changelog:
   sort: asc
   filters:

@@ -34,13 +34,25 @@ func InitConfig(root string) error {
 		if strings.Contains(content, "symfony/framework-bundle") {
 			projectType = "Symfony"
 			config.SafeNamespaces = append(config.SafeNamespaces, "Symfony\\", "Doctrine\\")
+			config.ConsolePath = "bin/console"
+		} else if strings.Contains(content, "laravel/framework") {
+			projectType = "Laravel"
+			config.SafeNamespaces = append(config.SafeNamespaces, "Illuminate\\", "Laravel\\")
+			config.ConsolePath = "artisan"
 		}
 	}
 
 	// 2. Additional folder detection
-	if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil && projectType == "Generic PHP" {
-		projectType = "Symfony (detected via bin/console)"
-		config.SafeNamespaces = uniqueStrings(append(config.SafeNamespaces, "Symfony\\", "Doctrine\\"))
+	if projectType == "Generic PHP" {
+		if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil {
+			projectType = "Symfony (detected via bin/console)"
+			config.SafeNamespaces = uniqueStrings(append(config.SafeNamespaces, "Symfony\\", "Doctrine\\"))
+			config.ConsolePath = "bin/console"
+		} else if _, err := os.Stat(filepath.Join(root, "artisan")); err == nil {
+			projectType = "Laravel (detected via artisan)"
+			config.SafeNamespaces = uniqueStrings(append(config.SafeNamespaces, "Illuminate\\", "Laravel\\"))
+			config.ConsolePath = "artisan"
+		}
 	}
 
 	// Deduplicate

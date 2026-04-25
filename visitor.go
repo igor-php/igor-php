@@ -42,8 +42,12 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	case "class_declaration", "trait_declaration", "anonymous_class":
 		v.handleClass(n)
 	case "method_declaration", "function_definition":
-		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
+		nameNode := n.ChildByFieldName("name")
+		if nameNode != nil {
 			v.curMethod = v.getContent(nameNode)
+			if strings.ToLower(v.curMethod) == "__construct" {
+				v.handleConstructor(n)
+			}
 		}
 	case "assignment_expression", "augmented_assignment_expression":
 		v.handleMutation(n.ChildByFieldName("left"))
@@ -333,4 +337,71 @@ func (v *PHPVisitor) getContent(n *sitter.Node) string {
 		return ""
 	}
 	return string(v.content[n.StartByte():n.EndByte()])
+}
+
+func (v *PHPVisitor) handleConstructor(n *sitter.Node) {
+	fullName := v.curClass
+	if v.namespace != "" {
+		fullName = v.namespace + "\\" + v.curClass
+	}
+
+	// Only analyze constructors of shared services (singletons)
+	if v.auditor == nil || v.auditor.Framework == nil || !v.auditor.Framework.IsSharedService(fullName) {
+		return
+	}
+
+	params := n.ChildByFieldName("parameters")
+	if params != nil {
+		for i := uint(0); i < params.ChildCount(); i++ {
+			param := params.Child(i)
+			if param.Kind() == "parameter_declaration" || param.Kind() == "property_promotion_parameter" {
+				v.analyzeConstructorParam(param)
+			}
+		}
+	}
+
+	body := n.ChildByFieldName("body")
+	if body != nil {
+		v.analyzeConstructorBody(body)
+	}
+}
+
+func (v *PHPVisitor) analyzeConstructorParam(n *sitter.Node) {
+	typeNode := n.ChildByFieldName("type")
+	if typeNode == nil {
+		return
+	}
+
+	typeName := v.getContent(typeNode)
+	forbiddenTypes := []string{"Request", "Illuminate\\Http\\Request", "Session", "Illuminate\\Session\\Store", "UploadedFile"}
+
+	for _, ft := range forbiddenTypes {
+		if strings.Contains(typeName, ft) {
+			msg := fmt.Sprintf("Forbidden injection: Singleton '%s' injects '%s' in its constructor.", v.curClass, typeName)
+			hint := "Injecting request-specific objects into singletons leads to stale data in Worker mode. Use a closure or resolve it inside the method instead."
+			v.addFinding(n, msg, hint, "ERROR")
+		}
+	}
+}
+
+func (v *PHPVisitor) analyzeConstructorBody(n *sitter.Node) {
+	// Simple scan for dangerous helper calls like config(), request(), auth() in constructor
+	for i := uint(0); i < n.ChildCount(); i++ {
+		child := n.Child(i)
+		if child.Kind() == "function_call_expression" {
+			fnNode := child.ChildByFieldName("function")
+			if fnNode == nil {
+				fnNode = child.ChildByFieldName("name")
+			}
+			if fnNode != nil {
+				fnName := strings.ToLower(v.getContent(fnNode))
+				if fnName == "config" || fnName == "request" || fnName == "auth" {
+					msg := fmt.Sprintf("Dangerous helper call '%s()' in constructor of singleton '%s'.", fnName, v.curClass)
+					hint := "Capturing state in the constructor of a singleton leads to stale data. Call the helper directly inside your methods instead."
+					v.addFinding(child, msg, hint, "ERROR")
+				}
+			}
+		}
+		v.analyzeConstructorBody(child)
+	}
 }

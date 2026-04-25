@@ -34,7 +34,7 @@ func NewSymfonyBridge(root string, consolePath string, config Config) *SymfonyBr
 }
 
 // DetectSymfony attempts to find a Symfony project and initialize the bridge.
-func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
+func DetectSymfony(rootPath string, config Config) (FrameworkBridge, error) {
 	projectRoot := rootPath
 	consolePath := config.ConsolePath
 
@@ -174,14 +174,40 @@ func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 	return nil
 }
 
+// GetName returns the name of the framework.
+func (b *SymfonyBridge) GetName() string {
+	return "Symfony"
+}
+
+// GetDefinitions returns all service definitions found in the Symfony container.
+func (b *SymfonyBridge) GetDefinitions() map[string]ServiceDefinition {
+	if b.Container == nil {
+		return make(map[string]ServiceDefinition)
+	}
+	defs := make(map[string]ServiceDefinition)
+	for id, s := range b.Container.Definitions {
+		defs[id] = ServiceDefinition{
+			ID:     id,
+			Class:  s.Class,
+			Shared: s.Shared,
+		}
+	}
+	return defs
+}
+
+// GetClassToFileMap returns the class-to-file mapping for Symfony.
+func (b *SymfonyBridge) GetClassToFileMap() map[string]string {
+	return b.ClassToFile
+}
+
 // IsSharedService checks if a FQCN is a shared service in Symfony.
 func (b *SymfonyBridge) IsSharedService(className string) bool {
 	if b.Container == nil {
 		return true
 	}
-	className = strings.TrimPrefix(className, "\\")
+	className = NormalizeClassName(className)
 	for _, def := range b.Container.Definitions {
-		if strings.TrimPrefix(def.Class, "\\") == className {
+		if NormalizeClassName(def.Class) == className {
 			return def.Shared
 		}
 	}

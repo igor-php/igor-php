@@ -14,7 +14,7 @@ import (
 // Auditor orchestrates the analysis of PHP files.
 type Auditor struct {
 	Config         Config
-	Symfony        *SymfonyBridge
+	Framework      FrameworkBridge
 	AuditedClasses map[string]bool
 	mu             sync.Mutex
 }
@@ -138,16 +138,11 @@ func (a *Auditor) IsDataPath(path string) bool {
 }
 
 func (a *Auditor) isExplicitlyNonShared(className string) bool {
-	if a.Symfony == nil || a.Symfony.Container == nil {
+	if a.Framework == nil {
 		return false
 	}
-	className = strings.TrimPrefix(strings.ReplaceAll(className, "/", "\\"), "\\")
-	for _, def := range a.Symfony.Container.Definitions {
-		if strings.TrimPrefix(def.Class, "\\") == className {
-			return !def.Shared
-		}
-	}
-	return false
+	className = NormalizeClassName(className)
+	return !a.Framework.IsSharedService(className)
 }
 
 // IsDevPackagePath returns true if the file path belongs to a dev package in vendor/.

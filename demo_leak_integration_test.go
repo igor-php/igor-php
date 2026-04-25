@@ -7,14 +7,14 @@ import (
 )
 
 func TestDemoLeakFeatures(t *testing.T) {
-	root, _ := filepath.Abs("./examples/demo-leak")
+	root, _ := filepath.Abs("./examples/demo-leak-symfony")
 
 	// Ensure we are in the right place
 	if _, err := os.Stat(filepath.Join(root, "composer.json")); err != nil {
-		t.Skip("demo-leak example not found, skipping integration test")
+		t.Skip("demo-leak-symfony example not found, skipping integration test")
 	}
 
-	t.Run("Smart Filtering detection in demo-leak", func(t *testing.T) {
+	t.Run("Smart Filtering detection in demo-leak-symfony", func(t *testing.T) {
 		// 1. Mock require-dev in composer.json
 		originalContent, err := os.ReadFile(filepath.Join(root, "composer.json"))
 		if err != nil {
@@ -48,7 +48,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("Agent Detection in demo-leak", func(t *testing.T) {
+	t.Run("Agent Detection in demo-leak-symfony", func(t *testing.T) {
 		// 1. Mock Agent Map
 		cacheDir := filepath.Join(root, "var", "cache", "dev")
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
@@ -68,7 +68,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 			t.Fatalf("failed to create vendor dir: %v", err)
 		}
 		autoloadPath := filepath.Join(vendorDir, "autoload.php")
-		// Correct path for StatefulService relative to demo-leak root is src/Service/StatefulService.php
+		// Correct path for StatefulService relative to demo-leak-symfony root is src/Service/StatefulService.php
 		autoloadContent := `<?php
 spl_autoload_register(function ($class) {
     if ($class === 'App\\Service\\StatefulService') {
