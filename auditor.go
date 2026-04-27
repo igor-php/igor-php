@@ -1,3 +1,4 @@
+// Package main provides the core auditing logic for igor-php.
 package main
 
 import (

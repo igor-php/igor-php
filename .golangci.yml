@@ -1,3 +1,5 @@
+version: 2
+
 run:
   timeout: 5m
   modules-download-mode: readonly
@@ -6,21 +8,19 @@ linters:
   disable-all: true
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
     - revive
     - gocritic
-    - cyclop
+    - gocyclo
     - misspell
     - nolintlint
 
 linters-settings:
-  cyclop:
-    max-complexity: 20 # Increased from 15 to be more realistic
+  gocyclo:
+    min-complexity: 20
   revive:
     rules:
       - name: exported
