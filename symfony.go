@@ -43,7 +43,7 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 	if _, err := os.Stat(fullPath); err != nil {
 		// If custom path was provided but doesn't exist, it's an error
 		if consolePath != "bin/console" {
-			return nil, fmt.Errorf("Symfony console not found at %s", fullPath)
+			return nil, fmt.Errorf("symfony console not found at %s", fullPath)
 		}
 
 		// Fallback for default bin/console: try parent dir (useful for vendor/bin context)
@@ -59,7 +59,7 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 	sb := NewSymfonyBridge(projectRoot, consolePath, config)
 	if err := sb.LoadContainer(config.Env); err != nil {
 
-		return nil, fmt.Errorf("could not load Symfony container: %v\n👉 Ensure your project is bootable in '%s' environment.", err, config.Env)
+		return nil, fmt.Errorf("could not load symfony container: %v\n👉 ensure your project is bootable in '%s' environment", err, config.Env)
 	}
 
 	return sb, nil
@@ -139,7 +139,7 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 	}
 
 	if !found {
-		return false, fmt.Errorf("Igor Agent map not found (var/cache/%s/igor_service_map.json).\n   To ensure 100%% accuracy, please run 'php bin/console cache:clear' first.\n   If you want to perform a less precise scan without the agent, use the --no-agent flag", env)
+		return false, fmt.Errorf("igor agent map not found (var/cache/%s/igor_service_map.json).\n   To ensure 100%% accuracy, please run 'php bin/console cache:clear' first.\n   If you want to perform a less precise scan without the agent, use the --no-agent flag", env)
 	}
 
 	return false, nil

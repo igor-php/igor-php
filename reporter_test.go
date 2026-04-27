@@ -85,16 +85,16 @@ func TestReporter_PrintFindings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Capture stdout
 			old := os.Stdout
-			r_out, w_out, _ := os.Pipe()
-			os.Stdout = w_out
+			rOut, wOut, _ := os.Pipe()
+			os.Stdout = wOut
 
 			r.PrintFindings(tt.res, projectRoot, tt.res.IsVendor(projectRoot))
 
-			_ = w_out.Close()
+			_ = wOut.Close()
 			os.Stdout = old
 
 			var buf bytes.Buffer
-			_, _ = io.Copy(&buf, r_out)
+			_, _ = io.Copy(&buf, rOut)
 			output := stripANSI(buf.String())
 
 			for _, exp := range tt.expected {
@@ -132,16 +132,16 @@ func TestReporter_PrintSummary(t *testing.T) {
 
 	// Capture stdout
 	old := os.Stdout
-	r_out, w_out, _ := os.Pipe()
-	os.Stdout = w_out
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
 
 	r.PrintSummary(results, projectRoot)
 
-	_ = w_out.Close()
+	_ = wOut.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r_out)
+	_, _ = io.Copy(&buf, rOut)
 	output := stripANSI(buf.String())
 
 	expected := []string{

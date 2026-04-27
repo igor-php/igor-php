@@ -63,12 +63,13 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.walk(n.Child(i))
 	}
 
-	if nodeType == "class_declaration" || nodeType == "trait_declaration" || nodeType == "anonymous_class" {
+	switch nodeType {
+	case "class_declaration", "trait_declaration", "anonymous_class":
 		if v.isReset {
 			v.performResetCheck()
 		}
 		v.curClass, v.isReset, v.isReadonlyClass, v.readonlyProps = oldClass, oldIsRes, oldIsReadonly, oldReadonlyProps
-	} else if nodeType == "method_declaration" || nodeType == "function_definition" {
+	case "method_declaration", "function_definition":
 		v.curMethod = oldMethod
 	}
 }
