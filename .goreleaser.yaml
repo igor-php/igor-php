@@ -41,8 +41,8 @@ builds:
   - id: windows-amd64
     env:
       - CGO_ENABLED=1
-      - CC=zig cc -target x86_64-windows
-      - CXX=zig c++ -target x86_64-windows
+      - CC={{ .Env.PWD }}/zigcc_wrapper.sh -target x86_64-windows
+      - CXX={{ .Env.PWD }}/zigcxx_wrapper.sh -target x86_64-windows
     goos:
       - windows
     goarch:
