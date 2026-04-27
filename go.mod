@@ -1,6 +1,6 @@
 module github.com/igor-php/igor-php
 
-go 1.24
+go 1.26
 
 require (
 	github.com/tree-sitter/go-tree-sitter v0.25.0
