@@ -58,7 +58,7 @@ if ($argv[1] === 'debug:container') {
 	sb := NewSymfonyBridge(tmpDir, "bin/console", Config{NoAgent: true})
 	// Mock the container loading to avoid actual PHP execution issues in this test environment
 	_ = sb.LoadContainer("prod")
-	auditor.Symfony = sb
+	auditor.Framework = sb
 
 	// Call collectFiles (this will print to stdout because of Verbose=true)
 	_ = collectFiles(tmpDir, config, auditor)

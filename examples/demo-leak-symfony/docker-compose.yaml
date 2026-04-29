@@ -11,5 +11,6 @@ services:
       - APP_ENV=dev
       - APP_SECRET=igor_secret
     volumes:
-      - .:/app
+      - ../../:/app
+    working_dir: /app/examples/demo-leak-symfony
     tty: true

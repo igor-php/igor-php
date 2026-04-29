@@ -14,13 +14,45 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 ## ✨ Highlights
 
 - **⚡ Lightning Fast**: Scans hundreds of files in milliseconds using Go's native multi-threading.
-- **🔍 Deep Audit**: Automatically detects Symfony projects and audits **every shared service** defined in the container, including those in `vendor/` and external bundles.
+- **🔌 Framework Agnostic**: Native support for **Symfony** and **Laravel Octane**.
 - **🎯 Surgical Precision**: Detects complex state mutations (`$this->prop[]`, `static::$prop`, increments) without false positives.
-- **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset. Automatically ignores **`readonly` properties and classes** (PHP 8.1+) as they are immutable by design.
-- **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
-- **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
-- **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
-- **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment.
+- **🧠 Intelligent Cleanup**: Verifies `ResetInterface` (Symfony) and respects `octane.flush` configuration (Laravel).
+- **🛡️ Safety First**: Catches dangerous `exit()` calls, **PHP Superglobals**, and **Global State Poisoning**.
+
+---
+
+## 🛡️ Supported Patterns & Frameworks
+
+Igor adapts its analysis based on the detected framework to provide the most accurate results.
+
+### 🐘 Symfony Support
+
+| Pattern / Feature | Status | Description |
+| :--- | :---: | :--- |
+| **Auto-Detection** | ✅ | Detected via the presence of `bin/console`. |
+| **Default Scan Path** | `src/` | Automatically targets your source directory. |
+| **State Mutation** | ✅ | Detects `$this->prop = ...` in shared services. |
+| **Static Mutation** | ✅ | Detects `static::$prop` (Class-level leaks). |
+| **Native Reset** | ✅ | Validates `ResetInterface` implementation. |
+| **Global Poisoning** | ✅ | Detects `date_default_timezone_set`, `ini_set`, etc. |
+| **Process Kill** | ✅ | Detects dangerous `exit()` or `die()` calls. |
+| **Deep Audit** | **Full** | Uses the `Igor Agent` bundle to map the entire container. |
+
+### 🏎️ Laravel Octane Support
+
+| Pattern / Feature | Status | Description |
+| :--- | :---: | :--- |
+| **Auto-Detection** | ✅ | Detected via the presence of `artisan`. |
+| **Default Scan Path** | `app/` | Automatically targets your application logic. |
+| **State Mutation** | ✅ | Detects `$this->prop = ...` in singletons. |
+| **Static Mutation** | ✅ | Detects `static::$prop` (Class-level leaks). |
+| **Native Reset** | ✅ | Respects `octane.flush` config to avoid false positives. |
+| **Stale Request** | ✅ | Warns if `Request` is injected into a singleton constructor. |
+| **Stale Config** | 🏗️ | *Coming Soon*: Detect capture of config values in constructors. |
+| **App Injection** | 🏗️ | *Coming Soon*: Warn if the Application container is injected. |
+| **Global Poisoning** | ✅ | Detects `date_default_timezone_set`, `ini_set`, etc. |
+| **Process Kill** | ✅ | Detects dangerous `exit()` or `die()` calls. |
+| **Deep Audit** | **Context** | Cross-checks your code with your `octane.php` configuration. |
 
 ---
 
@@ -106,9 +138,10 @@ Want to understand why Igor is vital for your Worker environment? Check these re
 ---
 
 ### 🧪 Try the Leak Lab yourself!
-We've built an **interactive laboratory** using Symfony and FrankenPHP. You can run it locally with Docker and see the memory leaks with your own eyes.
+We've built interactive laboratories using **Symfony** and **Laravel Octane** with FrankenPHP. You can run them locally with Docker and see the memory leaks with your own eyes.
 
-[**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
+- [**Explore the Symfony Leak Lab →**](examples/demo-leak-symfony/README.md)
+- [**Explore the Laravel Octane Leak Lab →**](examples/demo-leak-laravel/README.md)
 ---
 
 ### Deep Audit Mode (Symfony)

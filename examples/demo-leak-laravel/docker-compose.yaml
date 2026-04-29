@@ -1,0 +1,14 @@
+services:
+  php:
+    image: dunglas/frankenphp
+    ports:
+      - "8081:80"
+    environment:
+      - SERVER_NAME=:80
+      - FRANKENPHP_CONFIG=worker ./public/index.php 1
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_KEY=base64:WWgnRtc4Z4J9c9mE8r6Xqjv+jSuM75O4p7xqULSd2Lc=
+    volumes:
+      - .:/app
+    tty: true
