@@ -54,8 +54,9 @@ func TestBaseline(t *testing.T) {
 		}
 
 		// 2. New finding - should not be filtered
-		newFindings := append(findings, Finding{Message: "New Error", Severity: "ERROR"})
-		filtered = FilterFindings(baseline, filePath, newFindings, tmpDir)
+		findingsWithNew := append([]Finding(nil), findings...)
+		findingsWithNew = append(findingsWithNew, Finding{Message: "New Error", Severity: "ERROR"})
+		filtered = FilterFindings(baseline, filePath, findingsWithNew, tmpDir)
 		if len(filtered) != 1 || filtered[0].Message != "New Error" {
 			t.Errorf("Expected 1 new finding, got %v", filtered)
 		}

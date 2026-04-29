@@ -43,7 +43,7 @@ func InitConfig(root string, customConfigPath string) error {
 	// 2. Additional folder detection
 	if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil && projectType == "Generic PHP" {
 		projectType = "Symfony (detected via bin/console)"
-		config.SafeNamespaces = uniqueStrings(append(config.SafeNamespaces, "Symfony\\", "Doctrine\\"))
+		config.SafeNamespaces = append(config.SafeNamespaces, "Symfony\\", "Doctrine\\")
 	}
 
 	// Deduplicate
