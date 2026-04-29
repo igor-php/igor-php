@@ -77,6 +77,9 @@ Igor can automatically detect your project type Symfony and generate a default c
 ```bash
 # Initialize igor.json
 igor-php init
+
+# Initialize with a custom name/path
+igor-php init -c custom-igor.json
 ```
 
 ### 🔍 Audit your project
@@ -85,6 +88,14 @@ Once initialized (or using defaults), let Igor audit your project:
 ```bash
 # Standard usage
 igor-php .
+
+# Generate a baseline to ignore existing errors
+igor-php --generate-baseline
+
+# Custom configuration file
+igor-php --config custom-igor.json .
+# or shorthand
+igor-php -c custom-igor.json .
 
 # Custom console path, environment and verbose mode
 igor-php --console app/console --env stage --verbose .
@@ -190,6 +201,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
   "exclude": ["vendor", "tests", "Entity"],
   "safe_namespaces": ["Symfony\\", "Doctrine\\", "IgorPhp\\IgorBundle\\"],
   "scan_vendors": ["my-company/internal-bundle"],
+  "baseline": "igor-baseline.json",
   "console_path": "bin/console",
   "env": "dev",
   "verbose": false
@@ -199,6 +211,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 - **exclude**: List of directories to skip during indexing.
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
 - **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
+- **baseline**: Path to a baseline file containing findings to ignore.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
 - **env**: Symfony environment to use for container analysis. Defaults to `dev`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.

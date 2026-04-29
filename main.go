@@ -29,21 +29,71 @@ func main() {
 	}
 	auditor.Symfony = sb
 
-	// 3. Collect Files to Audit
+	// 3. Load Baseline if exists
+	var baseline Baseline
+	if config.BaselinePath != "" && !config.GenerateBaseline {
+		baselineFile := config.BaselinePath
+		if !filepath.IsAbs(baselineFile) {
+			baselineFile = filepath.Join(rootPath, baselineFile)
+		}
+		baseline, err = LoadBaseline(baselineFile)
+		if err != nil {
+			fmt.Printf("⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
+		} else {
+			fmt.Printf("🛡️  Baseline loaded: %d files will be partially ignored.\n", len(baseline.Files))
+		}
+	}
+
+	// 4. Collect Files to Audit
 	auditList := collectFiles(rootPath, config, auditor)
 
 	reporter.PrintHeader(len(auditList))
 
-	// 4. Parallel Audit
+	// 5. Parallel Audit
 	resultsChan := runParallelAudit(auditList, auditor)
 
-	// 5. Collect Results
+	// 6. Collect Results
 	var finalResults []AuditStatus
 	for res := range resultsChan {
+		if !config.GenerateBaseline && baseline.Files != nil {
+			res.Findings = FilterFindings(baseline, res.FilePath, res.Findings, rootPath)
+			// Re-calculate status after filtering
+			res.Status = "✅ OK"
+			if len(res.Findings) > 0 {
+				hasError := false
+				for _, f := range res.Findings {
+					if f.Severity == "ERROR" {
+						hasError = true
+						break
+					}
+				}
+				if hasError {
+					res.Status = "❌ KO"
+				} else {
+					res.Status = "⚠️  WARN"
+				}
+			}
+		}
 		finalResults = append(finalResults, res)
 	}
 
-	// 6. Report Results (Project first, then Vendor)
+	// 7. Handle Baseline Generation
+	if config.GenerateBaseline {
+		baselineFile := config.BaselinePath
+		if !filepath.IsAbs(baselineFile) {
+			baselineFile = filepath.Join(rootPath, baselineFile)
+		}
+		err := SaveBaseline(baselineFile, finalResults, rootPath)
+		if err != nil {
+			fmt.Printf("❌ Error saving baseline: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\n✨ Baseline successfully generated at: %s\n", baselineFile)
+		fmt.Println("👉 Future audits will ignore these existing findings.")
+		return
+	}
+
+	// 8. Report Results (Project first, then Vendor)
 	reportAllFindings(reporter, finalResults, rootPath)
 
 	success := reporter.PrintSummary(finalResults, rootPath)
@@ -53,7 +103,12 @@ func main() {
 }
 
 func parseFlagsAndInit() (Config, string, bool) {
+	var configPath string
 	versionFlag := flag.Bool("version", false, "Display version information")
+	flag.StringVar(&configPath, "config", "", "Custom path to igor.json")
+	flag.StringVar(&configPath, "c", "", "Custom path to igor.json (shorthand)")
+	baselineFlag := flag.String("baseline", "", "Path to baseline file")
+	generateBaselineFlag := flag.Bool("generate-baseline", false, "Generate a baseline file from current findings")
 	consoleFlag := flag.String("console", "", "Custom path to Symfony console (e.g. app/console)")
 	envFlag := flag.String("env", "", "Symfony environment (default: dev)")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
@@ -63,11 +118,13 @@ func parseFlagsAndInit() (Config, string, bool) {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
-		fmt.Fprintf(os.Stderr, "  igor-php init [directory]         Initialize a new igor.json config\n\n")
+		fmt.Fprintf(os.Stderr, "  igor-php init [options] [directory] Initialize a new igor.json config\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
+		fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php init\n")
 		fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
 	}
@@ -86,7 +143,7 @@ func parseFlagsAndInit() (Config, string, bool) {
 			targetDir = args[1]
 		}
 		rootPath, _ := filepath.Abs(targetDir)
-		if err := InitConfig(rootPath); err != nil {
+		if err := InitConfig(rootPath, configPath); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -99,7 +156,7 @@ func parseFlagsAndInit() (Config, string, bool) {
 	}
 	rootPath, _ := filepath.Abs(args[0])
 
-	config := LoadConfig(rootPath)
+	config := LoadConfig(rootPath, configPath)
 	if *consoleFlag != "" {
 		config.ConsolePath = *consoleFlag
 	}
@@ -111,6 +168,16 @@ func parseFlagsAndInit() (Config, string, bool) {
 	}
 	if *noAgentFlag {
 		config.NoAgent = true
+	}
+	if *generateBaselineFlag {
+		config.GenerateBaseline = true
+		if *baselineFlag != "" {
+			config.BaselinePath = *baselineFlag
+		} else if config.BaselinePath == "" {
+			config.BaselinePath = "igor-baseline.json"
+		}
+	} else if *baselineFlag != "" {
+		config.BaselinePath = *baselineFlag
 	}
 
 	// Display summary of packages

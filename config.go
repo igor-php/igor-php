@@ -21,8 +21,8 @@ func DefaultConfig() Config {
 	}
 }
 
-// LoadConfig loads the configuration from igor.json in the given root directory.
-func LoadConfig(root string) Config {
+// LoadConfig loads the configuration from a file (defaulting to igor.json) in the given root directory.
+func LoadConfig(root string, customConfigPath string) Config {
 	c := DefaultConfig()
 
 	// Auto-detect packages from composer.json
@@ -31,7 +31,12 @@ func LoadConfig(root string) Config {
 		c.DevPackages = dev
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "igor.json"))
+	configPath := customConfigPath
+	if configPath == "" {
+		configPath = filepath.Join(root, "igor.json")
+	}
+
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return c
 	}
@@ -47,6 +52,9 @@ func LoadConfig(root string) Config {
 	}
 	if len(userConfig.SafeNamespaces) > 0 {
 		c.SafeNamespaces = userConfig.SafeNamespaces
+	}
+	if userConfig.BaselinePath != "" {
+		c.BaselinePath = userConfig.BaselinePath
 	}
 
 	return c

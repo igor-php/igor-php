@@ -33,7 +33,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 		}
 
 		// 2. Load config
-		cfg := LoadConfig(root)
+		cfg := LoadConfig(root, "")
 
 		found := false
 		for _, pkg := range cfg.DevPackages {
