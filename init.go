@@ -8,13 +8,16 @@ import (
 	"strings"
 )
 
-// InitConfig detects the project type and generates a default igor.json file.
-func InitConfig(root string) error {
-	configPath := filepath.Join(root, "igor.json")
+// InitConfig detects the project type and generates a default configuration file.
+func InitConfig(root string, customConfigPath string) error {
+	configPath := customConfigPath
+	if configPath == "" {
+		configPath = filepath.Join(root, "igor.json")
+	}
 
 	// Check if already exists
 	if _, err := os.Stat(configPath); err == nil {
-		return fmt.Errorf("igor.json already exists at %s", configPath)
+		return fmt.Errorf("configuration file already exists at %s", configPath)
 	}
 
 	// Minimal base configuration
@@ -60,7 +63,7 @@ func InitConfig(root string) error {
 	fmt.Printf("✨ Igor has successfully initialized your project!\n")
 	fmt.Printf("📂 Detected project type: %s\n", projectType)
 	fmt.Printf("📝 Configuration saved to: %s\n", configPath)
-	fmt.Println("👉 You can now customize 'igor.json' to fit your needs.")
+	fmt.Printf("👉 You can now customize the configuration to fit your needs.\n")
 
 	return nil
 }

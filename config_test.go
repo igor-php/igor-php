@@ -14,7 +14,7 @@ func TestLoadConfig(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	t.Run("Default config when file missing", func(t *testing.T) {
-		cfg := LoadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir, "")
 		if len(cfg.Exclude) != 0 {
 			t.Errorf("Expected 0 default excludes, got %d", len(cfg.Exclude))
 		}
@@ -29,7 +29,7 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := LoadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir, "")
 		if cfg.Exclude[0] != "custom" {
 			t.Errorf("Expected 'custom' exclude, got %v", cfg.Exclude)
 		}
@@ -44,7 +44,7 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := LoadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir, "")
 		// Should fallback to default values (from struct initialization in LoadConfig)
 		if len(cfg.Exclude) != 0 {
 			t.Errorf("Expected 0 default excludes on parse error, got %d", len(cfg.Exclude))
@@ -57,9 +57,22 @@ func TestLoadConfig(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := LoadConfig(tmpDir)
+		cfg := LoadConfig(tmpDir, "")
 		if len(cfg.DevPackages) != 1 || cfg.DevPackages[0] != "phpunit/phpunit" {
 			t.Errorf("Expected 'phpunit/phpunit' in dev packages, got %v", cfg.DevPackages)
+		}
+	})
+
+	t.Run("Custom config path", func(t *testing.T) {
+		customPath := filepath.Join(tmpDir, "custom.json")
+		content := `{"exclude": ["custom-path"]}`
+		err := os.WriteFile(customPath, []byte(content), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := LoadConfig(tmpDir, customPath)
+		if len(cfg.Exclude) != 1 || cfg.Exclude[0] != "custom-path" {
+			t.Errorf("Expected 'custom-path' exclude, got %v", cfg.Exclude)
 		}
 	})
 }
