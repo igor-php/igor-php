@@ -230,7 +230,7 @@ func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatu
 	// --- STEP 2: Add shared services from vendors (via Symfony) ---
 	if auditor.Symfony != nil {
 		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
-		auditList = append(auditList, collectSymfonyServices(config, auditor, processedFiles)...)
+		auditList = append(auditList, collectSymfonyServices(rootPath, config, auditor, processedFiles)...)
 	}
 
 	// --- STEP 3: Forced Vendor Scan ---
@@ -248,12 +248,10 @@ func collectLocalFiles(rootPath string, config Config, auditor *Auditor, process
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 			return nil
 		}
-		rel, _ := filepath.Rel(rootPath, path)
-		for _, ex := range config.Exclude {
-			if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) {
-				return nil
-			}
+		if config.IsExcluded(path, rootPath) {
+			return nil
 		}
+		rel, _ := filepath.Rel(rootPath, path)
 		if strings.HasPrefix(rel, "vendor"+string(os.PathSeparator)) || strings.HasPrefix(rel, "var"+string(os.PathSeparator)) {
 			return nil
 		}
@@ -267,7 +265,7 @@ func collectLocalFiles(rootPath string, config Config, auditor *Auditor, process
 	return list
 }
 
-func collectSymfonyServices(config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
+func collectSymfonyServices(rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
 	var list []AuditStatus
 	for id, def := range auditor.Symfony.Container.Definitions {
 		if strings.HasPrefix(id, ".errored.") {
@@ -296,6 +294,12 @@ func collectSymfonyServices(config Config, auditor *Auditor, processed map[strin
 		}
 
 		if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
+			if config.IsExcluded(path, rootPath) {
+				if config.Verbose {
+					fmt.Printf("  ⏭️  Skipped service '%s': path %s is excluded\n", id, path)
+				}
+				continue
+			}
 			if auditor.IsDevPackagePath(path) {
 				if config.Verbose {
 					fmt.Printf("  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
