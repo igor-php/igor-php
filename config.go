@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DefaultConfig returns the standard linter configuration.
@@ -58,4 +59,20 @@ func LoadConfig(root string, customConfigPath string) Config {
 	}
 
 	return c
+}
+
+// IsExcluded returns true if the given path matches any of the excluded patterns.
+func (c Config) IsExcluded(path string, rootPath string) bool {
+	rel, err := filepath.Rel(rootPath, path)
+	if err != nil {
+		return false
+	}
+	for _, ex := range c.Exclude {
+		// Normalize exclusion pattern by removing trailing slashes
+		ex = strings.TrimRight(ex, "/\\")
+		if rel == ex || strings.HasPrefix(rel, ex+string(os.PathSeparator)) || strings.HasPrefix(rel, ex+"/") {
+			return true
+		}
+	}
+	return false
 }
