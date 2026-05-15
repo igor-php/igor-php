@@ -44,6 +44,8 @@ type AuditStatus struct {
 	Status       string // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
 	Findings     []Finding
 	Dependencies []string
+	IsShared     bool
+	IsPublic     bool
 }
 
 // IsVendor returns true if the file is part of the vendor directory.

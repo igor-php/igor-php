@@ -250,14 +250,14 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	var auditList []symbol.AuditStatus
 	processedFiles := make(map[string]bool)
 
-	// --- STEP 1: Scan local project files ---
-	auditList = append(auditList, collectLocalFiles(rootPath, cfg, aud, processedFiles)...)
-
-	// --- STEP 2: Add shared services from vendors (via Symfony) ---
+	// --- STEP 1: Add shared services from Symfony (to get IDs and Dependencies) ---
 	if aud.Symfony != nil {
-		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
+		fmt.Println("🎯 Symfony detected: Mapping services and dependencies...")
 		auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 	}
+
+	// --- STEP 2: Scan remaining local project files ---
+	auditList = append(auditList, collectLocalFiles(rootPath, cfg, aud, processedFiles)...)
 
 	// --- STEP 3: Forced Vendor Scan ---
 	if len(cfg.ScanVendors) > 0 {
@@ -334,7 +334,14 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 			}
 			if !processed[path] {
 				deps := extractDependencies(def)
-				list = append(list, symbol.AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING", Dependencies: deps})
+				list = append(list, symbol.AuditStatus{
+					ServiceID:    id,
+					FilePath:     path,
+					Status:       "⏳ PENDING",
+					Dependencies: deps,
+					IsShared:     def.Shared,
+					IsPublic:     def.Public,
+				})
 				processed[path] = true
 			} else if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
@@ -347,7 +354,7 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 }
 
 func extractDependencies(def symbol.SymfonyService) []string {
-	var deps []string
+	deps := []string{}
 	for _, arg := range def.Arguments {
 		if m, ok := arg.(map[string]any); ok {
 			// In Symfony JSON, service arguments look like {"type": "service", "id": "..."}
@@ -356,6 +363,9 @@ func extractDependencies(def symbol.SymfonyService) []string {
 					deps = append(deps, idVal)
 				}
 			}
+		} else if s, ok := arg.(string); ok && strings.HasPrefix(s, "@") {
+			// Fallback for simple string references (e.g. @logger)
+			deps = append(deps, strings.TrimPrefix(s, "@"))
 		}
 	}
 	return deps

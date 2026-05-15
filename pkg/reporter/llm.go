@@ -3,6 +3,7 @@ package reporter
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/igor-php/igor-php/pkg/symbol"
@@ -28,7 +29,15 @@ type LLMWarning struct {
 
 // LLMContext provides additional technical background for the warning.
 type LLMContext struct {
-	Dependencies []string `json:"dependencies"`
+	Dependencies  LLMServiceContext `json:"dependencies"`
+	InjectedLines []string          `json:"injected_dependencies,omitempty"`
+}
+
+// LLMServiceContext holds metadata about the service where the finding was detected.
+type LLMServiceContext struct {
+	IsShared  bool   `json:"is_shared"`
+	IsPublic  bool   `json:"is_public"`
+	ServiceID string `json:"service_id"`
 }
 
 // LLMMetadata holds execution environment information.
@@ -72,7 +81,12 @@ func (r *LLMReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, 
 			ASTDetails: f.ASTDetails,
 			RuleID:     "STATE_MUTATION", // Default for now
 			Context: LLMContext{
-				Dependencies: f.Dependencies,
+				Dependencies: LLMServiceContext{
+					IsShared:  res.IsShared,
+					IsPublic:  res.IsPublic,
+					ServiceID: res.ServiceID,
+				},
+				InjectedLines: f.Dependencies,
 			},
 		}
 		r.Warnings = append(r.Warnings, w)
@@ -89,13 +103,14 @@ func (r *LLMReporter) PrintSummary(results []symbol.AuditStatus, projectRoot str
 		},
 	}
 
-	data, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	if err := encoder.Encode(output); err != nil {
 		fmt.Printf("Error generating LLM export: %v\n", err)
 		return false
 	}
-
-	fmt.Println(string(data))
 
 	// Determine success based on findings (match existing behavior)
 	hasError := false
