@@ -5,8 +5,8 @@
 - [x] Task: Conductor - User Manual Verification 'Setup Directory Structure' (Protocol in workflow.md) 26f44f2
 
 ## Phase 2: Relocate Non-Go Files
-- [ ] Task: Move `igor-php.png` and `review.png` to `assets/`.
-- [ ] Task: Move `zigcc_wrapper.sh` and `zigcxx_wrapper.sh` to `scripts/`.
+- [x] Task: Move `igor-php.png` and `review.png` to `assets/`. e9a999c
+- [~] Task: Move `zigcc_wrapper.sh` and `zigcxx_wrapper.sh` to `scripts/`.
 - [ ] Task: Rename `tests/` directory to `test/` to match the target architecture.
 - [ ] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md)
 
