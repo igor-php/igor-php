@@ -1,4 +1,4 @@
-package main
+package auditor
 
 import (
 	"path/filepath"
