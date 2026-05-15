@@ -10,7 +10,20 @@ import (
 )
 
 func TestDemoLeakFeatures(t *testing.T) {
-	root, _ := filepath.Abs("./examples/demo-leak")
+	// Find project root by looking for go.mod
+	cwd, _ := os.Getwd()
+	root := cwd
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			t.Skip("Project root not found, skipping integration test")
+		}
+		root = parent
+	}
+	root = filepath.Join(root, "examples", "demo-leak")
 
 	// Ensure we are in the right place
 	if _, err := os.Stat(filepath.Join(root, "composer.json")); err != nil {
