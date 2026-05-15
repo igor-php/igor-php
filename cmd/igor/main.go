@@ -209,7 +209,7 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	return cfg, rootPath, false
 }
 
-func reportAllFindings(rep *reporter.Reporter, results []symbol.AuditStatus, rootPath string) {
+func reportAllFindings(rep reporter.Reporter, results []symbol.AuditStatus, rootPath string) {
 	// Report Project Results first
 	hasProjectFindings := false
 	for _, res := range results {
