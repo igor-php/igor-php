@@ -27,10 +27,10 @@
     - [ ] Implement mapping logic in `LLMReporter`.
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Dependencies & Service Context' (Protocol in workflow.md) (52c23e1)
 
-## Phase 4: CLI Integration
-- [ ] Task: Add CLI option for LLM output.
+## Phase 4: CLI Integration [checkpoint: 16f2359]
+- [x] Task: Add CLI option for LLM output. (7edcf2f)
     - [ ] Write tests for the CLI flag parsing (`--output=llm`).
     - [ ] Implement the CLI flag in `config.go` and wire it to instantiate `LLMReporter`.
-- [ ] Task: E2E Integration Test.
+- [x] Task: E2E Integration Test. (7edcf2f)
     - [ ] Create an integration test fixture that runs `igor-php` with `--output=llm` and validates the JSON output.
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: CLI Integration' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 4: CLI Integration' (Protocol in workflow.md) (16f2359)
