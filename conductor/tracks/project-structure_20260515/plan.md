@@ -4,11 +4,11 @@
 - [x] Task: Create the new directory skeleton (`cmd/igor`, `internal/analyzer`, `internal/auditor`, `internal/config`, `internal/tree-sitter`, `pkg/reporter`, `pkg/symbol`, `api`, `assets`, `scripts`). bb2e870
 - [x] Task: Conductor - User Manual Verification 'Setup Directory Structure' (Protocol in workflow.md) 26f44f2
 
-## Phase 2: Relocate Non-Go Files
+## Phase 2: Relocate Non-Go Files [checkpoint: 1ff0e09]
 - [x] Task: Move `igor-php.png` and `review.png` to `assets/`. e9a999c
 - [x] Task: Move `zigcc_wrapper.sh` and `zigcxx_wrapper.sh` to `scripts/`. f5f66e8
 - [x] Task: Rename `tests/` directory to `test/` to match the target architecture. 33b2012
-- [~] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md) 1ff0e09
 
 ## Phase 3: Relocate Core Code and Update Packages
 - [ ] Task: Move symbol models (`models.go`) to `pkg/symbol/` and update package name.
