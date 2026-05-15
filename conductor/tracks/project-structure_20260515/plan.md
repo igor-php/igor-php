@@ -15,8 +15,8 @@
 - [x] Task: Move reporter logic (`reporter.go`, `reporter_test.go`) to `pkg/reporter/` and update package name. 29bdcf2
 - [x] Task: Move configuration logic (`config.go`, `config_test.go`) to `internal/config/` and update package name. 190b621
 - [x] Task: Move Symfony auditor logic (`auditor.go`, `service_auditor_test.go`, `symfony.go`) to `internal/auditor/` and update package name. 258455c
-- [~] Task: Move AST/Mutation logic (`visitor.go` and similar) to `internal/analyzer/` and update package name.
-- [ ] Task: Identify and move Tree-sitter specific logic to `internal/tree-sitter/`.
+- [x] Task: Move AST/Mutation logic (`visitor.go` and similar) to `internal/analyzer/` and update package name. d2b37ce
+- [~] Task: Identify and move Tree-sitter specific logic to `internal/tree-sitter/`.
 - [ ] Task: Relocate remaining root files (e.g., `composer.go`, `baseline.go`, `baseline_test.go`) to appropriate `internal/` subdirectories based on responsibility.
 - [ ] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`.
 - [ ] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md)
