@@ -15,7 +15,7 @@ builds:
       - linux
     goarch:
       - amd64
-    main: .
+    main: ./cmd/igor
     binary: igor-php
     flags:
       - -trimpath
@@ -31,7 +31,7 @@ builds:
       - linux
     goarch:
       - arm64
-    main: .
+    main: ./cmd/igor
     binary: igor-php
     flags:
       - -trimpath
@@ -41,13 +41,13 @@ builds:
   - id: windows-amd64
     env:
       - CGO_ENABLED=1
-      - CC=${ZIG_WRAPPER_PATH}/zigcc_wrapper.sh -target x86_64-windows
-      - CXX=${ZIG_WRAPPER_PATH}/zigcxx_wrapper.sh -target x86_64-windows
+      - CC=${ZIG_WRAPPER_PATH}/scripts/zigcc_wrapper.sh -target x86_64-windows
+      - CXX=${ZIG_WRAPPER_PATH}/scripts/zigcxx_wrapper.sh -target x86_64-windows
     goos:
       - windows
     goarch:
       - amd64
-    main: .
+    main: ./cmd/igor
     binary: igor-php
     flags:
       - -trimpath
@@ -62,7 +62,7 @@ builds:
     goarch:
       - amd64
       - arm64
-    main: .
+    main: ./cmd/igor
     binary: igor-php
     flags:
       - -trimpath
