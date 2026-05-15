@@ -9,9 +9,11 @@ import (
 type Finding struct {
 	Message     string
 	Code        string
+	Snippet     string
 	Remediation string
 	Severity    string // "ERROR" or "WARNING"
 	Line        int
+	ASTDetails  string
 }
 
 // Result groups findings by file.

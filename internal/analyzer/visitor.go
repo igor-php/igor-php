@@ -16,8 +16,10 @@ type Engine interface {
 }
 
 type mutationInfo struct {
-	line int
-	code string
+	line       int
+	code       string
+	snippet    string
+	astDetails string
 }
 
 // PHPVisitor analyzes a single PHP file using tree-sitter.
@@ -320,7 +322,12 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 	case v.curMethod == "reset":
 		v.resetted[key] = true
 	case v.isReset:
-		v.mutated[key] = mutationInfo{line: int(n.StartPosition().Row) + 1, code: v.lines[n.StartPosition().Row]}
+		v.mutated[key] = mutationInfo{
+			line:       int(n.StartPosition().Row) + 1,
+			code:       v.lines[n.StartPosition().Row],
+			snippet:    v.getContent(n),
+			astDetails: n.ToSexp(),
+		}
 	case v.curClass != "" || static:
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
 		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
@@ -335,6 +342,8 @@ func (v *PHPVisitor) performResetCheck() {
 				Severity:    "WARNING",
 				Line:        info.line,
 				Code:        info.code,
+				Snippet:     info.snippet,
+				ASTDetails:  info.astDetails,
 				Remediation: fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
 			})
 		}
@@ -353,7 +362,15 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 		return
 	}
 
-	v.findings = append(v.findings, symbol.Finding{Message: msg, Line: row + 1, Code: v.lines[row], Remediation: hint, Severity: severity})
+	v.findings = append(v.findings, symbol.Finding{
+		Message:     msg,
+		Line:        row + 1,
+		Code:        v.lines[row],
+		Snippet:     v.getContent(n),
+		ASTDetails:  n.ToSexp(),
+		Remediation: hint,
+		Severity:    severity,
+	})
 }
 
 func (v *PHPVisitor) getContent(n *sitter.Node) string {
