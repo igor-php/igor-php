@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/igor-php/igor-php/internal/analyzer"
 	"github.com/igor-php/igor-php/internal/config"
 	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -49,16 +50,10 @@ func (a *Auditor) Audit(path string) ([]symbol.Finding, error) {
 	}
 	defer tree.Close()
 
-	v := &PHPVisitor{
-		content:  content,
-		lines:    strings.Split(string(content), "\n"),
-		mutated:  make(map[string]mutationInfo),
-		resetted: make(map[string]bool),
-		auditor:  a,
-	}
-	v.walk(tree.RootNode())
+	v := analyzer.NewVisitor(content, a)
+	v.Walk(tree.RootNode())
 
-	return v.findings, nil
+	return v.Findings(), nil
 }
 
 // ExtractFQCN extracts the full class name from a file.
@@ -112,7 +107,7 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 	return namespace + "\\" + className, nil
 }
 
-func (a *Auditor) recordClassAudited(name string) {
+func (a *Auditor) RecordClassAudited(name string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.AuditedClasses[name] = true
@@ -140,7 +135,7 @@ func (a *Auditor) IsDataPath(path string) bool {
 	return false
 }
 
-func (a *Auditor) isExplicitlyNonShared(className string) bool {
+func (a *Auditor) IsExplicitlyNonShared(className string) bool {
 	if a.Symfony == nil || a.Symfony.Container == nil {
 		return false
 	}

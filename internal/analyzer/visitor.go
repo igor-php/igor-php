@@ -1,4 +1,4 @@
-package auditor
+package analyzer
 
 import (
 	"fmt"
@@ -7,6 +7,13 @@ import (
 	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// Engine defines the required interface for the auditor to interact with the visitor.
+type Engine interface {
+	RecordClassAudited(name string)
+	IsExplicitlyNonShared(className string) bool
+	IsSafeNamespace(className string) bool
+}
 
 type mutationInfo struct {
 	line int
@@ -26,7 +33,26 @@ type PHPVisitor struct {
 	readonlyProps   map[string]bool
 	mutated         map[string]mutationInfo
 	resetted        map[string]bool
-	auditor         *Auditor
+	engine          Engine
+}
+
+// NewVisitor creates a new instance of the PHPVisitor.
+func NewVisitor(content []byte, engine Engine) *PHPVisitor {
+	return &PHPVisitor{
+		content:  content,
+		lines:    strings.Split(string(content), "\n"),
+		mutated:  make(map[string]mutationInfo),
+		resetted: make(map[string]bool),
+		engine:   engine,
+	}
+}
+
+func (v *PHPVisitor) Walk(n *sitter.Node) {
+	v.walk(n)
+}
+
+func (v *PHPVisitor) Findings() []symbol.Finding {
+	return v.findings
 }
 
 func (v *PHPVisitor) walk(n *sitter.Node) {
@@ -93,8 +119,8 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 		fullName = v.namespace + "\\" + v.curClass
 	}
 
-	if v.auditor != nil {
-		v.auditor.recordClassAudited(fullName)
+	if v.engine != nil {
+		v.engine.RecordClassAudited(fullName)
 	}
 
 	classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
@@ -225,7 +251,7 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 		fullName = v.namespace + "\\" + v.curClass
 	}
 
-	if v.auditor != nil && (v.auditor.isExplicitlyNonShared(fullName) || v.auditor.IsSafeNamespace(fullName)) {
+	if v.engine != nil && (v.engine.IsExplicitlyNonShared(fullName) || v.engine.IsSafeNamespace(fullName)) {
 		return
 	}
 
