@@ -18,8 +18,8 @@
 - [x] Task: Move AST/Mutation logic (`visitor.go` and similar) to `internal/analyzer/` and update package name. d2b37ce
 - [x] Task: Identify and move Tree-sitter specific logic to `internal/tree-sitter/`. 13e11ce
 - [x] Task: Relocate remaining root files (e.g., `composer.go`, `baseline.go`, `baseline_test.go`) to appropriate `internal/` subdirectories based on responsibility. f160cba
-- [~] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`.
-- [ ] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md)
+- [x] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`. ed10c7d
+- [~] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md)
 
 ## Phase 4: Fix Imports, Build, and Verify
 - [ ] Task: Update all internal imports across the project to reference the new package paths.
