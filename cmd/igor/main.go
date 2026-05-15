@@ -324,8 +324,8 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 				continue
 			}
 			if !processed[path] {
-
-				list = append(list, symbol.AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
+				deps := extractDependencies(def)
+				list = append(list, symbol.AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING", Dependencies: deps})
 				processed[path] = true
 			} else if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
@@ -335,6 +335,21 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 		}
 	}
 	return list
+}
+
+func extractDependencies(def symbol.SymfonyService) []string {
+	var deps []string
+	for _, arg := range def.Arguments {
+		if m, ok := arg.(map[string]any); ok {
+			// In Symfony JSON, service arguments look like {"type": "service", "id": "..."}
+			if typeVal, ok := m["type"].(string); ok && typeVal == "service" {
+				if idVal, ok := m["id"].(string); ok {
+					deps = append(deps, idVal)
+				}
+			}
+		}
+	}
+	return deps
 }
 
 func collectForcedVendorFiles(rootPath string, cfg config.Config, processed map[string]bool) []symbol.AuditStatus {
@@ -365,7 +380,7 @@ func runParallelAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor) <-ch
 		go func() {
 			defer wg.Done()
 			for job := range jobsChan {
-				findings, err := aud.Audit(job.FilePath)
+				findings, err := aud.Audit(job.FilePath, job.Dependencies)
 				if err != nil {
 					job.Status = "❌ ERROR"
 					resultsChan <- job

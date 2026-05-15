@@ -7,13 +7,14 @@ import (
 
 // Finding represents a single issue detected by the linter.
 type Finding struct {
-	Message     string
-	Code        string
-	Snippet     string
-	Remediation string
-	Severity    string // "ERROR" or "WARNING"
-	Line        int
-	ASTDetails  string
+	Message      string
+	Code         string
+	Snippet      string
+	Remediation  string
+	Severity     string // "ERROR" or "WARNING"
+	Line         int
+	ASTDetails   string
+	Dependencies []string
 }
 
 // Result groups findings by file.
@@ -30,17 +31,19 @@ type SymfonyContainer struct {
 
 // SymfonyService represents a single service definition in Symfony.
 type SymfonyService struct {
-	Class  string `json:"class"`
-	Public bool   `json:"public"`
-	Shared bool   `json:"shared"`
+	Class     string `json:"class"`
+	Public    bool   `json:"public"`
+	Shared    bool   `json:"shared"`
+	Arguments []any  `json:"arguments"`
 }
 
 // AuditStatus represents the audit state of a single service.
 type AuditStatus struct {
-	ServiceID string
-	FilePath  string
-	Status    string // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
-	Findings  []Finding
+	ServiceID    string
+	FilePath     string
+	Status       string // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
+	Findings     []Finding
+	Dependencies []string
 }
 
 // IsVendor returns true if the file is part of the vendor directory.

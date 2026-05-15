@@ -58,13 +58,16 @@ func (r *LLMReporter) PrintHeader(count int) {}
 func (r *LLMReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
 	for _, f := range res.Findings {
 		w := LLMWarning{
-			FilePath: res.FilePath,
-			Line:     f.Line,
-			Message:  f.Message,
-			Severity: f.Severity,
-			Snippet:  f.Code,
-			// ASTDetails and Context will be populated in later phases
-			RuleID: "STATE_MUTATION", // Default for now
+			FilePath:   res.FilePath,
+			Line:       f.Line,
+			Message:    f.Message,
+			Severity:   f.Severity,
+			Snippet:    f.Snippet,
+			ASTDetails: f.ASTDetails,
+			RuleID:     "STATE_MUTATION", // Default for now
+			Context: LLMContext{
+				Dependencies: f.Dependencies,
+			},
 		}
 		r.Warnings = append(r.Warnings, w)
 	}

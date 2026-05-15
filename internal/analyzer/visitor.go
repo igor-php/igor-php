@@ -36,6 +36,7 @@ type PHPVisitor struct {
 	mutated         map[string]mutationInfo
 	resetted        map[string]bool
 	engine          Engine
+	dependencies    []string
 }
 
 // NewVisitor creates a new instance of the PHPVisitor.
@@ -47,6 +48,10 @@ func NewVisitor(content []byte, engine Engine) *PHPVisitor {
 		resetted: make(map[string]bool),
 		engine:   engine,
 	}
+}
+
+func (v *PHPVisitor) SetDependencies(deps []string) {
+	v.dependencies = deps
 }
 
 func (v *PHPVisitor) Walk(n *sitter.Node) {
@@ -338,13 +343,14 @@ func (v *PHPVisitor) performResetCheck() {
 	for prop, info := range v.mutated {
 		if !v.resetted[prop] {
 			v.findings = append(v.findings, symbol.Finding{
-				Message:     fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
-				Severity:    "WARNING",
-				Line:        info.line,
-				Code:        info.code,
-				Snippet:     info.snippet,
-				ASTDetails:  info.astDetails,
-				Remediation: fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
+				Message:      fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
+				Severity:     "WARNING",
+				Line:         info.line,
+				Code:         info.code,
+				Snippet:      info.snippet,
+				ASTDetails:   info.astDetails,
+				Dependencies: v.dependencies,
+				Remediation:  fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
 			})
 		}
 	}
@@ -363,13 +369,14 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 	}
 
 	v.findings = append(v.findings, symbol.Finding{
-		Message:     msg,
-		Line:        row + 1,
-		Code:        v.lines[row],
-		Snippet:     v.getContent(n),
-		ASTDetails:  n.ToSexp(),
-		Remediation: hint,
-		Severity:    severity,
+		Message:      msg,
+		Line:         row + 1,
+		Code:         v.lines[row],
+		Snippet:      v.getContent(n),
+		ASTDetails:   n.ToSexp(),
+		Dependencies: v.dependencies,
+		Remediation:  hint,
+		Severity:     severity,
 	})
 }
 

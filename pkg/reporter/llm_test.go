@@ -21,6 +21,7 @@ func TestLLMReporter(t *testing.T) {
 				Message:  "Mutation of property $counter detected",
 				Severity: "WARNING",
 				Code:     "$this->counter++;",
+				Snippet:  "$this->counter++;",
 			},
 		},
 	}
