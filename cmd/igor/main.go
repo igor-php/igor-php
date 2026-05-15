@@ -1,13 +1,14 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-
+        "bytes"
+        "flag"
+        "fmt"
+        "os"
+        "os/exec"
+        "path/filepath"
+        "strings"
+        "sync"
 	"github.com/igor-php/igor-php/internal/auditor"
 	"github.com/igor-php/igor-php/internal/config"
 	"github.com/igor-php/igor-php/pkg/reporter"
@@ -34,24 +35,24 @@ func main() {
 	// 2. Detect Symfony project
 	sb, err := auditor.DetectSymfony(rootPath, cfg)
 	if err != nil {
-		fmt.Printf("❌ Error: %v\n", err)
-		os.Exit(1)
+	        fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+	        os.Exit(1)
 	}
 	aud.Symfony = sb
 
 	// 3. Load Baseline if exists
 	var baseline config.Baseline
 	if cfg.BaselinePath != "" && !cfg.GenerateBaseline {
-		baselineFile := cfg.BaselinePath
-		if !filepath.IsAbs(baselineFile) {
-			baselineFile = filepath.Join(rootPath, baselineFile)
-		}
-		baseline, err = config.LoadBaseline(baselineFile)
-		if err != nil {
-			fmt.Printf("⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
-		} else {
-			fmt.Printf("🛡️  Baseline loaded: %d files will be partially ignored.\n", len(baseline.Files))
-		}
+	        baselineFile := cfg.BaselinePath
+	        if !filepath.IsAbs(baselineFile) {
+	                baselineFile = filepath.Join(rootPath, baselineFile)
+	        }
+	        baseline, err = config.LoadBaseline(baselineFile)
+	        if err != nil {
+	                fmt.Fprintf(os.Stderr, "⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
+	        } else {
+	                fmt.Fprintf(os.Stderr, "🛡️  Baseline loaded: %d files will be partially ignored.\n", len(baseline.Files))
+	        }
 	}
 
 	// 4. Collect Files to Audit
@@ -89,18 +90,18 @@ func main() {
 
 	// 7. Handle Baseline Generation
 	if cfg.GenerateBaseline {
-		baselineFile := cfg.BaselinePath
-		if !filepath.IsAbs(baselineFile) {
-			baselineFile = filepath.Join(rootPath, baselineFile)
-		}
-		err := config.SaveBaseline(baselineFile, finalResults, rootPath)
-		if err != nil {
-			fmt.Printf("❌ Error saving baseline: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("\n✨ Baseline successfully generated at: %s\n", baselineFile)
-		fmt.Println("👉 Future audits will ignore these existing findings.")
-		return
+	        baselineFile := cfg.BaselinePath
+	        if !filepath.IsAbs(baselineFile) {
+	                baselineFile = filepath.Join(rootPath, baselineFile)
+	        }
+	        err := config.SaveBaseline(baselineFile, finalResults, rootPath)
+	        if err != nil {
+	                fmt.Fprintf(os.Stderr, "❌ Error saving baseline: %v\n", err)
+	                os.Exit(1)
+	        }
+	        fmt.Fprintf(os.Stderr, "\n✨ Baseline successfully generated at: %s\n", baselineFile)
+	        fmt.Fprintln(os.Stderr, "👉 Future audits will ignore these existing findings.")
+	        return
 	}
 
 	// 8. Report Results (Project first, then Vendor)
@@ -108,11 +109,11 @@ func main() {
 
 	success := rep.PrintSummary(finalResults, rootPath)
 	if !success {
-		os.Exit(1)
+	        os.Exit(1)
 	}
-}
+	}
 
-func parseFlagsAndInit() (config.Config, string, bool) {
+	func parseFlagsAndInit() (config.Config, string, bool) {
 	var configPath string
 	versionFlag := flag.Bool("version", false, "Display version information")
 	flag.StringVar(&configPath, "config", "", "Custom path to igor.json")
@@ -126,51 +127,155 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	outputFlag := flag.String("output", "cli", "Output format (cli, llm)")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
-		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
-		fmt.Fprintf(os.Stderr, "  igor-php init [options] [directory] Initialize a new igor.json config\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  igor-php .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
-		fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php init\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
+	        fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
+	        fmt.Fprintf(os.Stderr, "Usage:\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php init [options] [directory] Initialize a new igor.json config\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php review <json_file>       Review an audit JSON export with an LLM\n\n")
+	        fmt.Fprintf(os.Stderr, "Options:\n")
+	        flag.PrintDefaults()
+	        fmt.Fprintf(os.Stderr, "\nExamples:\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php .\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php init\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php review igor-export.json\n")
+	        fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
 	}
 
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("igor-php version %s\n", Version)
-		return config.Config{}, "", true
+	        fmt.Fprintf(os.Stderr, "igor-php version %s\n", Version)
+	        return config.Config{}, "", true
 	}
 
 	args := flag.Args()
 	if len(args) > 0 && args[0] == "init" {
-		targetDir := "."
-		if len(args) > 1 {
-			targetDir = args[1]
-		}
-		rootPath, _ := filepath.Abs(targetDir)
-		detectedType, err := config.InitConfig(rootPath, configPath)
-		if err != nil {
-			fmt.Printf("❌ Error: %v\n", err)
-			os.Exit(1)
-		}
+	        targetDir := "."
+	        if len(args) > 1 {
+	                targetDir = args[1]
+	        }
+	        rootPath, _ := filepath.Abs(targetDir)
+	        detectedType, err := config.InitConfig(rootPath, configPath)
+	        if err != nil {
+	                fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+	                os.Exit(1)
+	        }
 
-		actualConfigPath := configPath
-		if actualConfigPath == "" {
-			actualConfigPath = filepath.Join(rootPath, "igor.json")
-		}
+	        actualConfigPath := configPath
+	        if actualConfigPath == "" {
+	                actualConfigPath = filepath.Join(rootPath, "igor.json")
+	        }
 
-		fmt.Printf("✨ Igor has successfully initialized your project!\n")
-		fmt.Printf("📂 Detected project type: %s\n", detectedType)
-		fmt.Printf("📝 Configuration saved to: %s\n", actualConfigPath)
-		fmt.Printf("👉 You can now customize the configuration to fit your needs.\n")
+	        fmt.Fprintf(os.Stderr, "✨ Igor has successfully initialized your project!\n")
+	        fmt.Fprintf(os.Stderr, "📂 Detected project type: %s\n", detectedType)
+	        fmt.Fprintf(os.Stderr, "📝 Configuration saved to: %s\n", actualConfigPath)
+	        fmt.Fprintf(os.Stderr, "👉 You can now customize the configuration to fit your needs.\n")
 
-		return config.Config{}, "", true
+	        return config.Config{}, "", true
+	}
+
+	if len(args) > 0 && args[0] == "review" {
+	        if len(args) < 2 {
+	                fmt.Fprintln(os.Stderr, "❌ Error: missing JSON file to review.")
+	                fmt.Fprintln(os.Stderr, "Usage: igor-php review <json_file>")
+	                os.Exit(1)
+	        }
+	        jsonFile := args[1]
+	        content, err := os.ReadFile(jsonFile)
+	        if err != nil {
+	                fmt.Fprintf(os.Stderr, "❌ Error: could not read file %s: %v\n", jsonFile, err)
+	                os.Exit(1)
+	        }
+
+	        fmt.Fprintf(os.Stderr, "🧟 Igor is preparing to review %s...\n", jsonFile)
+
+	        // Check for Expert Mode configuration
+	        rootPath, _ := filepath.Abs(".")
+	        cfg := config.LoadConfig(rootPath, configPath)
+
+	        if cfg.LLMConfig.Provider == "gemini" {
+	                fmt.Fprintln(os.Stderr, "🤖 Gemini CLI Mode: Sending audit to Gemini...")
+	                prompt := fmt.Sprintf(reporter.FrictionlessPromptTemplate, string(content))
+
+	                // Run gemini -p "prompt" --skip-trust
+	                args := []string{"-p", prompt, "--skip-trust"}
+	                if cfg.LLMConfig.Model != "" {
+	                        args = append(args, "-m", cfg.LLMConfig.Model)
+	                }
+
+	                cmd := exec.Command("gemini", args...)
+	                var out bytes.Buffer
+	                cmd.Stdout = &out
+	                cmd.Stderr = os.Stderr // Pass errors to stderr
+
+	                err = cmd.Run()
+	                if err != nil {
+	                        fmt.Fprintf(os.Stderr, "❌ Gemini CLI failed: %v\n", err)
+	                        os.Exit(1)
+	                }
+
+	                review := out.String()
+	                err = os.WriteFile("igor-review.md", []byte(review), 0644)
+	                if err != nil {
+	                        fmt.Fprintf(os.Stderr, "❌ Error writing review file: %v\n", err)
+	                        os.Exit(1)
+	                }
+
+	                fmt.Fprintln(os.Stderr, "✨ Gemini Review complete! Results saved to igor-review.md")
+	                os.Exit(0)
+	        }
+
+	        if cfg.LLMConfig.Provider == "ollama" || (cfg.LLMConfig.Provider == "openai" && cfg.LLMConfig.APIUrl != "") {
+	                apiUrl := cfg.LLMConfig.APIUrl
+	                apiKey := ""
+	                modeName := "Expert Mode"
+
+	                if cfg.LLMConfig.Provider == "ollama" {
+	                        modeName = "Ollama Mode"
+	                        if apiUrl == "" {
+	                                apiUrl = "http://localhost:11434/v1"
+	                        }
+	                        apiKey = "ollama" // Dummy key for local
+	                } else {
+	                        apiKey = os.Getenv(cfg.LLMConfig.ApiKeyEnv)
+	                        if apiKey == "" {
+	                                fmt.Fprintf(os.Stderr, "⚠️  Expert Mode enabled but ENV %s is empty. Falling back to Frictionless Mode.\n", cfg.LLMConfig.ApiKeyEnv)
+	                                goto frictionless
+	                        }
+	                }
+
+	                fmt.Fprintf(os.Stderr, "🧠 %s: Sending audit to LLM (%s)...\n", modeName, cfg.LLMConfig.Model)
+	                client := reporter.NewLLMClient(apiUrl, apiKey, cfg.LLMConfig.Model)
+
+	                prompt := fmt.Sprintf(reporter.FrictionlessPromptTemplate, string(content))
+	                review, err := client.Review(prompt)
+	                if err != nil {
+	                        fmt.Fprintf(os.Stderr, "❌ %s failed: %v\n", modeName, err)
+	                        os.Exit(1)
+	                }
+
+	                err = os.WriteFile("igor-review.md", []byte(review), 0644)
+	                if err != nil {
+	                        fmt.Fprintf(os.Stderr, "❌ Error writing review file: %v\n", err)
+	                        os.Exit(1)
+	                }
+
+	                fmt.Fprintf(os.Stderr, "✨ %s Review complete! Results saved to igor-review.md\n", modeName)
+	                os.Exit(0)
+	        }
+
+	        frictionless:
+	        err = reporter.GenerateFrictionlessPrompt(string(content))
+
+	        if err != nil {
+	                fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+	                os.Exit(1)
+	        }
+
+	        fmt.Fprintln(os.Stderr, "📄 Prompt ready! Copy the content of igor-review-prompt.md to your favorite LLM.")
+	        os.Exit(0)
 	}
 
 	if len(args) < 1 {
@@ -208,16 +313,15 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 
 	// Display summary of packages
 	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
-		fmt.Printf("📦 Composer: %d production packages will be inspected, %d dev packages will be ignored.\n",
-			len(cfg.ProdPackages), len(cfg.DevPackages))
-		if !*verboseFlag && len(cfg.DevPackages) > 0 {
-			fmt.Println("   (Use --verbose to see which services are being skipped)")
-		}
+	        fmt.Fprintf(os.Stderr, "📦 Composer: %d production packages will be inspected, %d dev packages will be ignored.\n",
+	                len(cfg.ProdPackages), len(cfg.DevPackages))
+	        if !*verboseFlag && len(cfg.DevPackages) > 0 {
+	                fmt.Fprintln(os.Stderr, "   (Use --verbose to see which services are being skipped)")
+	        }
 	}
 
 	return cfg, rootPath, false
-}
-
+	}
 func reportAllFindings(rep reporter.Reporter, results []symbol.AuditStatus, rootPath string) {
 	// Report Project Results first
 	hasProjectFindings := false
@@ -252,8 +356,8 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 
 	// --- STEP 1: Add shared services from Symfony (to get IDs and Dependencies) ---
 	if aud.Symfony != nil {
-		fmt.Println("🎯 Symfony detected: Mapping services and dependencies...")
-		auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
+	        fmt.Fprintln(os.Stderr, "🎯 Symfony detected: Mapping services and dependencies...")
+	        auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 	}
 
 	// --- STEP 2: Scan remaining local project files ---
@@ -261,10 +365,9 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 
 	// --- STEP 3: Forced Vendor Scan ---
 	if len(cfg.ScanVendors) > 0 {
-		fmt.Println("🔍 Forced Vendor Scan: Auditing specific vendor paths...")
-		auditList = append(auditList, collectForcedVendorFiles(rootPath, cfg, processedFiles)...)
+	        fmt.Fprintln(os.Stderr, "🔍 Forced Vendor Scan: Auditing specific vendor paths...")
+	        auditList = append(auditList, collectForcedVendorFiles(rootPath, cfg, processedFiles)...)
 	}
-
 	return auditList
 }
 
@@ -294,62 +397,63 @@ func collectLocalFiles(rootPath string, cfg config.Config, aud *auditor.Auditor,
 func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
 	var list []symbol.AuditStatus
 	for id, def := range aud.Symfony.Container.Definitions {
-		if strings.HasPrefix(id, ".errored.") {
-			if cfg.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
-			}
-			continue
-		}
-		if !def.Shared {
-			if cfg.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
-			}
-			continue
-		}
-		if def.Class == "" {
-			if cfg.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': no class defined\n", id)
-			}
-			continue
-		}
-		if aud.IsSafeNamespace(def.Class) {
-			if cfg.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
-			}
-			continue
-		}
+	        if strings.HasPrefix(id, ".errored.") {
+	                if cfg.Verbose {
+	                        fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': container error\n", id)
+	                }
+	                continue
+	        }
+	        if !def.Shared {
+	                if cfg.Verbose {
+	                        fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
+	                }
+	                continue
+	        }
+	        if def.Class == "" {
+	                if cfg.Verbose {
+	                        fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': no class defined\n", id)
+	                }
+	                continue
+	        }
+	        if aud.IsSafeNamespace(def.Class) {
+	                if cfg.Verbose {
+	                        fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
+	                }
+	                continue
+	        }
 
-		if path, found := aud.Symfony.ClassToFile[def.Class]; found {
-			if cfg.IsExcluded(path, rootPath) {
-				if cfg.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': path %s is excluded\n", id, path)
-				}
-				continue
-			}
-			if aud.IsDevPackagePath(path) {
-				if cfg.Verbose {
-					fmt.Printf("  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
-				}
-				continue
-			}
-			if !processed[path] {
-				deps := extractDependencies(def)
-				list = append(list, symbol.AuditStatus{
-					ServiceID:    id,
-					FilePath:     path,
-					Status:       "⏳ PENDING",
-					Dependencies: deps,
-					IsShared:     def.Shared,
-					IsPublic:     def.Public,
-				})
-				processed[path] = true
-			} else if cfg.Verbose {
-				fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
-			}
-		} else if cfg.Verbose {
-			fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
-		}
+	        if path, found := aud.Symfony.ClassToFile[def.Class]; found {
+	                if cfg.IsExcluded(path, rootPath) {
+	                        if cfg.Verbose {
+	                                fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': path %s is excluded\n", id, path)
+	                        }
+	                        continue
+	                }
+	                if aud.IsDevPackagePath(path) {
+	                        if cfg.Verbose {
+	                                fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
+	                        }
+	                        continue
+	                }
+	                if !processed[path] {
+	                        deps := extractDependencies(def)
+	                        list = append(list, symbol.AuditStatus{
+	                                ServiceID:    id,
+	                                FilePath:     path,
+	                                Status:       "⏳ PENDING",
+	                                Dependencies: deps,
+	                                IsShared:     def.Shared,
+	                                IsPublic:     def.Public,
+	                        })
+	                        processed[path] = true
+	                } else if cfg.Verbose {
+	                        fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
+	                }
+	        } else if cfg.Verbose {
+	                fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
+	        }
 	}
+
 	return list
 }
 

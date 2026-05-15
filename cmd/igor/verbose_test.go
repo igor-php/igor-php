@@ -46,10 +46,12 @@ if ($argv[1] === 'debug:container') {
 `
 	_ = os.WriteFile(filepath.Join(binDir, "console"), []byte(mockConsoleContent), 0755)
 
-	// 2. Capture Stdout
+	// 2. Capture Stdout and Stderr
 	oldStdout := os.Stdout
+	oldStderr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	os.Stderr = w
 
 	// 3. Run collectFiles logic via a minimal setup
 	cfg := config.DefaultConfig()
@@ -62,14 +64,15 @@ if ($argv[1] === 'debug:container') {
 	_ = sb.LoadContainer("prod")
 	aud.Symfony = sb
 
-	// Call collectFiles (this will print to stdout because of Verbose=true)
+	// Call collectFiles (this will print to stderr because of Verbose=true)
 	_ = collectFiles(tmpDir, cfg, aud)
 
-	// Restore Stdout
+	// Restore Stdout and Stderr
 	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	os.Stdout = oldStdout
+	os.Stderr = oldStderr
 
 	output := buf.String()
 

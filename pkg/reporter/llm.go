@@ -108,10 +108,9 @@ func (r *LLMReporter) PrintSummary(results []symbol.AuditStatus, projectRoot str
 	encoder.SetIndent("", "  ")
 
 	if err := encoder.Encode(output); err != nil {
-		fmt.Printf("Error generating LLM export: %v\n", err)
-		return false
+	        fmt.Fprintf(os.Stderr, "Error generating LLM export: %v\n", err)
+	        return false
 	}
-
 	// Determine success based on findings (match existing behavior)
 	hasError := false
 	for _, w := range r.Warnings {

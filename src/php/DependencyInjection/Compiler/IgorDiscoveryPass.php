@@ -4,6 +4,8 @@ namespace IgorPhp\IgorBundle\DependencyInjection\Compiler;
 
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Reference;
 
 class IgorDiscoveryPass implements CompilerPassInterface
 {
@@ -23,6 +25,7 @@ class IgorDiscoveryPass implements CompilerPassInterface
                 'class' => $container->getParameterBag()->resolveValue($definition->getClass()),
                 'public' => $definition->isPublic(),
                 'shared' => $definition->isShared(),
+                'arguments' => $this->extractDependencies($definition),
             ];
         }
 
@@ -39,5 +42,28 @@ class IgorDiscoveryPass implements CompilerPassInterface
             $cacheDir . '/igor_service_map.json',
             json_encode($serviceMap, JSON_PRETTY_PRINT)
         );
+    }
+
+    private function extractDependencies(Definition $definition): array
+    {
+        $deps = [];
+
+        // Constructor arguments
+        foreach ($definition->getArguments() as $arg) {
+            if ($arg instanceof Reference) {
+                $deps[] = ['type' => 'service', 'id' => (string) $arg];
+            }
+        }
+
+        // Setter injection / Method calls
+        foreach ($definition->getMethodCalls() as $call) {
+            foreach ($call[1] as $arg) {
+                if ($arg instanceof Reference) {
+                    $deps[] = ['type' => 'service', 'id' => (string) $arg];
+                }
+            }
+        }
+
+        return $deps;
     }
 }
