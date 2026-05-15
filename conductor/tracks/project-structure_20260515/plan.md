@@ -17,8 +17,8 @@
 - [x] Task: Move Symfony auditor logic (`auditor.go`, `service_auditor_test.go`, `symfony.go`) to `internal/auditor/` and update package name. 258455c
 - [x] Task: Move AST/Mutation logic (`visitor.go` and similar) to `internal/analyzer/` and update package name. d2b37ce
 - [x] Task: Identify and move Tree-sitter specific logic to `internal/tree-sitter/`. 13e11ce
-- [~] Task: Relocate remaining root files (e.g., `composer.go`, `baseline.go`, `baseline_test.go`) to appropriate `internal/` subdirectories based on responsibility.
-- [ ] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`.
+- [x] Task: Relocate remaining root files (e.g., `composer.go`, `baseline.go`, `baseline_test.go`) to appropriate `internal/` subdirectories based on responsibility. f160cba
+- [~] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`.
 - [ ] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md)
 
 ## Phase 4: Fix Imports, Build, and Verify
