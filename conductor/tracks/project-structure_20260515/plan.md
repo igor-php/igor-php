@@ -11,8 +11,8 @@
 - [x] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md) 1ff0e09
 
 ## Phase 3: Relocate Core Code and Update Packages
-- [ ] Task: Move symbol models (`models.go`) to `pkg/symbol/` and update package name.
-- [ ] Task: Move reporter logic (`reporter.go`, `reporter_test.go`) to `pkg/reporter/` and update package name.
+- [x] Task: Move symbol models (`models.go`) to `pkg/symbol/` and update package name. a4105d0
+- [~] Task: Move reporter logic (`reporter.go`, `reporter_test.go`) to `pkg/reporter/` and update package name.
 - [ ] Task: Move configuration logic (`config.go`, `config_test.go`) to `internal/config/` and update package name.
 - [ ] Task: Move Symfony auditor logic (`auditor.go`, `service_auditor_test.go`, `symfony.go`) to `internal/auditor/` and update package name.
 - [ ] Task: Move AST/Mutation logic (`visitor.go` and similar) to `internal/analyzer/` and update package name.
