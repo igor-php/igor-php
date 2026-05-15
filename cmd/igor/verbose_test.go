@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/igor-php/igor-php/internal/config"
-	"github.com/igor-php/igor-php/internal/auditor"
 	"bytes"
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
 	"io"
 	"os"
 	"path/filepath"

@@ -392,4 +392,3 @@ func runParallelAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor) <-ch
 
 	return resultsChan
 }
-
