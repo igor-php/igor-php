@@ -1,13 +1,13 @@
 # Implementation Plan: LLM Export Feature
 
-## Phase 1: Define LLM JSON Structure & Reporter Foundation
+## Phase 1: Define LLM JSON Structure & Reporter Foundation [checkpoint: beac17a]
 - [x] Task: Create data structures (structs) for the LLM JSON output (Warning, Context, Metadata). (8ee742e)
     - [ ] Write unit tests for JSON serialization of the new structures.
     - [ ] Implement the Go structs with appropriate JSON tags.
 - [ ] Task: Create a new `LLMReporter` that implements the existing reporter interface.
     - [ ] Write unit tests to ensure `LLMReporter` can receive warnings and buffer them.
     - [ ] Implement the `LLMReporter` logic.
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Define LLM JSON Structure & Reporter Foundation' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Define LLM JSON Structure & Reporter Foundation' (Protocol in workflow.md) (beac17a)
 
 ## Phase 2: Context Extraction (AST & Snippet)
 - [ ] Task: Implement AST node stringification/extraction.
