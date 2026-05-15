@@ -1,8 +1,8 @@
 # Implementation Plan: Go Project Restructuring
 
-## Phase 1: Setup Directory Structure
+## Phase 1: Setup Directory Structure [checkpoint: 26f44f2]
 - [x] Task: Create the new directory skeleton (`cmd/igor`, `internal/analyzer`, `internal/auditor`, `internal/config`, `internal/tree-sitter`, `pkg/reporter`, `pkg/symbol`, `api`, `assets`, `scripts`). bb2e870
-- [ ] Task: Conductor - User Manual Verification 'Setup Directory Structure' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Setup Directory Structure' (Protocol in workflow.md) 26f44f2
 
 ## Phase 2: Relocate Non-Go Files
 - [ ] Task: Move `igor-php.png` and `review.png` to `assets/`.
