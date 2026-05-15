@@ -41,8 +41,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 - [x] **Track: Export warnings in a structured JSON format to assist LLMs in triage and severity scoring.**
 *Link: [./tracks/llm_export_20260515/](./tracks/llm_export_20260515/)*
 
-
----
-
-- [x] **Track: Add an LLM review option to automatically triage JSON export warnings.**
-*Link: [./tracks/llm_review_command_20260515/](./tracks/llm_review_command_20260515/)*
