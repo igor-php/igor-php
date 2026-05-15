@@ -1,4 +1,4 @@
-package main
+package symbol
 
 import (
 	"path/filepath"
