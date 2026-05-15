@@ -18,7 +18,8 @@ func TestGitHubAnnotations(t *testing.T) {
 
 	// 2. Setup Reporter and a dummy result
 	rep := reporter.NewReporter()
-	if !rep.IsGitHub {
+	cliRep := rep.(*reporter.CLIReporter)
+	if !cliRep.IsGitHub {
 		t.Fatal("Reporter should detect GITHUB_ACTIONS=true")
 	}
 
