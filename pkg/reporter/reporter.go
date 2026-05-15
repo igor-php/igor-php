@@ -11,26 +11,45 @@ import (
 )
 
 // Reporter handles the output formatting of audit results.
-type Reporter struct {
+type Reporter interface {
+	PrintHeader(count int)
+	PrintProjectHeader()
+	PrintVendorHeader()
+	PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool)
+	PrintSummary(results []symbol.AuditStatus, projectRoot string) bool
+}
+
+// CLIReporter implements Reporter for terminal output.
+type CLIReporter struct {
 	StartTime time.Time
 	IsGitHub  bool
 }
 
-// NewReporter creates a new reporter.
-func NewReporter() *Reporter {
-	return &Reporter{
+// NewReporter creates a new CLI reporter.
+func NewReporter() Reporter {
+	return &CLIReporter{
 		StartTime: time.Now(),
 		IsGitHub:  os.Getenv("GITHUB_ACTIONS") == "true",
 	}
 }
 
 // PrintHeader prints the initial message.
-func (r *Reporter) PrintHeader(count int) {
+func (r *CLIReporter) PrintHeader(count int) {
 	fmt.Printf("🧟 Igor is auditing %d unique shared service files for you, Master...\n\n", count)
 }
 
+// PrintProjectHeader prints the project services section header.
+func (r *CLIReporter) PrintProjectHeader() {
+	fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
+}
+
+// PrintVendorHeader prints the vendor services section header.
+func (r *CLIReporter) PrintVendorHeader() {
+	fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
+}
+
 // PrintFindings displays detailed issues for a given service.
-func (r *Reporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
+func (r *CLIReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
 	if len(res.Findings) == 0 {
 		return
 	}
@@ -95,7 +114,7 @@ func (r *Reporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isV
 }
 
 // PrintSummary displays the final audit statistics.
-func (r *Reporter) PrintSummary(results []symbol.AuditStatus, projectRoot string) bool {
+func (r *CLIReporter) PrintSummary(results []symbol.AuditStatus, projectRoot string) bool {
 	totalOK := 0
 	projKO, projWarn := 0, 0
 	vendKO, vendWarn := 0, 0

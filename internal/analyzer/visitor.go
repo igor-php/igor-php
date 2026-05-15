@@ -16,8 +16,10 @@ type Engine interface {
 }
 
 type mutationInfo struct {
-	line int
-	code string
+	line       int
+	code       string
+	snippet    string
+	astDetails string
 }
 
 // PHPVisitor analyzes a single PHP file using tree-sitter.
@@ -34,6 +36,7 @@ type PHPVisitor struct {
 	mutated         map[string]mutationInfo
 	resetted        map[string]bool
 	engine          Engine
+	dependencies    []string
 }
 
 // NewVisitor creates a new instance of the PHPVisitor.
@@ -45,6 +48,10 @@ func NewVisitor(content []byte, engine Engine) *PHPVisitor {
 		resetted: make(map[string]bool),
 		engine:   engine,
 	}
+}
+
+func (v *PHPVisitor) SetDependencies(deps []string) {
+	v.dependencies = deps
 }
 
 func (v *PHPVisitor) Walk(n *sitter.Node) {
@@ -320,7 +327,12 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 	case v.curMethod == "reset":
 		v.resetted[key] = true
 	case v.isReset:
-		v.mutated[key] = mutationInfo{line: int(n.StartPosition().Row) + 1, code: v.lines[n.StartPosition().Row]}
+		v.mutated[key] = mutationInfo{
+			line:       int(n.StartPosition().Row) + 1,
+			code:       v.lines[n.StartPosition().Row],
+			snippet:    v.getContent(n),
+			astDetails: n.ToSexp(),
+		}
 	case v.curClass != "" || static:
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
 		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
@@ -331,11 +343,14 @@ func (v *PHPVisitor) performResetCheck() {
 	for prop, info := range v.mutated {
 		if !v.resetted[prop] {
 			v.findings = append(v.findings, symbol.Finding{
-				Message:     fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
-				Severity:    "WARNING",
-				Line:        info.line,
-				Code:        info.code,
-				Remediation: fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
+				Message:      fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
+				Severity:     "WARNING",
+				Line:         info.line,
+				Code:         info.code,
+				Snippet:      info.snippet,
+				ASTDetails:   info.astDetails,
+				Dependencies: v.dependencies,
+				Remediation:  fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
 			})
 		}
 	}
@@ -353,7 +368,16 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 		return
 	}
 
-	v.findings = append(v.findings, symbol.Finding{Message: msg, Line: row + 1, Code: v.lines[row], Remediation: hint, Severity: severity})
+	v.findings = append(v.findings, symbol.Finding{
+		Message:      msg,
+		Line:         row + 1,
+		Code:         v.lines[row],
+		Snippet:      v.getContent(n),
+		ASTDetails:   n.ToSexp(),
+		Dependencies: v.dependencies,
+		Remediation:  hint,
+		Severity:     severity,
+	})
 }
 
 func (v *PHPVisitor) getContent(n *sitter.Node) string {

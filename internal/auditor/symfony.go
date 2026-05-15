@@ -58,7 +58,7 @@ func DetectSymfony(rootPath string, cfg config.Config) (*SymfonyBridge, error) {
 	}
 
 	// 2. If we found a console, try to initialize the bridge
-	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
+	fmt.Fprintf(os.Stderr, "🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
 	sb := NewSymfonyBridge(projectRoot, consolePath, cfg)
 	if err := sb.LoadContainer(cfg.Env); err != nil {
 
@@ -131,7 +131,7 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 			}
 
 			b.Container = &container
-			fmt.Printf("⚡ Igor Agent detected: Using cached service map from %s\n", path)
+			fmt.Fprintf(os.Stderr, "⚡ Igor Agent detected: Using cached service map from %s\n", path)
 
 			jsonPart, _ := json.Marshal(container)
 			if err := b.locateFilesViaReflection(string(jsonPart)); err != nil {

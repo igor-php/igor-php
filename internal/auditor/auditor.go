@@ -32,7 +32,7 @@ func NewAuditor(cfg config.Config) *Auditor {
 }
 
 // Audit analyzes a single PHP file and returns findings.
-func (a *Auditor) Audit(path string) ([]symbol.Finding, error) {
+func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", path, err)
@@ -51,6 +51,7 @@ func (a *Auditor) Audit(path string) ([]symbol.Finding, error) {
 	defer tree.Close()
 
 	v := analyzer.NewVisitor(content, a)
+	v.SetDependencies(dependencies)
 	v.Walk(tree.RootNode())
 
 	return v.Findings(), nil

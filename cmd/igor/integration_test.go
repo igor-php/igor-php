@@ -123,7 +123,7 @@ func TestSymfonyIntegration(t *testing.T) {
 
 	t.Run("Auditor should correctly audit the mocked service", func(t *testing.T) {
 		aud := auditor.NewAuditor(config.Config{})
-		findings, err := aud.Audit(servicePath)
+		findings, err := aud.Audit(servicePath, nil)
 		if err != nil {
 			t.Fatalf("Audit failed: %v", err)
 		}

@@ -18,7 +18,8 @@ func stripANSI(str string) string {
 }
 
 func TestReporter_PrintFindings(t *testing.T) {
-	r := NewReporter()
+	rep := NewReporter()
+	r := rep.(*CLIReporter)
 	r.IsGitHub = false // Ensure standard CLI output for tests
 	projectRoot := "/tmp/project"
 
@@ -115,7 +116,8 @@ func TestReporter_PrintFindings(t *testing.T) {
 }
 
 func TestReporter_PrintSummary(t *testing.T) {
-	r := NewReporter()
+	rep := NewReporter()
+	r := rep.(*CLIReporter)
 	r.IsGitHub = false
 	projectRoot := "/tmp/project"
 

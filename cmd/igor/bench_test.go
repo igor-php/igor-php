@@ -37,7 +37,7 @@ class Service%d {
 	for n := 0; n < b.N; n++ {
 		files, _ := filepath.Glob(filepath.Join(tmpDir, "*.php"))
 		for _, f := range files {
-			_, _ = auditor.Audit(f)
+			_, _ = auditor.Audit(f, nil)
 		}
 	}
 }
