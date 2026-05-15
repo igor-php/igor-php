@@ -24,7 +24,12 @@ func main() {
 
 	// 1. Initialize Components
 	aud := auditor.NewAuditor(cfg)
-	rep := reporter.NewReporter()
+	var rep reporter.Reporter
+	if cfg.OutputFormat == "llm" {
+		rep = reporter.NewLLMReporter(Version)
+	} else {
+		rep = reporter.NewReporter()
+	}
 
 	// 2. Detect Symfony project
 	sb, err := auditor.DetectSymfony(rootPath, cfg)
@@ -118,6 +123,7 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	envFlag := flag.String("env", "", "Symfony environment (default: dev)")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
 	noAgentFlag := flag.Bool("no-agent", false, "Disable Igor Agent and fallback to standard scan")
+	outputFlag := flag.String("output", "cli", "Output format (cli, llm)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -186,6 +192,9 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	if *noAgentFlag {
 		cfg.NoAgent = true
 	}
+	if *outputFlag != "" {
+		cfg.OutputFormat = *outputFlag
+	}
 	if *generateBaselineFlag {
 		cfg.GenerateBaseline = true
 		if *baselineFlag != "" {
@@ -216,7 +225,7 @@ func reportAllFindings(rep reporter.Reporter, results []symbol.AuditStatus, root
 		isVendor := res.IsVendor(rootPath)
 		if !isVendor && len(res.Findings) > 0 {
 			if !hasProjectFindings {
-				fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
+				rep.PrintProjectHeader()
 				hasProjectFindings = true
 			}
 			rep.PrintFindings(res, rootPath, isVendor)
@@ -229,7 +238,7 @@ func reportAllFindings(rep reporter.Reporter, results []symbol.AuditStatus, root
 		isVendor := res.IsVendor(rootPath)
 		if isVendor && len(res.Findings) > 0 {
 			if !hasVendorFindings {
-				fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
+				rep.PrintVendorHeader()
 				hasVendorFindings = true
 			}
 			rep.PrintFindings(res, rootPath, isVendor)

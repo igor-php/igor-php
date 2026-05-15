@@ -54,6 +54,12 @@ func NewLLMReporter(version string) Reporter {
 // PrintHeader is a no-op for LLMReporter.
 func (r *LLMReporter) PrintHeader(count int) {}
 
+// PrintProjectHeader is a no-op for LLMReporter.
+func (r *LLMReporter) PrintProjectHeader() {}
+
+// PrintVendorHeader is a no-op for LLMReporter.
+func (r *LLMReporter) PrintVendorHeader() {}
+
 // PrintFindings collects warnings to be exported later.
 func (r *LLMReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
 	for _, f := range res.Findings {

@@ -13,6 +13,7 @@ type Config struct {
 	ProdPackages     []string `json:"-"` // List of require packages from composer.json
 	DevPackages      []string `json:"-"` // List of require-dev packages from composer.json
 	GenerateBaseline bool     `json:"-"` // Internal: set if --generate-baseline is used
+	OutputFormat     string   `json:"output"`
 }
 
 // Baseline represents a collection of ignored findings.

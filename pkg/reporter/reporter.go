@@ -13,6 +13,8 @@ import (
 // Reporter handles the output formatting of audit results.
 type Reporter interface {
 	PrintHeader(count int)
+	PrintProjectHeader()
+	PrintVendorHeader()
 	PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool)
 	PrintSummary(results []symbol.AuditStatus, projectRoot string) bool
 }
@@ -34,6 +36,16 @@ func NewReporter() Reporter {
 // PrintHeader prints the initial message.
 func (r *CLIReporter) PrintHeader(count int) {
 	fmt.Printf("🧟 Igor is auditing %d unique shared service files for you, Master...\n\n", count)
+}
+
+// PrintProjectHeader prints the project services section header.
+func (r *CLIReporter) PrintProjectHeader() {
+	fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
+}
+
+// PrintVendorHeader prints the vendor services section header.
+func (r *CLIReporter) PrintVendorHeader() {
+	fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
 }
 
 // PrintFindings displays detailed issues for a given service.
