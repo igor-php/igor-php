@@ -21,10 +21,10 @@
 - [x] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`. ed10c7d
 - [x] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md) 0bd11ff
 
-## Phase 4: Fix Imports, Build, and Verify
+## Phase 4: Fix Imports, Build, and Verify [checkpoint: 290495a]
 - [x] Task: Update all internal imports across the project to reference the new package paths. 398b379
 - [x] Task: Create a `Makefile` with basic `build`, `test`, and `lint` commands. 4e0ba99
 - [x] Task: Run `go mod tidy` and resolve any module issues. 5bc2759
 - [x] Task: Run `go test ./...` and fix any failing tests due to the restructuring. 0546927
 - [x] Task: Verify the build with `go build -o bin/igor ./cmd/igor` and ensure the binary functions correctly. 9d5ede8
-- [~] Task: Conductor - User Manual Verification 'Fix Imports, Build, and Verify' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Fix Imports, Build, and Verify' (Protocol in workflow.md) 290495a
