@@ -41,7 +41,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 - [ ] **Track: Export warnings in a structured JSON format to assist LLMs in triage and severity scoring.**
 *Link: [./tracks/llm_export_20260515/](./tracks/llm_export_20260515/)*
 
----
-
-- [x] **Track: Refactor the project structure to align with professional open-source Go project standards.**
-*Link: [./tracks/project-structure_20260515/](./tracks/project-structure_20260515/)*
