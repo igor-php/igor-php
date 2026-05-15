@@ -108,17 +108,11 @@ func (r *LLMReporter) PrintSummary(results []symbol.AuditStatus, projectRoot str
 	encoder.SetIndent("", "  ")
 
 	if err := encoder.Encode(output); err != nil {
-	        fmt.Fprintf(os.Stderr, "Error generating LLM export: %v\n", err)
-	        return false
-	}
-	// Determine success based on findings (match existing behavior)
-	hasError := false
-	for _, w := range r.Warnings {
-		if w.Severity == "ERROR" || w.Severity == "KO" {
-			hasError = true
-			break
-		}
+		fmt.Fprintf(os.Stderr, "Error generating LLM export: %v\n", err)
+		return false
 	}
 
-	return !hasError
+	// For LLM output, generating the JSON is a success regardless of findings.
+	// The triage is handled by the LLM in the next step.
+	return true
 }
