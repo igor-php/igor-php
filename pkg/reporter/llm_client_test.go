@@ -32,7 +32,10 @@ func TestLLMClient_Review(t *testing.T) {
 				{Message: Message{Role: "assistant", Content: "This is a review."}},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		err := json.NewEncoder(w).Encode(resp)
+		if err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 

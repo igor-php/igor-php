@@ -40,7 +40,10 @@ func TestReviewCommand_ExpertMode(t *testing.T) {
 				{Message: reporter.Message{Role: "assistant", Content: "Expert review content."}},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		err := json.NewEncoder(w).Encode(resp)
+		if err != nil {
+			t.Errorf("Failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -55,14 +58,26 @@ func TestReviewCommand_ExpertMode(t *testing.T) {
 	if err := os.WriteFile("igor.json", []byte(configContent), 0644); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove("igor.json")
-	os.Setenv("IGOR_TEST_KEY", "test-key")
+	defer func() {
+		_ = os.Remove("igor.json")
+	}()
+	err := os.Setenv("IGOR_TEST_KEY", "test-key")
+	if err != nil {
+		t.Fatalf("Failed to set env: %v", err)
+	}
 
 	// 3. Create a dummy JSON export
 	jsonFile := "test-export-expert.json"
-	os.WriteFile(jsonFile, []byte(`{"warnings": []}`), 0644)
-	defer os.Remove(jsonFile)
-	defer os.Remove("igor-review.md")
+	err = os.WriteFile(jsonFile, []byte(`{"warnings": []}`), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write json file: %v", err)
+	}
+	defer func() {
+		_ = os.Remove(jsonFile)
+	}()
+	defer func() {
+		_ = os.Remove("igor-review.md")
+	}()
 
 	// 4. Run the review command
 	cmd := exec.Command("go", "run", ".", "review", jsonFile)
