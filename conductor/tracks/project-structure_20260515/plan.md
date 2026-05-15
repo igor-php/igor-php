@@ -23,8 +23,8 @@
 
 ## Phase 4: Fix Imports, Build, and Verify
 - [x] Task: Update all internal imports across the project to reference the new package paths. 398b379
-- [~] Task: Create a `Makefile` with basic `build`, `test`, and `lint` commands.
-- [ ] Task: Run `go mod tidy` and resolve any module issues.
+- [x] Task: Create a `Makefile` with basic `build`, `test`, and `lint` commands. 4e0ba99
+- [~] Task: Run `go mod tidy` and resolve any module issues.
 - [ ] Task: Run `go test ./...` and fix any failing tests due to the restructuring.
 - [ ] Task: Verify the build with `go build -o bin/igor ./cmd/igor` and ensure the binary functions correctly.
 - [ ] Task: Conductor - User Manual Verification 'Fix Imports, Build, and Verify' (Protocol in workflow.md)
