@@ -216,6 +216,74 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 - **env**: Symfony environment to use for container analysis. Defaults to `dev`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
 
+---
+
+## 🧠 LLM Review & Triage
+
+Igor can export findings in a structured JSON format and help you triage them using an LLM. This is particularly useful for distinguishing between harmless state (e.g., caches) and dangerous data leaks.
+
+### 1. Frictionless Mode (No API key needed)
+Generate a ready-to-use prompt for your favorite LLM (ChatGPT, Claude, etc.):
+
+```bash
+# 1. Export the audit to JSON
+igor-php --output llm . > audit.json
+
+# 2. Generate the review prompt
+igor-php review audit.json
+```
+Igor will create `igor-review-prompt.md`. Simply copy its content into an LLM to get a detailed security analysis and remediation plan.
+
+### 2. Expert Mode (Automatic)
+Configure Igor to call an LLM directly by updating your `igor.json`:
+
+#### Option A: Using Gemini CLI (Recommended if installed)
+If you have `gemini-cli` installed and configured, Igor can use it directly:
+```json
+{
+  "llm": {
+    "provider": "gemini",
+    "model": "gemini-1.5-pro"
+  }
+}
+```
+
+#### Option B: Using Ollama (Local LLM)
+If you run Ollama locally, Igor can use its OpenAI-compatible endpoint. This is great for privacy, but **please note that triage quality depends heavily on the model size.** Smaller local models (like Llama 3 8B) are significantly less capable than large online models for complex security triage.
+
+```json
+{
+  "llm": {
+    "provider": "ollama",
+    "model": "llama3" 
+  }
+}
+```
+*Note: Igor defaults the `api_url` to `http://localhost:11434/v1` for Ollama.*
+
+#### Option C: OpenAI-Compatible API
+```json
+{
+  "llm": {
+    "provider": "openai",
+    "api_url": "https://api.openai.com/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "model": "gpt-4o"
+  }
+}
+```
+
+Then run:
+```bash
+# For Option C, ensure the API key is set
+export OPENAI_API_KEY=your_secret_key
+
+igor-php review audit.json
+```
+Igor will automatically send the audit to the LLM and save the report to `igor-review.md`.
+
+---
+
 ### Selective Ignoring
 
 If you have a specific line that you know is safe, you can use the `// @igor-ignore` annotation:

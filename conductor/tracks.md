@@ -44,5 +44,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-- [ ] **Track: Add an LLM review option to automatically triage JSON export warnings.**
+- [x] **Track: Add an LLM review option to automatically triage JSON export warnings.**
 *Link: [./tracks/llm_review_command_20260515/](./tracks/llm_review_command_20260515/)*
