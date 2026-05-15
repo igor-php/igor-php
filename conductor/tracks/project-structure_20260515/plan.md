@@ -22,8 +22,8 @@
 - [x] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md) 0bd11ff
 
 ## Phase 4: Fix Imports, Build, and Verify
-- [~] Task: Update all internal imports across the project to reference the new package paths.
-- [ ] Task: Create a `Makefile` with basic `build`, `test`, and `lint` commands.
+- [x] Task: Update all internal imports across the project to reference the new package paths. 398b379
+- [~] Task: Create a `Makefile` with basic `build`, `test`, and `lint` commands.
 - [ ] Task: Run `go mod tidy` and resolve any module issues.
 - [ ] Task: Run `go test ./...` and fix any failing tests due to the restructuring.
 - [ ] Task: Verify the build with `go build -o bin/igor ./cmd/igor` and ensure the binary functions correctly.
