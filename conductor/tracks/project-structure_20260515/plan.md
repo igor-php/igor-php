@@ -7,8 +7,8 @@
 ## Phase 2: Relocate Non-Go Files
 - [x] Task: Move `igor-php.png` and `review.png` to `assets/`. e9a999c
 - [x] Task: Move `zigcc_wrapper.sh` and `zigcxx_wrapper.sh` to `scripts/`. f5f66e8
-- [~] Task: Rename `tests/` directory to `test/` to match the target architecture.
-- [ ] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md)
+- [x] Task: Rename `tests/` directory to `test/` to match the target architecture. 33b2012
+- [~] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md)
 
 ## Phase 3: Relocate Core Code and Update Packages
 - [ ] Task: Move symbol models (`models.go`) to `pkg/symbol/` and update package name.
