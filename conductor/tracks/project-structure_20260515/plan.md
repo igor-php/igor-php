@@ -10,7 +10,7 @@
 - [x] Task: Rename `tests/` directory to `test/` to match the target architecture. 33b2012
 - [x] Task: Conductor - User Manual Verification 'Relocate Non-Go Files' (Protocol in workflow.md) 1ff0e09
 
-## Phase 3: Relocate Core Code and Update Packages
+## Phase 3: Relocate Core Code and Update Packages [checkpoint: 0bd11ff]
 - [x] Task: Move symbol models (`models.go`) to `pkg/symbol/` and update package name. a4105d0
 - [x] Task: Move reporter logic (`reporter.go`, `reporter_test.go`) to `pkg/reporter/` and update package name. 29bdcf2
 - [x] Task: Move configuration logic (`config.go`, `config_test.go`) to `internal/config/` and update package name. 190b621
@@ -19,7 +19,7 @@
 - [x] Task: Identify and move Tree-sitter specific logic to `internal/tree-sitter/`. 13e11ce
 - [x] Task: Relocate remaining root files (e.g., `composer.go`, `baseline.go`, `baseline_test.go`) to appropriate `internal/` subdirectories based on responsibility. f160cba
 - [x] Task: Move `main.go`, `init.go`, and related entry point logic to `cmd/igor/`. ed10c7d
-- [~] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Relocate Core Code and Update Packages' (Protocol in workflow.md) 0bd11ff
 
 ## Phase 4: Fix Imports, Build, and Verify
 - [ ] Task: Update all internal imports across the project to reference the new package paths.
