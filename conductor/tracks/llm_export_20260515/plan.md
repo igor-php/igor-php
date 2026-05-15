@@ -18,14 +18,14 @@
     - [ ] Implement the snippet extraction logic.
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Context Extraction (AST & Snippet)' (Protocol in workflow.md) (6cf6fa1)
 
-## Phase 3: Dependencies & Service Context
-- [ ] Task: Expose dependency context in the analyzer output.
+## Phase 3: Dependencies & Service Context [checkpoint: 52c23e1]
+- [x] Task: Expose dependency context in the analyzer output. (21527ac)
     - [ ] Write tests to ensure service/class dependencies are properly attached to warnings.
     - [ ] Update the `auditor.go` or `visitor.go` to attach context to detected mutations.
 - [ ] Task: Map extracted context into the `LLMReporter`.
     - [ ] Write tests verifying that `LLMReporter` correctly structures AST, Snippet, and Dependency data into the JSON payload.
     - [ ] Implement mapping logic in `LLMReporter`.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Dependencies & Service Context' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Dependencies & Service Context' (Protocol in workflow.md) (52c23e1)
 
 ## Phase 4: CLI Integration
 - [ ] Task: Add CLI option for LLM output.
