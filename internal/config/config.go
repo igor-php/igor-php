@@ -78,7 +78,7 @@ func (c Config) IsExcluded(path string, rootPath string) bool {
 }
 
 // InitConfig detects the project type and generates a default configuration file.
-func InitConfig(root string, customConfigPath string) error {
+func InitConfig(root string, customConfigPath string) (string, error) {
 	configPath := customConfigPath
 	if configPath == "" {
 		configPath = filepath.Join(root, "igor.json")
@@ -86,7 +86,7 @@ func InitConfig(root string, customConfigPath string) error {
 
 	// Check if already exists
 	if _, err := os.Stat(configPath); err == nil {
-		return os.ErrExist
+		return "", os.ErrExist
 	}
 
 	// Minimal base configuration
@@ -122,14 +122,14 @@ func InitConfig(root string, customConfigPath string) error {
 	// 3. Write file
 	file, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := os.WriteFile(configPath, file, 0644); err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return projectType, nil
 }
 
 func uniqueStrings(input []string) []string {

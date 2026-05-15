@@ -148,10 +148,22 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 			targetDir = args[1]
 		}
 		rootPath, _ := filepath.Abs(targetDir)
-		if err := config.InitConfig(rootPath, configPath); err != nil {
+		detectedType, err := config.InitConfig(rootPath, configPath)
+		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			os.Exit(1)
 		}
+
+		actualConfigPath := configPath
+		if actualConfigPath == "" {
+			actualConfigPath = filepath.Join(rootPath, "igor.json")
+		}
+
+		fmt.Printf("✨ Igor has successfully initialized your project!\n")
+		fmt.Printf("📂 Detected project type: %s\n", detectedType)
+		fmt.Printf("📝 Configuration saved to: %s\n", actualConfigPath)
+		fmt.Printf("👉 You can now customize the configuration to fit your needs.\n")
+
 		return config.Config{}, "", true
 	}
 

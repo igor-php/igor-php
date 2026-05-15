@@ -76,3 +76,57 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestInitConfig(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "igor_init_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	t.Run("Initialize Generic PHP project", func(t *testing.T) {
+		projectDir := filepath.Join(tmpDir, "generic")
+		_ = os.MkdirAll(projectDir, 0755)
+
+		detected, err := InitConfig(projectDir, "")
+		if err != nil {
+			t.Fatalf("InitConfig failed: %v", err)
+		}
+		if detected != "Generic PHP" {
+			t.Errorf("Expected 'Generic PHP', got %s", detected)
+		}
+
+		configPath := filepath.Join(projectDir, "igor.json")
+		if _, err := os.Stat(configPath); os.IsNotExist(err) {
+			t.Fatal("igor.json was not created")
+		}
+	})
+
+	t.Run("Initialize Symfony project", func(t *testing.T) {
+		projectDir := filepath.Join(tmpDir, "symfony")
+		_ = os.MkdirAll(projectDir, 0755)
+
+		composerContent := `{"require": {"symfony/framework-bundle": "^7.0"}}`
+		_ = os.WriteFile(filepath.Join(projectDir, "composer.json"), []byte(composerContent), 0644)
+
+		detected, err := InitConfig(projectDir, "")
+		if err != nil {
+			t.Fatalf("InitConfig failed: %v", err)
+		}
+		if detected != "Symfony" {
+			t.Errorf("Expected 'Symfony', got %s", detected)
+		}
+	})
+
+	t.Run("Fail if config already exists", func(t *testing.T) {
+		projectDir := filepath.Join(tmpDir, "exists")
+		_ = os.MkdirAll(projectDir, 0755)
+		_ = os.WriteFile(filepath.Join(projectDir, "igor.json"), []byte("{}"), 0644)
+
+		_, err := InitConfig(projectDir, "")
+		if err == nil {
+			t.Fatal("Expected error when config already exists")
+		}
+	})
+}
+
