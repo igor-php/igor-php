@@ -9,14 +9,14 @@
     - [ ] Implement the `LLMReporter` logic.
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Define LLM JSON Structure & Reporter Foundation' (Protocol in workflow.md) (beac17a)
 
-## Phase 2: Context Extraction (AST & Snippet)
-- [ ] Task: Implement AST node stringification/extraction.
+## Phase 2: Context Extraction (AST & Snippet) [checkpoint: 6cf6fa1]
+- [x] Task: Implement AST node stringification/extraction. (ee7e900)
     - [ ] Write tests for extracting AST node details (type, bounds) from Tree-sitter nodes.
     - [ ] Implement the AST detail extraction logic in the analyzer.
-- [ ] Task: Implement Code Snippet extraction.
+- [x] Task: Implement Code Snippet extraction. (ee7e900)
     - [ ] Write tests to extract specific lines of code based on warning coordinates.
     - [ ] Implement the snippet extraction logic.
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Context Extraction (AST & Snippet)' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Context Extraction (AST & Snippet)' (Protocol in workflow.md) (6cf6fa1)
 
 ## Phase 3: Dependencies & Service Context
 - [ ] Task: Expose dependency context in the analyzer output.
