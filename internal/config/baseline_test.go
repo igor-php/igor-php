@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 func TestBaseline(t *testing.T) {
@@ -13,12 +15,12 @@ func TestBaseline(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "service.php")
 	_ = os.WriteFile(filePath, []byte("<?php class Service {}"), 0644)
 
-	findings := []Finding{
+	findings := []symbol.Finding{
 		{Message: "Error 1", Severity: "ERROR"},
 		{Message: "Warning 1", Severity: "WARNING"},
 	}
 
-	results := []AuditStatus{
+	results := []symbol.AuditStatus{
 		{
 			FilePath: filePath,
 			Findings: findings,
@@ -54,8 +56,8 @@ func TestBaseline(t *testing.T) {
 		}
 
 		// 2. New finding - should not be filtered
-		findingsWithNew := append([]Finding(nil), findings...)
-		findingsWithNew = append(findingsWithNew, Finding{Message: "New Error", Severity: "ERROR"})
+		findingsWithNew := append([]symbol.Finding(nil), findings...)
+		findingsWithNew = append(findingsWithNew, symbol.Finding{Message: "New Error", Severity: "ERROR"})
 		filtered = FilterFindings(baseline, filePath, findingsWithNew, tmpDir)
 		if len(filtered) != 1 || filtered[0].Message != "New Error" {
 			t.Errorf("Expected 1 new finding, got %v", filtered)

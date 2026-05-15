@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 func TestVendorExclusionBug(t *testing.T) {
@@ -58,18 +62,18 @@ if ($argv[1] === 'debug:container') {
 	}
 
 	// Config with vendor excluded
-	config := Config{
+	cfg := config.Config{
 		Exclude:     []string{"vendor"},
 		ConsolePath: "bin/console",
 		NoAgent:     true,
 	}
 
-	auditor := NewAuditor(config)
-	bridge := NewSymfonyBridge(tmpDir, config.ConsolePath, config)
+	aud := auditor.NewAuditor(cfg)
+	bridge := auditor.NewSymfonyBridge(tmpDir, cfg.ConsolePath, cfg)
 
 	// Manually inject the ClassToFile mapping since reflection won't work easily here without proper autoloader
-	bridge.Container = &SymfonyContainer{
-		Definitions: map[string]SymfonyService{
+	bridge.Container = &symbol.SymfonyContainer{
+		Definitions: map[string]symbol.SymfonyService{
 			"some_pkg.vendor_service": {
 				Class:  "SomePkg\\VendorService",
 				Public: true,
@@ -80,10 +84,10 @@ if ($argv[1] === 'debug:container') {
 	bridge.ClassToFile = map[string]string{
 		"SomePkg\\VendorService": servicePath,
 	}
-	auditor.Symfony = bridge
+	aud.Symfony = bridge
 
 	// Now run collectFiles
-	auditList := collectFiles(tmpDir, config, auditor)
+	auditList := collectFiles(tmpDir, cfg, aud)
 
 	// We expect auditList to NOT contain VendorService because vendor is excluded
 	found := false
@@ -99,12 +103,12 @@ if ($argv[1] === 'debug:container') {
 	}
 
 	t.Run("Should handle trailing slashes in exclude patterns", func(t *testing.T) {
-		configSlash := Config{
+		cfgSlash := config.Config{
 			Exclude:     []string{"vendor/"},
 			ConsolePath: "bin/console",
 			NoAgent:     true,
 		}
-		auditListSlash := collectFiles(tmpDir, configSlash, auditor)
+		auditListSlash := collectFiles(tmpDir, cfgSlash, aud)
 		foundSlash := false
 		for _, status := range auditListSlash {
 			if status.ServiceID == "some_pkg.vendor_service" {

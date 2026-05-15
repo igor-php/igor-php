@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
 )
 
 func setupMockSymfonyProject(t *testing.T) (string, string) {
@@ -75,7 +78,7 @@ func TestSymfonyIntegration(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	t.Run("Bridge should load container and LOCATE files via Reflection", func(t *testing.T) {
-		bridge := NewSymfonyBridge(tmpDir, "bin/console", Config{NoAgent: true})
+		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{NoAgent: true})
 		err := bridge.LoadContainer("prod")
 		if err != nil {
 			t.Fatalf("LoadContainer failed: %v", err)
@@ -108,7 +111,7 @@ func TestSymfonyIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bridge := NewSymfonyBridge(tmpDir, "app/console", Config{NoAgent: true})
+		bridge := auditor.NewSymfonyBridge(tmpDir, "app/console", config.Config{NoAgent: true})
 		if err := bridge.LoadContainer("prod"); err != nil {
 			t.Fatalf("LoadContainer with custom path failed: %v", err)
 		}
@@ -119,8 +122,8 @@ func TestSymfonyIntegration(t *testing.T) {
 	})
 
 	t.Run("Auditor should correctly audit the mocked service", func(t *testing.T) {
-		auditor := NewAuditor(Config{})
-		findings, err := auditor.Audit(servicePath)
+		aud := auditor.NewAuditor(config.Config{})
+		findings, err := aud.Audit(servicePath)
 		if err != nil {
 			t.Fatalf("Audit failed: %v", err)
 		}
@@ -140,7 +143,7 @@ func TestSymfonyIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		bridge := NewSymfonyBridge(tmpDir, "bin/console", Config{})
+		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{})
 		if err := bridge.LoadContainer("test"); err != nil {
 			t.Fatalf("LoadContainer failed: %v", err)
 		}

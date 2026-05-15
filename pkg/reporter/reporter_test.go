@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 func stripANSI(str string) string {
@@ -21,16 +23,16 @@ func TestReporter_PrintFindings(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		res         AuditStatus
+		res         symbol.AuditStatus
 		expected    []string
 		notExpected []string
 	}{
 		{
 			name: "Project file finding",
-			res: AuditStatus{
+			res: symbol.AuditStatus{
 				ServiceID: "app.service",
 				FilePath:  "/tmp/project/src/Service.php",
-				Findings: []Finding{
+				Findings: []symbol.Finding{
 					{
 						Message:     "State mutation",
 						Code:        "$this->state = 1;",
@@ -54,10 +56,10 @@ func TestReporter_PrintFindings(t *testing.T) {
 		},
 		{
 			name: "Vendor file finding",
-			res: AuditStatus{
+			res: symbol.AuditStatus{
 				ServiceID: "vendor.service",
 				FilePath:  "/tmp/project/vendor/bundle/Service.php",
-				Findings: []Finding{
+				Findings: []symbol.Finding{
 					{
 						Message:     "State mutation in vendor",
 						Code:        "self::$cache = [];",
@@ -115,7 +117,7 @@ func TestReporter_PrintSummary(t *testing.T) {
 	r := NewReporter()
 	projectRoot := "/tmp/project"
 
-	results := []AuditStatus{
+	results := []symbol.AuditStatus{
 		{
 			FilePath: "/tmp/project/src/Service.php", // Project
 			Status:   "❌ KO",

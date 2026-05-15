@@ -7,36 +7,41 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/reporter"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 var Version = "dev"
 
 func main() {
-	config, rootPath, shouldExit := parseFlagsAndInit()
+	cfg, rootPath, shouldExit := parseFlagsAndInit()
 	if shouldExit {
 		return
 	}
 
 	// 1. Initialize Components
-	auditor := NewAuditor(config)
-	reporter := NewReporter()
+	aud := auditor.NewAuditor(cfg)
+	rep := reporter.NewReporter()
 
 	// 2. Detect Symfony project
-	sb, err := DetectSymfony(rootPath, config)
+	sb, err := auditor.DetectSymfony(rootPath, cfg)
 	if err != nil {
 		fmt.Printf("❌ Error: %v\n", err)
 		os.Exit(1)
 	}
-	auditor.Symfony = sb
+	aud.Symfony = sb
 
 	// 3. Load Baseline if exists
-	var baseline Baseline
-	if config.BaselinePath != "" && !config.GenerateBaseline {
-		baselineFile := config.BaselinePath
+	var baseline config.Baseline
+	if cfg.BaselinePath != "" && !cfg.GenerateBaseline {
+		baselineFile := cfg.BaselinePath
 		if !filepath.IsAbs(baselineFile) {
 			baselineFile = filepath.Join(rootPath, baselineFile)
 		}
-		baseline, err = LoadBaseline(baselineFile)
+		baseline, err = config.LoadBaseline(baselineFile)
 		if err != nil {
 			fmt.Printf("⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
 		} else {
@@ -45,18 +50,18 @@ func main() {
 	}
 
 	// 4. Collect Files to Audit
-	auditList := collectFiles(rootPath, config, auditor)
+	auditList := collectFiles(rootPath, cfg, aud)
 
-	reporter.PrintHeader(len(auditList))
+	rep.PrintHeader(len(auditList))
 
 	// 5. Parallel Audit
-	resultsChan := runParallelAudit(auditList, auditor)
+	resultsChan := runParallelAudit(auditList, aud)
 
 	// 6. Collect Results
-	var finalResults []AuditStatus
+	var finalResults []symbol.AuditStatus
 	for res := range resultsChan {
-		if !config.GenerateBaseline && baseline.Files != nil {
-			res.Findings = FilterFindings(baseline, res.FilePath, res.Findings, rootPath)
+		if !cfg.GenerateBaseline && baseline.Files != nil {
+			res.Findings = config.FilterFindings(baseline, res.FilePath, res.Findings, rootPath)
 			// Re-calculate status after filtering
 			res.Status = "✅ OK"
 			if len(res.Findings) > 0 {
@@ -78,12 +83,12 @@ func main() {
 	}
 
 	// 7. Handle Baseline Generation
-	if config.GenerateBaseline {
-		baselineFile := config.BaselinePath
+	if cfg.GenerateBaseline {
+		baselineFile := cfg.BaselinePath
 		if !filepath.IsAbs(baselineFile) {
 			baselineFile = filepath.Join(rootPath, baselineFile)
 		}
-		err := SaveBaseline(baselineFile, finalResults, rootPath)
+		err := config.SaveBaseline(baselineFile, finalResults, rootPath)
 		if err != nil {
 			fmt.Printf("❌ Error saving baseline: %v\n", err)
 			os.Exit(1)
@@ -94,15 +99,15 @@ func main() {
 	}
 
 	// 8. Report Results (Project first, then Vendor)
-	reportAllFindings(reporter, finalResults, rootPath)
+	reportAllFindings(rep, finalResults, rootPath)
 
-	success := reporter.PrintSummary(finalResults, rootPath)
+	success := rep.PrintSummary(finalResults, rootPath)
 	if !success {
 		os.Exit(1)
 	}
 }
 
-func parseFlagsAndInit() (Config, string, bool) {
+func parseFlagsAndInit() (config.Config, string, bool) {
 	var configPath string
 	versionFlag := flag.Bool("version", false, "Display version information")
 	flag.StringVar(&configPath, "config", "", "Custom path to igor.json")
@@ -133,7 +138,7 @@ func parseFlagsAndInit() (Config, string, bool) {
 
 	if *versionFlag {
 		fmt.Printf("igor-php version %s\n", Version)
-		return Config{}, "", true
+		return config.Config{}, "", true
 	}
 
 	args := flag.Args()
@@ -143,11 +148,11 @@ func parseFlagsAndInit() (Config, string, bool) {
 			targetDir = args[1]
 		}
 		rootPath, _ := filepath.Abs(targetDir)
-		if err := InitConfig(rootPath, configPath); err != nil {
+		if err := config.InitConfig(rootPath, configPath); err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			os.Exit(1)
 		}
-		return Config{}, "", true
+		return config.Config{}, "", true
 	}
 
 	if len(args) < 1 {
@@ -156,43 +161,43 @@ func parseFlagsAndInit() (Config, string, bool) {
 	}
 	rootPath, _ := filepath.Abs(args[0])
 
-	config := LoadConfig(rootPath, configPath)
+	cfg := config.LoadConfig(rootPath, configPath)
 	if *consoleFlag != "" {
-		config.ConsolePath = *consoleFlag
+		cfg.ConsolePath = *consoleFlag
 	}
 	if *envFlag != "" {
-		config.Env = *envFlag
+		cfg.Env = *envFlag
 	}
 	if *verboseFlag {
-		config.Verbose = true
+		cfg.Verbose = true
 	}
 	if *noAgentFlag {
-		config.NoAgent = true
+		cfg.NoAgent = true
 	}
 	if *generateBaselineFlag {
-		config.GenerateBaseline = true
+		cfg.GenerateBaseline = true
 		if *baselineFlag != "" {
-			config.BaselinePath = *baselineFlag
-		} else if config.BaselinePath == "" {
-			config.BaselinePath = "igor-baseline.json"
+			cfg.BaselinePath = *baselineFlag
+		} else if cfg.BaselinePath == "" {
+			cfg.BaselinePath = "igor-baseline.json"
 		}
 	} else if *baselineFlag != "" {
-		config.BaselinePath = *baselineFlag
+		cfg.BaselinePath = *baselineFlag
 	}
 
 	// Display summary of packages
-	if len(config.ProdPackages) > 0 || len(config.DevPackages) > 0 {
+	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
 		fmt.Printf("📦 Composer: %d production packages will be inspected, %d dev packages will be ignored.\n",
-			len(config.ProdPackages), len(config.DevPackages))
-		if !*verboseFlag && len(config.DevPackages) > 0 {
+			len(cfg.ProdPackages), len(cfg.DevPackages))
+		if !*verboseFlag && len(cfg.DevPackages) > 0 {
 			fmt.Println("   (Use --verbose to see which services are being skipped)")
 		}
 	}
 
-	return config, rootPath, false
+	return cfg, rootPath, false
 }
 
-func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath string) {
+func reportAllFindings(rep *reporter.Reporter, results []symbol.AuditStatus, rootPath string) {
 	// Report Project Results first
 	hasProjectFindings := false
 	for _, res := range results {
@@ -202,7 +207,7 @@ func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath strin
 				fmt.Println("\n\033[34m--- 📂 PROJECT SERVICES ---\033[0m")
 				hasProjectFindings = true
 			}
-			reporter.PrintFindings(res, rootPath, isVendor)
+			rep.PrintFindings(res, rootPath, isVendor)
 		}
 	}
 
@@ -215,121 +220,121 @@ func reportAllFindings(reporter *Reporter, results []AuditStatus, rootPath strin
 				fmt.Println("\n\033[33m--- 📦 VENDOR SERVICES (THIRD-PARTY) ---\033[0m")
 				hasVendorFindings = true
 			}
-			reporter.PrintFindings(res, rootPath, isVendor)
+			rep.PrintFindings(res, rootPath, isVendor)
 		}
 	}
 }
 
-func collectFiles(rootPath string, config Config, auditor *Auditor) []AuditStatus {
-	var auditList []AuditStatus
+func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	var auditList []symbol.AuditStatus
 	processedFiles := make(map[string]bool)
 
 	// --- STEP 1: Scan local project files ---
-	auditList = append(auditList, collectLocalFiles(rootPath, config, auditor, processedFiles)...)
+	auditList = append(auditList, collectLocalFiles(rootPath, cfg, aud, processedFiles)...)
 
 	// --- STEP 2: Add shared services from vendors (via Symfony) ---
-	if auditor.Symfony != nil {
+	if aud.Symfony != nil {
 		fmt.Println("🎯 Symfony detected: Auditing shared services from vendors...")
-		auditList = append(auditList, collectSymfonyServices(rootPath, config, auditor, processedFiles)...)
+		auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 	}
 
 	// --- STEP 3: Forced Vendor Scan ---
-	if len(config.ScanVendors) > 0 {
+	if len(cfg.ScanVendors) > 0 {
 		fmt.Println("🔍 Forced Vendor Scan: Auditing specific vendor paths...")
-		auditList = append(auditList, collectForcedVendorFiles(rootPath, config, processedFiles)...)
+		auditList = append(auditList, collectForcedVendorFiles(rootPath, cfg, processedFiles)...)
 	}
 
 	return auditList
 }
 
-func collectLocalFiles(rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
-	var list []AuditStatus
+func collectLocalFiles(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
+	var list []symbol.AuditStatus
 	_ = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 			return nil
 		}
-		if config.IsExcluded(path, rootPath) {
+		if cfg.IsExcluded(path, rootPath) {
 			return nil
 		}
 		rel, _ := filepath.Rel(rootPath, path)
 		if strings.HasPrefix(rel, "vendor"+string(os.PathSeparator)) || strings.HasPrefix(rel, "var"+string(os.PathSeparator)) {
 			return nil
 		}
-		if auditor.IsDataPath(path) {
+		if aud.IsDataPath(path) {
 			return nil
 		}
-		list = append(list, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+		list = append(list, symbol.AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
 		processed[path] = true
 		return nil
 	})
 	return list
 }
 
-func collectSymfonyServices(rootPath string, config Config, auditor *Auditor, processed map[string]bool) []AuditStatus {
-	var list []AuditStatus
-	for id, def := range auditor.Symfony.Container.Definitions {
+func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
+	var list []symbol.AuditStatus
+	for id, def := range aud.Symfony.Container.Definitions {
 		if strings.HasPrefix(id, ".errored.") {
-			if config.Verbose {
+			if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': container error\n", id)
 			}
 			continue
 		}
 		if !def.Shared {
-			if config.Verbose {
+			if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': non-shared (prototype)\n", id)
 			}
 			continue
 		}
 		if def.Class == "" {
-			if config.Verbose {
+			if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': no class defined\n", id)
 			}
 			continue
 		}
-		if auditor.isSafeNamespace(def.Class) {
-			if config.Verbose {
+		if aud.IsSafeNamespace(def.Class) {
+			if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': class %s belongs to a safe namespace\n", id, def.Class)
 			}
 			continue
 		}
 
-		if path, found := auditor.Symfony.ClassToFile[def.Class]; found {
-			if config.IsExcluded(path, rootPath) {
-				if config.Verbose {
+		if path, found := aud.Symfony.ClassToFile[def.Class]; found {
+			if cfg.IsExcluded(path, rootPath) {
+				if cfg.Verbose {
 					fmt.Printf("  ⏭️  Skipped service '%s': path %s is excluded\n", id, path)
 				}
 				continue
 			}
-			if auditor.IsDevPackagePath(path) {
-				if config.Verbose {
+			if aud.IsDevPackagePath(path) {
+				if cfg.Verbose {
 					fmt.Printf("  ⏭️  Skipped service '%s': belongs to a dev package\n", id)
 				}
 				continue
 			}
 			if !processed[path] {
 
-				list = append(list, AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
+				list = append(list, symbol.AuditStatus{ServiceID: id, FilePath: path, Status: "⏳ PENDING"})
 				processed[path] = true
-			} else if config.Verbose {
+			} else if cfg.Verbose {
 				fmt.Printf("  ⏭️  Skipped service '%s': file already scheduled for audit\n", id)
 			}
-		} else if config.Verbose {
+		} else if cfg.Verbose {
 			fmt.Printf("  ⏭️  Skipped service '%s': could not locate file for class %s\n", id, def.Class)
 		}
 	}
 	return list
 }
 
-func collectForcedVendorFiles(rootPath string, config Config, processed map[string]bool) []AuditStatus {
-	var list []AuditStatus
-	for _, vendorSubPath := range config.ScanVendors {
+func collectForcedVendorFiles(rootPath string, cfg config.Config, processed map[string]bool) []symbol.AuditStatus {
+	var list []symbol.AuditStatus
+	for _, vendorSubPath := range cfg.ScanVendors {
 		fullVendorPath := filepath.Join(rootPath, "vendor", vendorSubPath)
 		_ = filepath.Walk(fullVendorPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".php") {
 				return nil
 			}
 			if !processed[path] {
-				list = append(list, AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
+				list = append(list, symbol.AuditStatus{ServiceID: "N/A", FilePath: path, Status: "⏳ PENDING"})
 				processed[path] = true
 			}
 			return nil
@@ -338,9 +343,9 @@ func collectForcedVendorFiles(rootPath string, config Config, processed map[stri
 	return list
 }
 
-func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditStatus {
-	resultsChan := make(chan AuditStatus, len(auditList))
-	jobsChan := make(chan AuditStatus, len(auditList))
+func runParallelAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor) <-chan symbol.AuditStatus {
+	resultsChan := make(chan symbol.AuditStatus, len(auditList))
+	jobsChan := make(chan symbol.AuditStatus, len(auditList))
 	var wg sync.WaitGroup
 
 	for w := 1; w <= 16; w++ {
@@ -348,7 +353,7 @@ func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditSta
 		go func() {
 			defer wg.Done()
 			for job := range jobsChan {
-				findings, err := auditor.Audit(job.FilePath)
+				findings, err := aud.Audit(job.FilePath)
 				if err != nil {
 					job.Status = "❌ ERROR"
 					resultsChan <- job
@@ -387,3 +392,4 @@ func runParallelAudit(auditList []AuditStatus, auditor *Auditor) <-chan AuditSta
 
 	return resultsChan
 }
+

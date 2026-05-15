@@ -4,10 +4,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/config"
 )
 
 func TestAuditFixtures(t *testing.T) {
-	cfg := Config{}
+	cfg := config.Config{}
 	auditor := NewAuditor(cfg)
 
 	tests := []struct {
@@ -78,7 +80,7 @@ func TestAuditFixtures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join("test", "fixtures", tt.fixture)
+			path := filepath.Join("..", "..", "test", "fixtures", tt.fixture)
 			findings, err := auditor.Audit(path)
 			if err != nil {
 				t.Fatalf("Failed to audit %s: %v", path, err)

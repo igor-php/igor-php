@@ -8,20 +8,22 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
 // Auditor orchestrates the analysis of PHP files.
 type Auditor struct {
-	Config         Config
+	Config         config.Config
 	Symfony        *SymfonyBridge
 	AuditedClasses map[string]bool
 	mu             sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.
-func NewAuditor(cfg Config) *Auditor {
+func NewAuditor(cfg config.Config) *Auditor {
 	return &Auditor{
 		Config:         cfg,
 		AuditedClasses: make(map[string]bool),
@@ -29,7 +31,7 @@ func NewAuditor(cfg Config) *Auditor {
 }
 
 // Audit analyzes a single PHP file and returns findings.
-func (a *Auditor) Audit(path string) ([]Finding, error) {
+func (a *Auditor) Audit(path string) ([]symbol.Finding, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", path, err)
@@ -116,7 +118,7 @@ func (a *Auditor) recordClassAudited(name string) {
 	a.AuditedClasses[name] = true
 }
 
-func (a *Auditor) isSafeNamespace(className string) bool {
+func (a *Auditor) IsSafeNamespace(className string) bool {
 	className = strings.TrimPrefix(className, "\\")
 	for _, ns := range a.Config.SafeNamespaces {
 		if strings.HasPrefix(className, strings.TrimPrefix(ns, "\\")) {

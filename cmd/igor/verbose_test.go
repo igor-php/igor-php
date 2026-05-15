@@ -1,6 +1,8 @@
 package main
 
 import (
+	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/internal/auditor"
 	"bytes"
 	"io"
 	"os"
@@ -50,18 +52,18 @@ if ($argv[1] === 'debug:container') {
 	os.Stdout = w
 
 	// 3. Run collectFiles logic via a minimal setup
-	config := DefaultConfig()
-	config.Verbose = true
-	auditor := NewAuditor(config)
+	cfg := config.DefaultConfig()
+	cfg.Verbose = true
+	aud := auditor.NewAuditor(cfg)
 
 	// We need a Symfony bridge to simulate deep audit
-	sb := NewSymfonyBridge(tmpDir, "bin/console", Config{NoAgent: true})
+	sb := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{NoAgent: true})
 	// Mock the container loading to avoid actual PHP execution issues in this test environment
 	_ = sb.LoadContainer("prod")
-	auditor.Symfony = sb
+	aud.Symfony = sb
 
 	// Call collectFiles (this will print to stdout because of Verbose=true)
-	_ = collectFiles(tmpDir, config, auditor)
+	_ = collectFiles(tmpDir, cfg, aud)
 
 	// Restore Stdout
 	_ = w.Close()

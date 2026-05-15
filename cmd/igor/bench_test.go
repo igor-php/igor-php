@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
 )
 
 func BenchmarkAuditor(b *testing.B) {
@@ -27,8 +30,8 @@ class Service%d {
 		}
 	}
 
-	cfg := Config{}
-	auditor := NewAuditor(cfg)
+	cfg := config.Config{}
+	auditor := auditor.NewAuditor(cfg)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {

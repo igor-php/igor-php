@@ -6,19 +6,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 // Reporter handles the output formatting of audit results.
 type Reporter struct {
 	StartTime time.Time
-	isGitHub  bool
+	IsGitHub  bool
 }
 
 // NewReporter creates a new reporter.
 func NewReporter() *Reporter {
 	return &Reporter{
 		StartTime: time.Now(),
-		isGitHub:  os.Getenv("GITHUB_ACTIONS") == "true",
+		IsGitHub:  os.Getenv("GITHUB_ACTIONS") == "true",
 	}
 }
 
@@ -28,7 +30,7 @@ func (r *Reporter) PrintHeader(count int) {
 }
 
 // PrintFindings displays detailed issues for a given service.
-func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string, isVendor bool) {
+func (r *Reporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
 	if len(res.Findings) == 0 {
 		return
 	}
@@ -76,7 +78,7 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string, isVendor b
 		}
 
 		// GitHub Action Annotation (Keeps all hints)
-		if r.isGitHub {
+		if r.IsGitHub {
 			msg := fmt.Sprintf("[Igor] %s", f.Message)
 			if f.Remediation != "" {
 				msg += fmt.Sprintf(" %%0A 💡 Hint: %s", f.Remediation)
@@ -93,7 +95,7 @@ func (r *Reporter) PrintFindings(res AuditStatus, projectRoot string, isVendor b
 }
 
 // PrintSummary displays the final audit statistics.
-func (r *Reporter) PrintSummary(results []AuditStatus, projectRoot string) bool {
+func (r *Reporter) PrintSummary(results []symbol.AuditStatus, projectRoot string) bool {
 	totalOK := 0
 	projKO, projWarn := 0, 0
 	vendKO, vendWarn := 0, 0

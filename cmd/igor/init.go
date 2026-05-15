@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/igor-php/igor-php/internal/config"
 )
 
-// InitConfig detects the project type and generates a default configuration file.
 func InitConfig(root string, customConfigPath string) error {
 	configPath := customConfigPath
 	if configPath == "" {
@@ -21,7 +22,7 @@ func InitConfig(root string, customConfigPath string) error {
 	}
 
 	// Minimal base configuration
-	config := Config{
+	cfg := config.Config{
 		Exclude:        []string{},
 		SafeNamespaces: []string{},
 		ConsolePath:    "bin/console",
@@ -36,22 +37,22 @@ func InitConfig(root string, customConfigPath string) error {
 		content := string(data)
 		if strings.Contains(content, "symfony/framework-bundle") {
 			projectType = "Symfony"
-			config.SafeNamespaces = append(config.SafeNamespaces, "Symfony\\", "Doctrine\\")
+			cfg.SafeNamespaces = append(cfg.SafeNamespaces, "Symfony\\", "Doctrine\\")
 		}
 	}
 
 	// 2. Additional folder detection
 	if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil && projectType == "Generic PHP" {
 		projectType = "Symfony (detected via bin/console)"
-		config.SafeNamespaces = append(config.SafeNamespaces, "Symfony\\", "Doctrine\\")
+		cfg.SafeNamespaces = append(cfg.SafeNamespaces, "Symfony\\", "Doctrine\\")
 	}
 
 	// Deduplicate
-	config.SafeNamespaces = uniqueStrings(config.SafeNamespaces)
-	config.Exclude = uniqueStrings(config.Exclude)
+	cfg.SafeNamespaces = uniqueStrings(cfg.SafeNamespaces)
+	cfg.Exclude = uniqueStrings(cfg.Exclude)
 
 	// 3. Write file
-	file, err := json.MarshalIndent(config, "", "  ")
+	file, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -70,7 +71,7 @@ func InitConfig(root string, customConfigPath string) error {
 
 func uniqueStrings(input []string) []string {
 	unique := make(map[string]bool)
-	result := []string{}
+	var result []string
 	for _, s := range input {
 		if s == "" {
 			continue

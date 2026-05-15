@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 //go:embed find_class_files.php
@@ -18,25 +21,25 @@ var phpHelperScript []byte
 type SymfonyBridge struct {
 	Root        string
 	ConsolePath string
-	Config      Config
-	Container   *SymfonyContainer
+	Config      config.Config
+	Container   *symbol.SymfonyContainer
 	ClassToFile map[string]string
 }
 
 // NewSymfonyBridge creates a new bridge for a given project root.
-func NewSymfonyBridge(root string, consolePath string, config Config) *SymfonyBridge {
+func NewSymfonyBridge(root string, consolePath string, cfg config.Config) *SymfonyBridge {
 	return &SymfonyBridge{
 		Root:        root,
 		ConsolePath: consolePath,
-		Config:      config,
+		Config:      cfg,
 		ClassToFile: make(map[string]string),
 	}
 }
 
 // DetectSymfony attempts to find a Symfony project and initialize the bridge.
-func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
+func DetectSymfony(rootPath string, cfg config.Config) (*SymfonyBridge, error) {
 	projectRoot := rootPath
-	consolePath := config.ConsolePath
+	consolePath := cfg.ConsolePath
 
 	// 1. Check if the console exists at the specified path
 	fullPath := filepath.Join(projectRoot, consolePath)
@@ -56,10 +59,10 @@ func DetectSymfony(rootPath string, config Config) (*SymfonyBridge, error) {
 
 	// 2. If we found a console, try to initialize the bridge
 	fmt.Printf("🔍 Symfony project detected at %s. Initializing Deep Audit...\n", projectRoot)
-	sb := NewSymfonyBridge(projectRoot, consolePath, config)
-	if err := sb.LoadContainer(config.Env); err != nil {
+	sb := NewSymfonyBridge(projectRoot, consolePath, cfg)
+	if err := sb.LoadContainer(cfg.Env); err != nil {
 
-		return nil, fmt.Errorf("could not load symfony container: %v\n👉 ensure your project is bootable in '%s' environment", err, config.Env)
+		return nil, fmt.Errorf("could not load symfony container: %v\n👉 ensure your project is bootable in '%s' environment", err, cfg.Env)
 	}
 
 	return sb, nil
@@ -92,7 +95,7 @@ func (b *SymfonyBridge) LoadContainer(env string) error {
 	}
 	jsonPart := strOutput[start : end+1]
 
-	var container SymfonyContainer
+	var container symbol.SymfonyContainer
 	if err := json.Unmarshal([]byte(jsonPart), &container); err != nil {
 		return fmt.Errorf("failed to parse Symfony container JSON: %v", err)
 	}
@@ -122,7 +125,7 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 				continue
 			}
 
-			var container SymfonyContainer
+			var container symbol.SymfonyContainer
 			if err := json.Unmarshal(data, &container); err != nil {
 				continue
 			}

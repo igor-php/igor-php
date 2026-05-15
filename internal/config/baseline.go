@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 // LoadBaseline loads the baseline configuration from a file.
@@ -18,7 +20,7 @@ func LoadBaseline(path string) (Baseline, error) {
 }
 
 // SaveBaseline generates a baseline file from the audit results.
-func SaveBaseline(path string, results []AuditStatus, rootPath string) error {
+func SaveBaseline(path string, results []symbol.AuditStatus, rootPath string) error {
 	b := Baseline{
 		Files: make(map[string][]BaselineEntry),
 	}
@@ -49,7 +51,7 @@ func SaveBaseline(path string, results []AuditStatus, rootPath string) error {
 }
 
 // FilterFindings removes findings that are present in the baseline.
-func FilterFindings(baseline Baseline, filePath string, findings []Finding, rootPath string) []Finding {
+func FilterFindings(baseline Baseline, filePath string, findings []symbol.Finding, rootPath string) []symbol.Finding {
 	if baseline.Files == nil {
 		return findings
 	}
@@ -64,7 +66,7 @@ func FilterFindings(baseline Baseline, filePath string, findings []Finding, root
 		return findings
 	}
 
-	filtered := []Finding{}
+	filtered := []symbol.Finding{}
 	for _, f := range findings {
 		isIgnored := false
 		for _, entry := range ignoredEntries {

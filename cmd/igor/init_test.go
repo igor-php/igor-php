@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/config"
 )
 
 func TestInitConfig(t *testing.T) {
@@ -25,11 +27,11 @@ func TestInitConfig(t *testing.T) {
 
 		// Verify content
 		data, _ := os.ReadFile(configPath)
-		var config Config
-		_ = json.Unmarshal(data, &config)
+		var cfg config.Config
+		_ = json.Unmarshal(data, &cfg)
 
-		if config.ConsolePath != "bin/console" {
-			t.Errorf("Expected default console_path 'bin/console', got %s", config.ConsolePath)
+		if cfg.ConsolePath != "bin/console" {
+			t.Errorf("Expected default console_path 'bin/console', got %s", cfg.ConsolePath)
 		}
 	})
 

@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/igor-php/igor-php/internal/auditor"
+	"github.com/igor-php/igor-php/internal/config"
 )
 
 func TestDemoLeakFeatures(t *testing.T) {
@@ -33,7 +36,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 		}
 
 		// 2. Load config
-		cfg := LoadConfig(root, "")
+		cfg := config.LoadConfig(root, "")
 
 		found := false
 		for _, pkg := range cfg.DevPackages {
@@ -80,10 +83,10 @@ spl_autoload_register(function ($class) {
 		}
 		defer func() { _ = os.Remove(autoloadPath) }()
 
-		cfg := DefaultConfig()
+		cfg := config.DefaultConfig()
 		cfg.Env = "dev"
 
-		bridge := NewSymfonyBridge(root, "bin/console", cfg)
+		bridge := auditor.NewSymfonyBridge(root, "bin/console", cfg)
 
 		err := bridge.LoadContainer("dev")
 		if err != nil {

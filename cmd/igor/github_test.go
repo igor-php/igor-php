@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/igor-php/igor-php/pkg/reporter"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 func TestGitHubAnnotations(t *testing.T) {
@@ -14,15 +17,15 @@ func TestGitHubAnnotations(t *testing.T) {
 	defer func() { _ = os.Unsetenv("GITHUB_ACTIONS") }()
 
 	// 2. Setup Reporter and a dummy result
-	reporter := NewReporter()
-	if !reporter.isGitHub {
+	rep := reporter.NewReporter()
+	if !rep.IsGitHub {
 		t.Fatal("Reporter should detect GITHUB_ACTIONS=true")
 	}
 
-	res := AuditStatus{
+	res := symbol.AuditStatus{
 		FilePath:  "src/Service/MyService.php",
 		ServiceID: "app.my_service",
-		Findings: []Finding{
+		Findings: []symbol.Finding{
 			{
 				Message:     "Mutation of state 'cache'",
 				Severity:    "ERROR",
@@ -38,7 +41,7 @@ func TestGitHubAnnotations(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	reporter.PrintFindings(res, "/tmp", false) // dummy project root, not a vendor
+	rep.PrintFindings(res, "/tmp", false) // dummy project root, not a vendor
 
 	_ = w.Close()
 	var buf bytes.Buffer
