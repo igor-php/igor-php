@@ -1,6 +1,6 @@
 # 🧟‍♂️⚡ Igor-Php 
 <p align="center">
-  <img src="igor-php.png" alt="Igor PHP Logo" width="600">
+  <img src="assets/igor-php.png" alt="Igor PHP Logo" width="600">
 </p>
 
 **The faithful assistant for your FrankenPHP Workers.**
@@ -261,7 +261,7 @@ Igor is designed to work out-of-the-box in your CI pipelines. It will exit with 
 When running inside GitHub Actions, Igor automatically generates **inline annotations**. This means errors will appear directly in your Pull Request review, right next to the code causing the issue.
 
 <p align="center">
-  <img src="review.png" alt="Igor GitHub Review" width="800">
+  <img src="assets/review.png" alt="Igor GitHub Review" width="800">
 </p>
 
 ### GitHub Actions Example
