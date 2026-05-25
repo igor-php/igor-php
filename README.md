@@ -99,7 +99,24 @@ igor-php -c custom-igor.json .
 
 # Custom console path, environment and verbose mode
 igor-php --console app/console --env stage --verbose .
+
+# Non-Symfony project or skip Symfony discovery
+igor-php --no-agent .
 ```
+
+### Non-Symfony Projects
+Igor can also audit standard PHP projects that don't use the Symfony framework. In this case, use the `--no-agent` flag to disable automatic container discovery.
+
+When using Igor without Symfony, you should manually define which directories or vendor packages to audit in your `igor.json`:
+
+```json
+{
+  "scan_vendors": ["my-company/internal-library"],
+  "exclude": ["tests", "Data", "vendor/symfony"]
+}
+```
+
+> 💡 **Note**: Without Symfony, Igor performs a recursive scan of your project directory (excluding folders in `exclude`). Using `scan_vendors` allows you to force the audit of specific third-party libraries even without the Symfony service map.
 
 ## 🧪 See it in Action
 
