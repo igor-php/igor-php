@@ -83,6 +83,8 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.handleMutation(n.ChildByFieldName("left"))
 	case "update_expression":
 		v.handleMutation(n)
+	case "unset_statement":
+		v.handleUnset(n)
 	case "exit_statement", "exit":
 		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
 	case "function_call_expression":
@@ -208,6 +210,26 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 				if child.Kind() == "variable_name" {
 					v.readonlyProps[strings.TrimPrefix(v.getContent(child), "$")] = true
 					break
+				}
+			}
+		}
+	}
+}
+
+func (v *PHPVisitor) handleUnset(n *sitter.Node) {
+	if v.curMethod != "reset" {
+		return
+	}
+
+	for i := uint(0); i < n.ChildCount(); i++ {
+		child := n.Child(i)
+		if child.Kind() == "member_access_expression" {
+			obj := child.ChildByFieldName("object")
+			if obj != nil && strings.Contains(v.getContent(obj), "$this") {
+				nameNode := child.ChildByFieldName("name")
+				if nameNode != nil {
+					prop := v.getContent(nameNode)
+					v.resetted[prop] = true
 				}
 			}
 		}
