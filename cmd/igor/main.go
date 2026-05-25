@@ -35,8 +35,13 @@ func main() {
 	// 2. Detect Symfony project
 	sb, err := auditor.DetectSymfony(rootPath, cfg)
 	if err != nil {
-	        fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
-	        os.Exit(1)
+		if cfg.NoAgent {
+			fmt.Fprintf(os.Stderr, "⚠️  Warning: Symfony Deep Audit disabled: %v\n", err)
+			fmt.Fprintln(os.Stderr, "   Falling back to standard directory scan.")
+		} else {
+			fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	aud.Symfony = sb
 
