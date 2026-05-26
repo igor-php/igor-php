@@ -1,4 +1,7 @@
 services:
+    IgorPhp\IgorBundle\Service\IgorUsageTracker:
+        public: true
+
     IgorPhp\IgorBundle\DataCollector\IgorDataCollector:
         arguments:
             $igorBinaryPath: '%kernel.project_dir%/vendor/bin/igor-php'
