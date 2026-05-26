@@ -2,5 +2,6 @@ services:
     IgorPhp\IgorBundle\DataCollector\IgorDataCollector:
         arguments:
             $igorBinaryPath: '%kernel.project_dir%/vendor/bin/igor-php'
+            $container: '@service_container'
         tags:
             - { name: data_collector, template: '@IgorPhp/Profiler/panel.html.twig', id: igor, priority: 250 }

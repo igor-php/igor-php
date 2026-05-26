@@ -2,6 +2,7 @@
 
 namespace IgorPhp\IgorBundle\DataCollector;
 
+use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\DataCollector\DataCollector;
@@ -10,10 +11,12 @@ use Symfony\Component\Process\Process;
 class IgorDataCollector extends DataCollector
 {
     private string $igorBinaryPath;
+    private ContainerInterface $container;
 
-    public function __construct(string $igorBinaryPath)
+    public function __construct(string $igorBinaryPath, ContainerInterface $container)
     {
         $this->igorBinaryPath = $igorBinaryPath;
+        $this->container = $container;
     }
 
     public function collect(Request $request, Response $response, \Throwable $exception = null): void
@@ -28,6 +31,14 @@ class IgorDataCollector extends DataCollector
         $configPath = '';
 
         if ($binaryFound) {
+            // 1. Identify services used in this request
+            $initializedServices = [];
+            foreach ($this->container->getServiceIds() as $id) {
+                if ($this->container->initialized($id)) {
+                    $initializedServices[$id] = true;
+                }
+            }
+
             // Get project root (assuming vendor/bin/igor-php)
             $projectDir = dirname($this->igorBinaryPath, 3);
             $cwd = (string) $projectDir;
@@ -47,7 +58,7 @@ class IgorDataCollector extends DataCollector
 
             // Run process from project root
             $process = new Process($args, $projectDir);
-            $process->setTimeout(60); // Increase timeout for large projects
+            $process->setTimeout(60);
             $process->run();
 
             $exitCode = $process->getExitCode();
@@ -61,6 +72,12 @@ class IgorDataCollector extends DataCollector
                     $auditResults = [];
                     foreach ($results as $res) {
                         if (empty($res['findings'])) {
+                            continue;
+                        }
+
+                        // 2. FILTER: Only keep services used in this request
+                        $serviceId = $res['service_id'] ?? null;
+                        if ($serviceId && !isset($initializedServices[$serviceId])) {
                             continue;
                         }
                         
