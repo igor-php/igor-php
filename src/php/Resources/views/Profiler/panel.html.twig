@@ -110,9 +110,16 @@
 
     {% for group in collector.auditResults %}
         {% if group.findings is defined %}
-            <div class="card">
+            <div class="card {{ group.is_used ? 'status-error' : '' }}">
                 <div class="card-block">
-                    <h3><code>{{ group.file }}</code></h3>
+                    <h3>
+                        <code>{{ group.file }}</code>
+                        {% if group.is_used %}
+                            <span class="label label-status-error" style="float: right">ACTUALLY USED IN REQUEST</span>
+                        {% else %}
+                            <span class="label label-status-info" style="float: right">LOADED BUT NOT CALLED</span>
+                        {% endif %}
+                    </h3>
                     
                     <table class="table">
                         <thead>

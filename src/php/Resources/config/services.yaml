@@ -2,9 +2,13 @@ services:
     IgorPhp\IgorBundle\Service\IgorUsageTracker:
         public: true
 
+    IgorPhp\IgorBundle\Service\IgorProxyFactory:
+        arguments: ['@IgorPhp\IgorBundle\Service\IgorUsageTracker']
+
     IgorPhp\IgorBundle\DataCollector\IgorDataCollector:
         arguments:
             $igorBinaryPath: '%kernel.project_dir%/vendor/bin/igor-php'
             $container: '@service_container'
+            $usageTracker: '@IgorPhp\IgorBundle\Service\IgorUsageTracker'
         tags:
             - { name: data_collector, template: '@IgorPhp/Profiler/panel.html.twig', id: igor, priority: 250 }

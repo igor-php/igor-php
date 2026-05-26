@@ -2,6 +2,7 @@
 
 namespace IgorPhp\IgorBundle\DataCollector;
 
+use IgorPhp\IgorBundle\Service\IgorUsageTracker;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -12,11 +13,13 @@ class IgorDataCollector extends DataCollector
 {
     private string $igorBinaryPath;
     private ContainerInterface $container;
+    private IgorUsageTracker $usageTracker;
 
-    public function __construct(string $igorBinaryPath, ContainerInterface $container)
+    public function __construct(string $igorBinaryPath, ContainerInterface $container, IgorUsageTracker $usageTracker)
     {
         $this->igorBinaryPath = $igorBinaryPath;
         $this->container = $container;
+        $this->usageTracker = $usageTracker;
     }
 
     public function collect(Request $request, Response $response, \Throwable $exception = null): void
@@ -33,6 +36,7 @@ class IgorDataCollector extends DataCollector
         if ($binaryFound) {
             // 1. Identify ALL files used in this request
             $includedFiles = array_flip(get_included_files());
+            $usedClasses = array_flip($this->usageTracker->getUsedClasses());
 
             // Get project root (assuming vendor/bin/igor-php)
             $projectDir = dirname($this->igorBinaryPath, 3);
@@ -53,7 +57,7 @@ class IgorDataCollector extends DataCollector
 
             // Run process from project root
             $process = new Process($args, $projectDir);
-            $process->setTimeout(60);
+            $process->setTimeout(60); // Increase timeout for large projects
             $process->run();
 
             $exitCode = $process->getExitCode();
@@ -75,6 +79,14 @@ class IgorDataCollector extends DataCollector
                         if ($filePath && !isset($includedFiles[$filePath])) {
                             continue;
                         }
+
+                        // 3. ENRICH: Mark if the service was actually called (not just loaded)
+                        // Note: Igor binary returns 'service_id' or 'class' in its JSON
+                        $serviceId = $res['service_id'] ?? null;
+                        $serviceClass = $res['class'] ?? null;
+                        
+                        $isUsed = ($serviceClass && isset($usedClasses[$serviceClass])) || 
+                                 ($serviceId && isset($usedClasses[$serviceId]));
                         
                         $rawCount += count($res['findings']);
                         
@@ -85,7 +97,9 @@ class IgorDataCollector extends DataCollector
                         
                         $auditResults[] = [
                             'file' => $displayFile,
-                            'findings' => $res['findings']
+                            'findings' => $res['findings'],
+                            'is_used' => $isUsed,
+                            'class' => $serviceClass,
                         ];
                     }
                 } else {
