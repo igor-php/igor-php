@@ -164,3 +164,49 @@ func TestReporter_PrintSummary(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONReporter(t *testing.T) {
+	rep := NewJSONReporter()
+	r := rep.(*JSONReporter)
+	projectRoot := "/tmp/project"
+
+	res := symbol.AuditStatus{
+		ServiceID: "app.service",
+		FilePath:  "/tmp/project/src/Service.php",
+		Findings: []symbol.Finding{
+			{
+				Message:  "State mutation",
+				Severity: "ERROR",
+				Line:     10,
+			},
+		},
+	}
+
+	r.PrintFindings(res, projectRoot, false)
+
+	if len(r.Findings) != 1 {
+		t.Fatalf("Expected 1 finding, got %d", len(r.Findings))
+	}
+
+	// Capture stdout for Summary
+	old := os.Stdout
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	r.PrintSummary([]symbol.AuditStatus{res}, projectRoot)
+
+	_ = wOut.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rOut)
+	output := buf.String()
+
+	// Verify valid JSON
+	if !strings.Contains(output, "\"file_path\": \"/tmp/project/src/Service.php\"") {
+		t.Errorf("Expected JSON to contain file_path, but it didn't.\nOutput:\n%s", output)
+	}
+	if !strings.Contains(output, "\"message\": \"State mutation\"") {
+		t.Errorf("Expected JSON to contain message, but it didn't.\nOutput:\n%s", output)
+	}
+}
