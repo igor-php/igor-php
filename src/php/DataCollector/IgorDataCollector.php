@@ -67,7 +67,10 @@ class IgorDataCollector extends DataCollector
                         $rawCount += count($res['findings']);
                         
                         $file = $res['file_path'] ?? 'unknown';
-                        $displayFile = preg_replace('/^\/projects\/services\/app\//', '', $file);
+                        $displayFile = $file;
+                        if ($projectDir && str_starts_with($file, $projectDir)) {
+                            $displayFile = ltrim(substr($file, strlen($projectDir)), '/');
+                        }
                         
                         $auditResults[] = [
                             'file' => $displayFile,

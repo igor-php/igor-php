@@ -1,0 +1,6 @@
+services:
+    IgorPhp\IgorBundle\DataCollector\IgorDataCollector:
+        arguments:
+            $igorBinaryPath: '%kernel.project_dir%/vendor/bin/igor-php'
+        tags:
+            - { name: data_collector, template: '@IgorPhp/Profiler/panel.html.twig', id: igor, priority: 250 }
