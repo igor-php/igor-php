@@ -1,6 +1,7 @@
 package reporter
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,41 @@ type Reporter interface {
 	PrintVendorHeader()
 	PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool)
 	PrintSummary(results []symbol.AuditStatus, projectRoot string) bool
+}
+
+// JSONReporter implements Reporter for standard JSON output.
+type JSONReporter struct {
+	StartTime time.Time
+	Findings  []symbol.AuditStatus
+}
+
+// NewJSONReporter creates a new JSON reporter.
+func NewJSONReporter() Reporter {
+	return &JSONReporter{
+		StartTime: time.Now(),
+		Findings:  []symbol.AuditStatus{},
+	}
+}
+
+func (r *JSONReporter) PrintHeader(count int) {}
+func (r *JSONReporter) PrintProjectHeader()  {}
+func (r *JSONReporter) PrintVendorHeader()   {}
+
+func (r *JSONReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, isVendor bool) {
+	if len(res.Findings) > 0 {
+		r.Findings = append(r.Findings, res)
+	}
+}
+
+func (r *JSONReporter) PrintSummary(results []symbol.AuditStatus, projectRoot string) bool {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(r.Findings); err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating JSON export: %v\n", err)
+		return false
+	}
+	return true
 }
 
 // CLIReporter implements Reporter for terminal output.
