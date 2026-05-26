@@ -31,13 +31,8 @@ class IgorDataCollector extends DataCollector
         $configPath = '';
 
         if ($binaryFound) {
-            // 1. Identify services used in this request
-            $initializedServices = [];
-            foreach ($this->container->getServiceIds() as $id) {
-                if ($this->container->initialized($id)) {
-                    $initializedServices[$id] = true;
-                }
-            }
+            // 1. Identify ALL files used in this request
+            $includedFiles = array_flip(get_included_files());
 
             // Get project root (assuming vendor/bin/igor-php)
             $projectDir = dirname($this->igorBinaryPath, 3);
@@ -75,18 +70,17 @@ class IgorDataCollector extends DataCollector
                             continue;
                         }
 
-                        // 2. FILTER: Only keep services used in this request
-                        $serviceId = $res['service_id'] ?? null;
-                        if ($serviceId && !isset($initializedServices[$serviceId])) {
+                        // 2. FILTER: Only keep files that were actually loaded/used in this request
+                        $filePath = $res['file_path'] ?? null;
+                        if ($filePath && !isset($includedFiles[$filePath])) {
                             continue;
                         }
                         
                         $rawCount += count($res['findings']);
                         
-                        $file = $res['file_path'] ?? 'unknown';
-                        $displayFile = $file;
-                        if ($projectDir && str_starts_with($file, $projectDir)) {
-                            $displayFile = ltrim(substr($file, strlen($projectDir)), '/');
+                        $displayFile = $filePath;
+                        if ($projectDir && str_starts_with($filePath, $projectDir)) {
+                            $displayFile = ltrim(substr($filePath, strlen($projectDir)), '/');
                         }
                         
                         $auditResults[] = [
