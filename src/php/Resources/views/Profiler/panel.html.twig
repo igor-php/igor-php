@@ -1,0 +1,154 @@
+{% extends "@WebProfiler/Profiler/layout.html.twig" %}
+
+{% block toolbar %}
+    {% set totalCount = 0 %}
+    {% for group in collector.auditResults %}
+        {% if group.findings is defined %}
+            {% set totalCount = totalCount + group.findings|length %}
+        {% endif %}
+    {% endfor %}
+
+    {% set icon %}
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#FFD700" stroke="#FFD700"/>
+            <circle cx="12" cy="12" r="10" stroke="#4CAF50" fill="none" opacity="0.3"/>
+        </svg>
+        <span class="sf-toolbar-value">Igor</span>
+    {% endset %}
+    {% set text %}
+        <div class="sf-toolbar-info-piece">
+            <b>Igor PHP Audit</b>
+        </div>
+        <div class="sf-toolbar-info-piece">
+            <b>State Leaks</b>
+            <span class="sf-toolbar-status {{ totalCount > 0 ? 'sf-toolbar-status-red' : 'sf-toolbar-status-green' }}">
+                {{ totalCount }}
+            </span>
+        </div>
+    {% endset %}
+    {{ include("@WebProfiler/Profiler/toolbar_item.html.twig", { link: true, status: totalCount > 0 ? 'red' : '' }) }}
+{% endblock %}
+
+{% block menu %}
+    {% set totalCount = 0 %}
+    {% for group in collector.auditResults %}
+        {% if group.findings is defined %}
+            {% set totalCount = totalCount + group.findings|length %}
+        {% endif %}
+    {% endfor %}
+    <span class="label {{ totalCount > 0 ? 'label-status-error' : '' }}">
+        <span class="icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="currentColor"/>
+            </svg>
+        </span>
+        <strong>Igor Audit</strong>
+        {% if totalCount > 0 %}
+            <span class="count">
+                <span>{{ totalCount }}</span>
+            </span>
+        {% endif %}
+    </span>
+{% endblock %}
+
+{% block panel %}
+    <h2>Igor PHP Audit Results</h2>
+
+    {% if not collector.binaryFound %}
+        <div class="status status-error">
+            <p><strong>Error:</strong> Igor binary not found at <code>{{ collector.binaryPath }}</code>.</p>
+            <p>Make sure the path in <code>services.yaml</code> is correct and the file is executable.</p>
+        </div>
+    {% elseif collector.error %}
+        <div class="status status-error">
+            <p><strong>Execution Error:</strong></p>
+            <pre>{{ collector.error }}</pre>
+        </div>
+    {% endif %}
+
+    {% set totalLeaks = 0 %}
+    {% for group in collector.auditResults %}
+        {% if group.findings is defined %}
+            {% set totalLeaks = totalLeaks + group.findings|length %}
+        {% endif %}
+    {% endfor %}
+
+    <div class="metrics">
+        <div class="metric">
+            <span class="value">{{ collector.auditResults|length }}</span>
+            <span class="label">Affected Files</span>
+        </div>
+        <div class="metric">
+            <span class="value">{{ totalLeaks }}</span>
+            <span class="label">Total Leaks</span>
+        </div>
+        <div class="metric">
+            <span class="value">{{ collector.configFound ? 'Yes' : 'No' }}</span>
+            <span class="label">Config Found</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-block">
+            <h3>Audit Context</h3>
+            <table class="table">
+                <tr>
+                    <th>Working Directory</th>
+                    <td><code>{{ collector.cwd }}</code></td>
+                </tr>
+                <tr>
+                    <th>Config File</th>
+                    <td><code>{{ collector.configPath }}</code> ({{ collector.configFound ? 'FOUND' : 'NOT FOUND' }})</td>
+                </tr>
+                <tr>
+                    <th>Full Command</th>
+                    <td><code>{{ collector.command }}</code></td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    {% for group in collector.auditResults %}
+        {% if group.findings is defined %}
+            <div class="card">
+                <div class="card-block">
+                    <h3><code>{{ group.file }}</code></h3>
+                    
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th style="width: 80px">Line</th>
+                                <th style="width: 100px">Severity</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in group.findings %}
+                                <tr>
+                                    <td class="font-normal text-muted">{{ result.line }}</td>
+                                    <td>
+                                        <span class="label {{ result.severity == 'ERROR' ? 'label-status-error' : 'label-status-warning' }}">
+                                            {{ result.severity }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {{ result.message }}
+                                        {% if result.snippet %}
+                                            <div class="pre-wrapper">
+                                                <pre><code>{{ result.snippet }}</code></pre>
+                                            </div>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {% endif %}
+    {% else %}
+        <div class="empty">
+            <p>No leaks found! Your services are clean, Master Igor.</p>
+        </div>
+    {% endfor %}
+{% endblock %}
