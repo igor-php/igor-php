@@ -25,14 +25,51 @@ func main() {
 
 	// 1. Initialize Components
 	aud := auditor.NewAuditor(cfg)
-	var rep reporter.Reporter
-	if cfg.OutputFormat == "llm" {
-		rep = reporter.NewLLMReporter(Version)
-	} else {
-		rep = reporter.NewReporter()
-	}
+	rep := setupReporter(cfg)
 
 	// 2. Detect Symfony project
+	aud.Symfony = detectSymfonyProject(rootPath, cfg)
+
+	// 3. Load Baseline
+	baseline := loadAuditBaseline(rootPath, cfg)
+
+	// 4. Collect Files to Audit
+	auditList := collectFiles(rootPath, cfg, aud)
+
+	// 5. Silence header for machine-readable formats
+	if cfg.OutputFormat != "llm" && cfg.OutputFormat != "json" {
+		rep.PrintHeader(len(auditList))
+	}
+
+	// 6. Run Audit
+	results := executeAudit(auditList, aud, cfg, baseline, rootPath)
+
+	// 7. Handle Baseline Generation
+	if cfg.GenerateBaseline {
+		generateBaselineFile(rootPath, cfg, results)
+		return
+	}
+
+	// 8. Report Results
+	reportAllFindings(rep, results, rootPath)
+
+	if !rep.PrintSummary(results, rootPath) {
+		os.Exit(1)
+	}
+}
+
+func setupReporter(cfg config.Config) reporter.Reporter {
+	switch cfg.OutputFormat {
+	case "llm":
+		return reporter.NewLLMReporter(Version)
+	case "json":
+		return reporter.NewJSONReporter()
+	default:
+		return reporter.NewReporter()
+	}
+}
+
+func detectSymfonyProject(rootPath string, cfg config.Config) *auditor.SymfonyBridge {
 	sb, err := auditor.DetectSymfony(rootPath, cfg)
 	if err != nil {
 		if cfg.NoAgent {
@@ -43,82 +80,71 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	aud.Symfony = sb
+	return sb
+}
 
-	// 3. Load Baseline if exists
-	var baseline config.Baseline
-	if cfg.BaselinePath != "" && !cfg.GenerateBaseline {
-	        baselineFile := cfg.BaselinePath
-	        if !filepath.IsAbs(baselineFile) {
-	                baselineFile = filepath.Join(rootPath, baselineFile)
-	        }
-	        baseline, err = config.LoadBaseline(baselineFile)
-	        if err != nil {
-	                fmt.Fprintf(os.Stderr, "⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
-	        } else {
-	                fmt.Fprintf(os.Stderr, "🛡️  Baseline loaded: %d files will be partially ignored.\n", len(baseline.Files))
-	        }
+func loadAuditBaseline(rootPath string, cfg config.Config) config.Baseline {
+	if cfg.BaselinePath == "" || cfg.GenerateBaseline {
+		return config.Baseline{}
 	}
 
-	// 4. Collect Files to Audit
-	auditList := collectFiles(rootPath, cfg, aud)
+	baselineFile := cfg.BaselinePath
+	if !filepath.IsAbs(baselineFile) {
+		baselineFile = filepath.Join(rootPath, baselineFile)
+	}
 
-	rep.PrintHeader(len(auditList))
+	baseline, err := config.LoadBaseline(baselineFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: Could not load baseline from %s: %v\n", baselineFile, err)
+		return config.Baseline{}
+	}
 
-	// 5. Parallel Audit
+	fmt.Fprintf(os.Stderr, "🛡️  Baseline loaded: %d files will be partially ignored.\n", len(baseline.Files))
+	return baseline
+}
+
+func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg config.Config, baseline config.Baseline, rootPath string) []symbol.AuditStatus {
 	resultsChan := runParallelAudit(auditList, aud)
-
-	// 6. Collect Results
 	var finalResults []symbol.AuditStatus
+
 	for res := range resultsChan {
 		if !cfg.GenerateBaseline && baseline.Files != nil {
 			res.Findings = config.FilterFindings(baseline, res.FilePath, res.Findings, rootPath)
-			// Re-calculate status after filtering
-			res.Status = "✅ OK"
-			if len(res.Findings) > 0 {
-				hasError := false
-				for _, f := range res.Findings {
-					if f.Severity == "ERROR" {
-						hasError = true
-						break
-					}
-				}
-				if hasError {
-					res.Status = "❌ KO"
-				} else {
-					res.Status = "⚠️  WARN"
-				}
-			}
+			res.Status = calculateAuditStatus(res.Findings)
 		}
 		finalResults = append(finalResults, res)
 	}
 
-	// 7. Handle Baseline Generation
-	if cfg.GenerateBaseline {
-	        baselineFile := cfg.BaselinePath
-	        if !filepath.IsAbs(baselineFile) {
-	                baselineFile = filepath.Join(rootPath, baselineFile)
-	        }
-	        err := config.SaveBaseline(baselineFile, finalResults, rootPath)
-	        if err != nil {
-	                fmt.Fprintf(os.Stderr, "❌ Error saving baseline: %v\n", err)
-	                os.Exit(1)
-	        }
-	        fmt.Fprintf(os.Stderr, "\n✨ Baseline successfully generated at: %s\n", baselineFile)
-	        fmt.Fprintln(os.Stderr, "👉 Future audits will ignore these existing findings.")
-	        return
-	}
+	return finalResults
+}
 
-	// 8. Report Results (Project first, then Vendor)
-	reportAllFindings(rep, finalResults, rootPath)
-
-	success := rep.PrintSummary(finalResults, rootPath)
-	if !success {
-	        os.Exit(1)
+func calculateAuditStatus(findings []symbol.Finding) string {
+	if len(findings) == 0 {
+		return "✅ OK"
 	}
+	for _, f := range findings {
+		if f.Severity == "ERROR" {
+			return "❌ KO"
+		}
 	}
+	return "⚠️  WARN"
+}
 
-	func parseFlagsAndInit() (config.Config, string, bool) {
+func generateBaselineFile(rootPath string, cfg config.Config, results []symbol.AuditStatus) {
+	baselineFile := cfg.BaselinePath
+	if !filepath.IsAbs(baselineFile) {
+		baselineFile = filepath.Join(rootPath, baselineFile)
+	}
+	err := config.SaveBaseline(baselineFile, results, rootPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Error saving baseline: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "\n✨ Baseline successfully generated at: %s\n", baselineFile)
+	fmt.Fprintln(os.Stderr, "👉 Future audits will ignore these existing findings.")
+}
+
+func parseFlagsAndInit() (config.Config, string, bool) {
 	var configPath string
 	versionFlag := flag.Bool("version", false, "Display version information")
 	flag.StringVar(&configPath, "config", "", "Custom path to igor.json")
@@ -129,7 +155,7 @@ func main() {
 	envFlag := flag.String("env", "", "Symfony environment (default: dev)")
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
 	noAgentFlag := flag.Bool("no-agent", false, "Disable Igor Agent and fallback to standard scan")
-	outputFlag := flag.String("output", "cli", "Output format (cli, llm)")
+	outputFlag := flag.String("output", "cli", "Output format (cli, llm, json)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -141,6 +167,7 @@ func main() {
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --output json .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
 		fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php init\n")

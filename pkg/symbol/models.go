@@ -7,20 +7,20 @@ import (
 
 // Finding represents a single issue detected by the linter.
 type Finding struct {
-	Message      string
-	Code         string
-	Snippet      string
-	Remediation  string
-	Severity     string // "ERROR" or "WARNING"
-	Line         int
-	ASTDetails   string
-	Dependencies []string
+	Message      string   `json:"message"`
+	Code         string   `json:"code"`
+	Snippet      string   `json:"snippet"`
+	Remediation  string   `json:"remediation"`
+	Severity     string   `json:"severity"` // "ERROR" or "WARNING"
+	Line         int      `json:"line"`
+	ASTDetails   string   `json:"ast_details"`
+	Dependencies []string `json:"dependencies"`
 }
 
 // Result groups findings by file.
 type Result struct {
-	FilePath string
-	Findings []Finding
+	FilePath string    `json:"file_path"`
+	Findings []Finding `json:"findings"`
 }
 
 // SymfonyContainer represents the output of debug:container --format=json.
@@ -39,13 +39,13 @@ type SymfonyService struct {
 
 // AuditStatus represents the audit state of a single service.
 type AuditStatus struct {
-	ServiceID    string
-	FilePath     string
-	Status       string // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
-	Findings     []Finding
-	Dependencies []string
-	IsShared     bool
-	IsPublic     bool
+	ServiceID    string    `json:"service_id"`
+	FilePath     string    `json:"file_path"`
+	Status       string    `json:"status"` // "✅ OK", "❌ KO", "⚠️  WARN", "❓ MISSING"
+	Findings     []Finding `json:"findings"`
+	Dependencies []string  `json:"dependencies"`
+	IsShared     bool      `json:"is_shared"`
+	IsPublic     bool      `json:"is_public"`
 }
 
 // IsVendor returns true if the file is part of the vendor directory.
