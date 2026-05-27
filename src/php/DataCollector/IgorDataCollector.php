@@ -36,7 +36,7 @@ class IgorDataCollector extends DataCollector
         if ($binaryFound) {
             // 1. Identify ALL files used in this request
             $includedFiles = array_flip(get_included_files());
-            $usedClasses = array_flip($this->usageTracker->getUsedClasses());
+            $usedFiles = array_flip($this->usageTracker->getUsedFiles());
 
             // Get project root (assuming vendor/bin/igor-php)
             $projectDir = dirname($this->igorBinaryPath, 3);
@@ -81,12 +81,7 @@ class IgorDataCollector extends DataCollector
                         }
 
                         // 3. ENRICH: Mark if the service was actually called (not just loaded)
-                        // Note: Igor binary returns 'service_id' or 'class' in its JSON
-                        $serviceId = $res['service_id'] ?? null;
-                        $serviceClass = $res['class'] ?? null;
-                        
-                        $isUsed = ($serviceClass && isset($usedClasses[$serviceClass])) || 
-                                 ($serviceId && isset($usedClasses[$serviceId]));
+                        $isUsed = $filePath && isset($usedFiles[$filePath]);
                         
                         $rawCount += count($res['findings']);
                         
@@ -99,7 +94,6 @@ class IgorDataCollector extends DataCollector
                             'file' => $displayFile,
                             'findings' => $res['findings'],
                             'is_used' => $isUsed,
-                            'class' => $serviceClass,
                         ];
                     }
                 } else {

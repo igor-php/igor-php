@@ -9,21 +9,20 @@ use Symfony\Contracts\Service\ResetInterface;
  */
 class IgorUsageTracker implements ResetInterface
 {
-    private array $usedClasses = [];
+    private array $usedFiles = [];
 
-    public function markAsUsed(string $className): void
+    public function markAsUsed(string $filePath): void
     {
-        $this->usedClasses[$className] = true;
+        $this->usedFiles[$filePath] = true;
     }
 
-    public function getUsedClasses(): array
+    public function getUsedFiles(): array
     {
-        return array_keys($this->usedClasses);
+        return array_keys($this->usedFiles);
     }
 
     public function reset(): void
     {
-        // Crucial for FrankenPHP: clear the list for the next request
-        $this->usedClasses = [];
+        $this->usedFiles = [];
     }
 }

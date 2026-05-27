@@ -21,9 +21,11 @@ class IgorProxyFactory
     {
         $tracker = $this->tracker;
         $proxyClassName = 'IgorUsageProxy_' . str_replace('\\', '_', $className) . '_' . md5($className);
+        
+        $reflection = new \ReflectionClass($className);
+        $realPath = (string) $reflection->getFileName();
 
         if (!class_exists($proxyClassName)) {
-            $reflection = new \ReflectionClass($className);
             $methodsCode = '';
 
             foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
@@ -52,7 +54,7 @@ class IgorProxyFactory
 
                 $methodsCode .= "
                     public function {$method->getName()}($paramsList)$returnType {
-                        \$this->tracker->markAsUsed(\$this->originalClass);
+                        \$this->tracker->markAsUsed(\$this->realPath);
                         return \$this->inner->{$method->getName()}($argList);
                     }
                 ";
@@ -62,14 +64,19 @@ class IgorProxyFactory
                 class $proxyClassName extends $className {
                     private object \$inner;
                     private \$tracker;
-                    private string \$originalClass;
+                    private string \$realPath;
 
-                    public function __construct(object \$inner, \$tracker, string \$originalClass) {
+                    public function __construct(object \$inner, \$tracker, string \$realPath) {
                         \$this->inner = \$inner;
                         \$this->tracker = \$tracker;
-                        \$this->originalClass = \$originalClass;
+                        \$this->realPath = \$realPath;
                         // Mark as used as soon as the proxy is created
-                        \$this->tracker->markAsUsed(\$originalClass);
+                        \$this->tracker->markAsUsed(\$realPath);
+                    }
+
+                    public function __call(\$name, \$args) {
+                        \$this->tracker->markAsUsed(\$this->realPath);
+                        return \$this->inner->\$name(...\$args);
                     }
                     $methodsCode
                 }
@@ -77,6 +84,6 @@ class IgorProxyFactory
             eval($code);
         }
 
-        return new $proxyClassName($inner, $tracker, $className);
+        return new $proxyClassName($inner, $tracker, $realPath);
     }
 }
