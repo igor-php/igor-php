@@ -20,11 +20,38 @@ class IgorProxyFactory
     public function createProxy(object $inner, string $className): object
     {
         $tracker = $this->tracker;
-        $proxyClassName = 'IgorUsageProxy_' . str_replace('\\', '_', $className);
+        $proxyClassName = 'IgorUsageProxy_' . str_replace('\\', '_', $className) . '_' . md5($className);
 
         if (!class_exists($proxyClassName)) {
-            // We dynamically create a class that extends the original one
-            // to preserve 'instanceof' checks and type-hinting.
+            $reflection = new \ReflectionClass($className);
+            $methodsCode = '';
+
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if ($method->isConstructor() || $method->isDestructor() || $method->isFinal() || $method->isStatic()) {
+                    continue;
+                }
+
+                $params = [];
+                foreach ($method->getParameters() as $param) {
+                    $paramCode = ($param->hasType() ? (string)$param->getType() . ' ' : '') . '$' . $param->getName();
+                    if ($param->isDefaultValueAvailable()) {
+                        $paramCode .= ' = ' . var_export($param->getDefaultValue(), true);
+                    }
+                    $params[] = $paramCode;
+                }
+                $paramsList = implode(', ', $params);
+                $argList = implode(', ', array_map(fn($p) => '$' . $p->getName(), $method->getParameters()));
+
+                $returnType = $method->hasReturnType() ? ': ' . (string)$method->getReturnType() : '';
+
+                $methodsCode .= "
+                    public function {$method->getName()}($paramsList)$returnType {
+                        \$this->tracker->markAsUsed(\$this->originalClass);
+                        return \$this->inner->{$method->getName()}($argList);
+                    }
+                ";
+            }
+
             $code = "
                 class $proxyClassName extends $className {
                     private object \$inner;
@@ -36,14 +63,7 @@ class IgorProxyFactory
                         \$this->tracker = \$tracker;
                         \$this->originalClass = \$originalClass;
                     }
-
-                    public function __call(\$name, \$args) {
-                        \$this->tracker->markAsUsed(\$this->originalClass);
-                        return \$this->inner->\$name(...\$args);
-                    }
-                    
-                    // We also need to proxy known public methods if we want full reliability,
-                    // but for a linter usage tracker, __call is a good start.
+                    $methodsCode
                 }
             ";
             eval($code);
