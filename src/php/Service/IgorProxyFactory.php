@@ -27,7 +27,13 @@ class IgorProxyFactory
             $methodsCode = '';
 
             foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                // Only skip constructor and destructor, but KEEP __invoke
                 if ($method->isConstructor() || $method->isDestructor() || $method->isFinal() || $method->isStatic()) {
+                    continue;
+                }
+
+                // If it's a magic method other than __invoke, skip for now to avoid side effects
+                if (str_starts_with($method->getName(), '__') && $method->getName() !== '__invoke') {
                     continue;
                 }
 
@@ -62,6 +68,8 @@ class IgorProxyFactory
                         \$this->inner = \$inner;
                         \$this->tracker = \$tracker;
                         \$this->originalClass = \$originalClass;
+                        // Mark as used as soon as the proxy is created
+                        \$this->tracker->markAsUsed(\$originalClass);
                     }
                     $methodsCode
                 }
