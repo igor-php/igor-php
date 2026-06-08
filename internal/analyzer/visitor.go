@@ -24,29 +24,34 @@ type mutationInfo struct {
 
 // PHPVisitor analyzes a single PHP file using tree-sitter.
 type PHPVisitor struct {
-	content         []byte
-	lines           []string
-	findings        []symbol.Finding
-	curClass        string
-	namespace       string
-	curMethod       string
-	isReset         bool
-	isReadonlyClass bool
-	readonlyProps   map[string]bool
-	mutated         map[string]mutationInfo
-	resetted        map[string]bool
-	engine          Engine
-	dependencies    []string
+	content            []byte
+	lines              []string
+	findings           []symbol.Finding
+	curClass           string
+	namespace          string
+	curMethod          string
+	isReset            bool
+	isReadonlyClass    bool
+	isWorkerSafeClass  bool
+	isWorkerSafeMethod bool
+	readonlyProps      map[string]bool
+	workerSafeProps    map[string]bool
+	mutated            map[string]mutationInfo
+	resetted           map[string]bool
+	engine             Engine
+	dependencies       []string
 }
 
 // NewVisitor creates a new instance of the PHPVisitor.
 func NewVisitor(content []byte, engine Engine) *PHPVisitor {
 	return &PHPVisitor{
-		content:  content,
-		lines:    strings.Split(string(content), "\n"),
-		mutated:  make(map[string]mutationInfo),
-		resetted: make(map[string]bool),
-		engine:   engine,
+		content:         content,
+		lines:           strings.Split(string(content), "\n"),
+		mutated:         make(map[string]mutationInfo),
+		resetted:        make(map[string]bool),
+		readonlyProps:   make(map[string]bool),
+		workerSafeProps: make(map[string]bool),
+		engine:          engine,
 	}
 }
 
@@ -68,7 +73,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	}
 	nodeType := n.Kind()
 
-	oldClass, oldMethod, oldIsRes, oldIsReadonly, oldReadonlyProps := v.curClass, v.curMethod, v.isReset, v.isReadonlyClass, v.readonlyProps
+	oldClass, oldMethod, oldIsRes, oldIsReadonly, oldReadonlyProps, oldIsWorkerSafeClass, oldIsWorkerSafeMethod := v.curClass, v.curMethod, v.isReset, v.isReadonlyClass, v.readonlyProps, v.isWorkerSafeClass, v.isWorkerSafeMethod
 
 	switch nodeType {
 	case "namespace_definition":
@@ -79,6 +84,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 			v.curMethod = v.getContent(nameNode)
 		}
+		v.isWorkerSafeMethod = v.hasAttribute(n, "WorkerSafe")
 	case "assignment_expression", "augmented_assignment_expression":
 		v.handleMutation(n.ChildByFieldName("left"))
 	case "update_expression":
@@ -104,9 +110,9 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		if v.isReset {
 			v.performResetCheck()
 		}
-		v.curClass, v.isReset, v.isReadonlyClass, v.readonlyProps = oldClass, oldIsRes, oldIsReadonly, oldReadonlyProps
+		v.curClass, v.isReset, v.isReadonlyClass, v.readonlyProps, v.isWorkerSafeClass = oldClass, oldIsRes, oldIsReadonly, oldReadonlyProps, oldIsWorkerSafeClass
 	case "method_declaration", "function_definition":
-		v.curMethod = oldMethod
+		v.curMethod, v.isWorkerSafeMethod = oldMethod, oldIsWorkerSafeMethod
 	}
 }
 
@@ -145,6 +151,8 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	v.mutated = make(map[string]mutationInfo)
 	v.resetted = make(map[string]bool)
 	v.readonlyProps = make(map[string]bool)
+	v.workerSafeProps = make(map[string]bool)
+	v.isWorkerSafeClass = v.hasAttribute(n, "WorkerSafe")
 
 	v.scanReadonlyProps(n)
 }
@@ -190,7 +198,9 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 		}
 	}
 
-	if isReadonly {
+	isWorkerSafe := v.hasAttribute(n, "WorkerSafe")
+
+	if isReadonly || isWorkerSafe {
 		// For property_declaration, properties are in property_element
 		// For parameter_declaration/property_promotion_parameter, look for variable_name child
 		if n.Kind() == "property_declaration" {
@@ -199,7 +209,13 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 				if child.Kind() == "property_element" {
 					nameNode := child.ChildByFieldName("name")
 					if nameNode != nil {
-						v.readonlyProps[strings.TrimPrefix(v.getContent(nameNode), "$")] = true
+						propName := strings.TrimPrefix(v.getContent(nameNode), "$")
+						if isReadonly {
+							v.readonlyProps[propName] = true
+						}
+						if isWorkerSafe {
+							v.workerSafeProps[propName] = true
+						}
 					}
 				}
 			}
@@ -208,7 +224,13 @@ func (v *PHPVisitor) scanPropertyNode(n *sitter.Node) {
 			for j := uint(0); j < n.ChildCount(); j++ {
 				child := n.Child(j)
 				if child.Kind() == "variable_name" {
-					v.readonlyProps[strings.TrimPrefix(v.getContent(child), "$")] = true
+					propName := strings.TrimPrefix(v.getContent(child), "$")
+					if isReadonly {
+						v.readonlyProps[propName] = true
+					}
+					if isWorkerSafe {
+						v.workerSafeProps[propName] = true
+					}
 					break
 				}
 			}
@@ -340,8 +362,11 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 		key = "static::" + prop
 	}
 
-	// Skip if property is readonly
-	if !static && v.readonlyProps[prop] {
+	// Skip if property is readonly or WorkerSafe
+	if !static && (v.readonlyProps[prop] || v.workerSafeProps[prop]) {
+		return
+	}
+	if static && v.workerSafeProps[prop] {
 		return
 	}
 
@@ -363,6 +388,9 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 
 func (v *PHPVisitor) performResetCheck() {
 	for prop, info := range v.mutated {
+		if v.workerSafeProps[prop] {
+			continue
+		}
 		if !v.resetted[prop] {
 			v.findings = append(v.findings, symbol.Finding{
 				Message:      fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
@@ -379,6 +407,10 @@ func (v *PHPVisitor) performResetCheck() {
 }
 
 func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
+	if v.isWorkerSafeClass || v.isWorkerSafeMethod {
+		return
+	}
+
 	row := int(n.StartPosition().Row)
 	lineContent := v.lines[row]
 
@@ -407,4 +439,36 @@ func (v *PHPVisitor) getContent(n *sitter.Node) string {
 		return ""
 	}
 	return string(v.content[n.StartByte():n.EndByte()])
+}
+
+// hasAttribute checks if the given node has an attribute ending with the target name (e.g. "WorkerSafe").
+func (v *PHPVisitor) hasAttribute(n *sitter.Node, target string) bool {
+	if n == nil {
+		return false
+	}
+	attributesNode := n.ChildByFieldName("attributes")
+	if attributesNode == nil {
+		return false
+	}
+
+	for i := uint(0); i < attributesNode.ChildCount(); i++ {
+		group := attributesNode.Child(i)
+		if group.Kind() == "attribute_group" {
+			for j := uint(0); j < group.ChildCount(); j++ {
+				attr := group.Child(j)
+				if attr.Kind() == "attribute" {
+					for k := uint(0); k < attr.ChildCount(); k++ {
+						nameNode := attr.Child(k)
+						if nameNode.Kind() == "name" || nameNode.Kind() == "qualified_name" || nameNode.Kind() == "fully_qualified_name" {
+							nameContent := v.getContent(nameNode)
+							if nameContent == target || strings.HasSuffix(nameContent, "\\"+target) {
+								return true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false
 }

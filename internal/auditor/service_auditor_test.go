@@ -76,6 +76,12 @@ func TestAuditFixtures(t *testing.T) {
 			expectedErrors: 1, // Only the regular mutation on 'counter'
 			contains:       "Mutation of state 'counter'",
 		},
+		{
+			name:           "PHP 8 Attribute exclusions (WorkerSafe)",
+			fixture:        "attribute_exclusion.php",
+			expectedErrors: 3,
+			contains:       "Mutation of state",
+		},
 	}
 
 	for _, tt := range tests {

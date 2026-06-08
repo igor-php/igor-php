@@ -20,7 +20,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
 - **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
 - **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
-- **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment.
+- **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment, or target entire classes, methods, and properties using modern **PHP 8 Attributes** (`#[WorkerSafe]`).
 
 ---
 
@@ -301,8 +301,9 @@ Igor will automatically send the audit to the LLM and save the report to `igor-r
 
 ---
 
-### Selective Ignoring
+### Selective Ignoring (Comments & Attributes)
 
+#### 1. Line-by-Line Exclusions
 If you have a specific line that you know is safe, you can use the `// @igor-ignore` annotation:
 
 ```php
@@ -311,6 +312,47 @@ $this->cache = $data; // This line will be ignored
 
 $this->counter++; // @igor-ignore - This line too
 ```
+
+#### 2. Modern Exclusions with PHP 8 Attributes (Recommended)
+Instead of line-by-line comments, you can use modern PHP 8 attributes to exclude entire classes, specific methods, or individual properties.
+
+First, import the attribute (available via the embedded Symfony bundle):
+```php
+use IgorPhp\IgorBundle\Attribute\WorkerSafe;
+```
+
+Then decorate your code elements:
+
+*   **Class-level**: Ignore all state leak and mutation findings within the entire class.
+    ```php
+    #[WorkerSafe(scope: 'boot-time', reason: 'Configuration is frozen after warmup')]
+    class MyService {
+        // All mutations and state checks inside this class are ignored
+    }
+    ```
+
+*   **Method-level**: Ignore state mutations occurring inside a specific method.
+    ```php
+    class MyService {
+        #[WorkerSafe]
+        public function warmUp() {
+            $this->cache = ['foo' => 'bar']; // This mutation is ignored
+        }
+    }
+    ```
+
+*   **Property-level**: Ignore all mutations on a specific property and exclude it from the `ResetInterface` verification. Works flawlessly with both standard and constructor-promoted properties!
+    ```php
+    class MyService {
+        #[WorkerSafe]
+        private $cache = []; // Mutations and missing reset checks are ignored
+        
+        public function __construct(
+            #[WorkerSafe]
+            private StatefulService $safeService, // Promoted property is safe!
+        ) {}
+    }
+    ```
 
 ---
 
