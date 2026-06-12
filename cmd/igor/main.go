@@ -437,7 +437,9 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	processedFiles := make(map[string]bool)
 
 	// --- STEP 1: Add shared services from Symfony (to get IDs and Dependencies) ---
-	if aud.Symfony != nil {
+	// Guard the Container too: a non-nil bridge can still carry a nil Container if
+	// LoadContainer failed, and collectSymfonyServices iterates Container.Definitions.
+	if aud.Symfony != nil && aud.Symfony.Container != nil {
 	        fmt.Fprintln(os.Stderr, "🎯 Symfony detected: Mapping services and dependencies...")
 	        auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 	}
