@@ -17,10 +17,11 @@ import (
 
 // Auditor orchestrates the analysis of PHP files.
 type Auditor struct {
-	Config         config.Config
-	Symfony        *SymfonyBridge
-	AuditedClasses map[string]bool
-	mu             sync.Mutex
+	Config            config.Config
+	Symfony           *SymfonyBridge
+	NonSharedServices analyzer.NonSharedServiceMap
+	AuditedClasses    map[string]bool
+	mu                sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.
@@ -52,6 +53,7 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 
 	v := analyzer.NewVisitor(content, a)
 	v.SetDependencies(dependencies)
+	v.SetNonSharedServices(a.NonSharedServices)
 	v.Walk(tree.RootNode())
 
 	return v.Findings(), nil
