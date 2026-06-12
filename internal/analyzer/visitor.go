@@ -40,6 +40,7 @@ type PHPVisitor struct {
 	resetted           map[string]bool
 	engine             Engine
 	dependencies       []string
+	nonSharedServices  NonSharedServiceMap
 }
 
 // NewVisitor creates a new instance of the PHPVisitor.
@@ -57,6 +58,13 @@ func NewVisitor(content []byte, engine Engine) *PHPVisitor {
 
 func (v *PHPVisitor) SetDependencies(deps []string) {
 	v.dependencies = deps
+}
+
+// SetNonSharedServices supplies the generic container-dump lookup of transient
+// (shared: false) classes. Mutations inside such classes are skipped, mirroring
+// the Symfony bridge's IsExplicitlyNonShared() signal for non-Symfony frameworks.
+func (v *PHPVisitor) SetNonSharedServices(m NonSharedServiceMap) {
+	v.nonSharedServices = m
 }
 
 func (v *PHPVisitor) Walk(n *sitter.Node) {
@@ -300,6 +308,12 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 	fullName := v.curClass
 	if v.namespace != "" {
 		fullName = v.namespace + "\\" + v.curClass
+	}
+
+	// Generic container-dump bypass: the class is registered as a transient
+	// (shared: false) service, so its mutations never outlive a request.
+	if v.nonSharedServices[strings.TrimPrefix(fullName, "\\")] {
+		return
 	}
 
 	if v.engine != nil && (v.engine.IsExplicitlyNonShared(fullName) || v.engine.IsSafeNamespace(fullName)) {

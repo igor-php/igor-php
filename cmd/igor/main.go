@@ -9,6 +9,7 @@ import (
         "path/filepath"
         "strings"
         "sync"
+	"github.com/igor-php/igor-php/internal/analyzer"
 	"github.com/igor-php/igor-php/internal/auditor"
 	"github.com/igor-php/igor-php/internal/config"
 	"github.com/igor-php/igor-php/pkg/reporter"
@@ -26,6 +27,9 @@ func main() {
 	// 1. Initialize Components
 	aud := auditor.NewAuditor(cfg)
 	rep := setupReporter(cfg)
+
+	// 1b. Load generic container dump (non-shared/transient classes to skip)
+	aud.NonSharedServices = loadContainerDump(rootPath, cfg)
 
 	// 2. Detect Symfony project
 	aud.Symfony = detectSymfonyProject(rootPath, cfg)
@@ -103,6 +107,30 @@ func loadAuditBaseline(rootPath string, cfg config.Config) config.Baseline {
 	return baseline
 }
 
+// loadContainerDump resolves and parses the generic container-dump file (if
+// configured) into the set of non-shared/transient classes whose mutations are
+// safe to skip. Failures are non-fatal: a warning is emitted and the audit
+// proceeds without the bridge signal.
+func loadContainerDump(rootPath string, cfg config.Config) analyzer.NonSharedServiceMap {
+	if cfg.ContainerDump == "" {
+		return nil
+	}
+
+	dumpPath := cfg.ContainerDump
+	if !filepath.IsAbs(dumpPath) {
+		dumpPath = filepath.Join(rootPath, dumpPath)
+	}
+
+	nonShared, err := analyzer.LoadContainerDump(dumpPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: Could not load container dump from %s: %v\n", dumpPath, err)
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "📦 Container dump loaded: %d non-shared (transient) classes will be skipped.\n", len(nonShared))
+	return nonShared
+}
+
 func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg config.Config, baseline config.Baseline, rootPath string) []symbol.AuditStatus {
 	resultsChan := runParallelAudit(auditList, aud)
 	var finalResults []symbol.AuditStatus
@@ -156,6 +184,7 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	verboseFlag := flag.Bool("verbose", false, "Enable verbose output to see skipped services and details")
 	noAgentFlag := flag.Bool("no-agent", false, "Disable Igor Agent and fallback to standard scan")
 	outputFlag := flag.String("output", "cli", "Output format (cli, llm, json)")
+	containerDumpFlag := flag.String("container-dump", "", "Path to a generic container dump JSON ({\"services\":[{\"class\":...,\"shared\":bool}]}) used to skip transient (non-shared) classes")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -168,6 +197,7 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  igor-php .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php --output json .\n")
+		fmt.Fprintf(os.Stderr, "  igor-php --container-dump igor-container.json .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
 		fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
 		fmt.Fprintf(os.Stderr, "  igor-php init\n")
@@ -201,7 +231,7 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	rootPath, _ := filepath.Abs(args[0])
 
 	cfg := config.LoadConfig(rootPath, configPath)
-	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag)
+	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag)
 
 	// Display summary of packages
 	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
@@ -344,9 +374,12 @@ func handleAPIReview(content string, cfg config.Config) {
 	os.Exit(0)
 }
 
-func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag *string) {
+func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string) {
 	if *consoleFlag != "" {
 		cfg.ConsolePath = *consoleFlag
+	}
+	if *containerDumpFlag != "" {
+		cfg.ContainerDump = *containerDumpFlag
 	}
 	if *envFlag != "" {
 		cfg.Env = *envFlag
@@ -404,7 +437,9 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	processedFiles := make(map[string]bool)
 
 	// --- STEP 1: Add shared services from Symfony (to get IDs and Dependencies) ---
-	if aud.Symfony != nil {
+	// Guard the Container too: a non-nil bridge can still carry a nil Container if
+	// LoadContainer failed, and collectSymfonyServices iterates Container.Definitions.
+	if aud.Symfony != nil && aud.Symfony.Container != nil {
 	        fmt.Fprintln(os.Stderr, "🎯 Symfony detected: Mapping services and dependencies...")
 	        auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 	}

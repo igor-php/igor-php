@@ -12,6 +12,7 @@ import (
 )
 
 func TestVerboseOutput(t *testing.T) {
+	requirePHP(t) // LoadContainer shells out to `php`; without it the container stays nil
 	// 1. Setup mock Symfony project
 	tmpDir, _ := os.MkdirTemp("", "igor_verbose_test")
 	defer func() { _ = os.RemoveAll(tmpDir) }()
