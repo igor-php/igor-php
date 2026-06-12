@@ -18,8 +18,8 @@ func TestLoadContainerDumpValidatesSuccessfully(t *testing.T) {
 
 	content := `{
         "services": [
-            {"class": "Waffle\\Commons\\Http\\Uri", "shared": false},
-            {"class": "Waffle\\Commons\\Security\\Security", "shared": true}
+            {"class": "App\\Http\\Uri", "shared": false},
+            {"class": "App\\Security\\Security", "shared": true}
         ]
     }`
 
@@ -33,11 +33,11 @@ func TestLoadContainerDumpValidatesSuccessfully(t *testing.T) {
 		t.Fatalf("Unexpected parsing error: %v", err)
 	}
 
-	if !nonShared["Waffle\\Commons\\Http\\Uri"] {
+	if !nonShared["App\\Http\\Uri"] {
 		t.Error("Uri should have been identified as non-shared")
 	}
 
-	if nonShared["Waffle\\Commons\\Security\\Security"] {
+	if nonShared["App\\Security\\Security"] {
 		t.Error("Security is a shared service and should not exist in the non-shared lookup map")
 	}
 }
@@ -75,7 +75,7 @@ func TestLoadContainerDumpNormalizesLeadingBackslash(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 
-	content := `{"services": [{"class": "\\Waffle\\Commons\\Http\\Stream", "shared": false}]}`
+	content := `{"services": [{"class": "\\App\\Http\\Stream", "shared": false}]}`
 	if _, err := tempFile.Write([]byte(content)); err != nil {
 		t.Fatalf("Failed to write mock JSON content: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestLoadContainerDumpNormalizesLeadingBackslash(t *testing.T) {
 		t.Fatalf("Unexpected parsing error: %v", err)
 	}
 
-	if !nonShared["Waffle\\Commons\\Http\\Stream"] {
+	if !nonShared["App\\Http\\Stream"] {
 		t.Error("Stream should be matched after trimming the leading backslash")
 	}
 }
@@ -124,7 +124,7 @@ func countErrors(t *testing.T, code string, nonShared NonSharedServiceMap) int {
 // the mutation must be skipped.
 func TestNonSharedServiceBypassSuppressesMutation(t *testing.T) {
 	code := `<?php
-namespace Waffle\Commons\Http;
+namespace App\Http;
 
 final class Uri
 {
@@ -140,8 +140,8 @@ final class Uri
 		t.Fatal("expected a KO finding for the mutation without the container dump")
 	}
 
-	// With the dump declaring Waffle\Http\Uri as non-shared, it is skipped.
-	nonShared := NonSharedServiceMap{"Waffle\\Commons\\Http\\Uri": true}
+	// With the dump declaring App\Http\Uri as non-shared, it is skipped.
+	nonShared := NonSharedServiceMap{"App\\Http\\Uri": true}
 	if got := countErrors(t, code, nonShared); got != 0 {
 		t.Errorf("expected 0 findings for a non-shared transient class, got %d", got)
 	}
@@ -151,7 +151,7 @@ final class Uri
 // a class that is NOT in the non-shared map keeps being audited normally.
 func TestNonSharedServiceBypassStillFlagsSharedClass(t *testing.T) {
 	code := `<?php
-namespace Waffle\Commons\Security;
+namespace App\Security;
 
 final class Security
 {
@@ -163,7 +163,7 @@ final class Security
 }`
 
 	// Map contains a different class; Security must still be flagged.
-	nonShared := NonSharedServiceMap{"Waffle\\Commons\\Http\\Uri": true}
+	nonShared := NonSharedServiceMap{"App\\Http\\Uri": true}
 	if got := countErrors(t, code, nonShared); got == 0 {
 		t.Error("expected a KO finding for a shared class absent from the non-shared map")
 	}

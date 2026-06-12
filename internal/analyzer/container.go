@@ -10,9 +10,9 @@ import (
 // ServiceDefinition maps the JSON representation of an individual service.
 //
 // It is a framework-agnostic shape: any container (Symfony, Laravel, Laminas,
-// waffle-commons, …) can emit `{ "class": "...", "shared": bool }` entries so
-// Igor knows which classes are real shared services and which are transient
-// (per-request / per-resolution) value objects that must never be flagged.
+// …) can emit `{ "class": "...", "shared": bool }` entries so Igor knows which
+// classes are real shared services and which are transient (per-request /
+// per-resolution) value objects that must never be flagged.
 type ServiceDefinition struct {
 	Class  string `json:"class"`
 	Shared bool   `json:"shared"`
