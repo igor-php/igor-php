@@ -14,6 +14,7 @@ type Config struct {
         DevPackages      []string `json:"-"` // List of require-dev packages from composer.json
         GenerateBaseline bool     `json:"-"` // Internal: set if --generate-baseline is used
         OutputFormat     string   `json:"output"`
+        ContainerDump    string   `json:"container_dump"` // Path to a generic container dump (framework-agnostic non-shared service graph)
         LLMConfig        LLMConfig `json:"llm"`
 }
 

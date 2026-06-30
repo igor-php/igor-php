@@ -65,6 +65,7 @@ func TestDemoLeakFeatures(t *testing.T) {
 	})
 
 	t.Run("Agent Detection in demo-leak", func(t *testing.T) {
+		requirePHP(t) // LoadContainer locates files via PHP reflection
 		// 1. Mock Agent Map
 		cacheDir := filepath.Join(root, "var", "cache", "dev")
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {

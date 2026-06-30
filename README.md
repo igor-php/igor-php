@@ -21,6 +21,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
 - **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
 - **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment, or target entire classes, methods, and properties using modern **PHP 8 Attributes** (`#[WorkerSafe]`).
+- **🌉 Framework-Agnostic Bridge**: Not on Symfony? Feed Igor your container's service graph via `--container-dump <file.json>` so it skips transient (non-shared) value objects and per-request helpers — the same precision the Symfony bridge gives, for **any** framework (Laravel, Laminas, …).
 
 ---
 
@@ -118,6 +119,42 @@ When using Igor without Symfony, you should manually define which directories or
 
 > 💡 **Note**: Without Symfony, Igor performs a recursive scan of your project directory (excluding folders in `exclude`). Using `scan_vendors` allows you to force the audit of specific third-party libraries even without the Symfony service map.
 
+### 🌉 Generic Container Bridge (`--container-dump`)
+
+Frameworks with their **own DI container** can give Igor the same signal the Symfony bridge provides: which classes are real **shared services** versus **transient** ones (per-request value objects, per-resolution helpers). Without it, a plain directory scan flags legitimate mutators on immutable-by-design value objects (PSR-7 `Uri`/`Stream`/`Message`, PSR-6 `CacheItem`, …) as state leaks.
+
+Export your container's graph to a framework-agnostic JSON file and pass it with `--container-dump`:
+
+```json
+{
+  "services": [
+    { "class": "App\\Http\\Uri", "shared": false },
+    { "class": "App\\Cache\\CacheItem", "shared": false },
+    { "class": "App\\Service\\MailService", "shared": true }
+  ]
+}
+```
+
+```bash
+igor-php --no-agent --container-dump igor-container.json .
+```
+
+By convention, keep `igor-container.json` at the project root, side-by-side with `igor.json`. Any class listed with `"shared": false` is treated as transient and its state mutations are **skipped** — exactly as the Symfony bridge already skips non-shared (prototype) services. Classes marked `"shared": true`, or absent from the file, continue to be audited normally. You can also set the path in `igor.json` via `"container_dump": "igor-container.json"`.
+
+> 💡 The format is intentionally minimal so **any** framework can produce it (Laravel, Laminas, …). Symfony's `igor_service_map.json` is simply one richer producer of the same idea.
+>
+> If you **generate** this file from a framework command rather than committing it, a gitignored build path (e.g. `var/igor-container.json`) is also fine — just regenerate it in CI before running Igor, the same way the Symfony agent map is warmed up.
+
+## 🌉 Community Bridges
+
+Igor's core stays framework-agnostic — the Symfony bundle and the generic `--container-dump` contract are all the engine needs. Anyone can ship a thin **bridge** that produces that signal for their own framework. Community-maintained bridges:
+
+| Framework | Bridge | Notes |
+|-----------|--------|-------|
+| **Waffle** | [waffle-commons](https://github.com/waffle-commons) | Emits a `--container-dump` service map and adopts Igor's `#[WorkerSafe]` attribute for FrankenPHP worker-mode state audits. |
+
+> Maintain a bridge for another framework? Open a PR adding a row — the only contract is the `--container-dump` JSON shape shown above.
+
 ## 🧪 See it in Action
 
 Want to understand why Igor is vital for your Worker environment? Check these real-world scenarios from our **Leak Lab**:
@@ -191,34 +228,11 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 
 ```json
 {
-  "exclude": ["vendor", "var", "src/Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "Twig\\", "IgorPhp\\IgorBundle\\"],
-  "console_path": "bin/console",
-  "env": "dev",
-  "verbose": false
-}
-```
-Time taken: 1.2s
-
-💡 RECOMMENDATIONS:
-  [PROJECT] Since this is your code, you should refactor these services to be stateless
-            or implement ResetInterface to clear the state between requests.
-  [VENDOR]  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit
-            in your Worker configuration to mitigate memory leaks.
-```
-
----
-
-## ⚙️ Configuration
-
-You can customize Igor's behavior by creating an `igor.json` file at the root of your project:
-
-```json
-{
   "exclude": ["vendor", "tests", "Entity"],
   "safe_namespaces": ["Symfony\\", "Doctrine\\", "IgorPhp\\IgorBundle\\"],
   "scan_vendors": ["my-company/internal-bundle"],
   "baseline": "igor-baseline.json",
+  "container_dump": "igor-container.json",
   "console_path": "bin/console",
   "env": "dev",
   "verbose": false
@@ -229,9 +243,16 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes.
 - **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
 - **baseline**: Path to a baseline file containing findings to ignore.
+- **container_dump**: Path to a generic container dump JSON (`{ "services": [ { "class": ..., "shared": bool } ] }`) listing non-shared/transient classes to skip. Equivalent to the `--container-dump` flag.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
 - **env**: Symfony environment to use for container analysis. Defaults to `dev`.
 - **verbose**: Enable verbose output to see skipped services and reasons. Defaults to `false`.
+
+💡 RECOMMENDATIONS:
+  [PROJECT] Since this is your code, you should refactor these services to be stateless
+  or implement ResetInterface to clear the state between requests.
+  [VENDOR]  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit
+  in your Worker configuration to mitigate memory leaks.
 
 ---
 

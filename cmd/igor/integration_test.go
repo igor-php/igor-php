@@ -78,6 +78,7 @@ func TestSymfonyIntegration(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	t.Run("Bridge should load container and LOCATE files via Reflection", func(t *testing.T) {
+		requirePHP(t)
 		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{NoAgent: true})
 		err := bridge.LoadContainer("prod")
 		if err != nil {
@@ -102,6 +103,7 @@ func TestSymfonyIntegration(t *testing.T) {
 	})
 
 	t.Run("Bridge should support custom console path", func(t *testing.T) {
+		requirePHP(t)
 		customBinDir := filepath.Join(tmpDir, "app")
 		if err := os.MkdirAll(customBinDir, 0755); err != nil {
 			t.Fatal(err)
@@ -133,6 +135,7 @@ func TestSymfonyIntegration(t *testing.T) {
 	})
 
 	t.Run("Bridge should prioritize Igor Agent service map", func(t *testing.T) {
+		requirePHP(t)
 		cacheDir := filepath.Join(tmpDir, "var", "cache", "test")
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
 			t.Fatal(err)
