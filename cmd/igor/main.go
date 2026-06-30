@@ -17,6 +17,7 @@ import (
 )
 
 var Version = "dev"
+var binName = "igor"
 
 func main() {
 	cfg, rootPath, shouldExit := parseFlagsAndInit()
@@ -173,6 +174,11 @@ func generateBaselineFile(rootPath string, cfg config.Config, results []symbol.A
 }
 
 func parseFlagsAndInit() (config.Config, string, bool) {
+	binName = filepath.Base(os.Args[0])
+	if strings.HasPrefix(binName, "main") || strings.HasPrefix(binName, "exe") {
+		binName = "igor"
+	}
+
 	var configPath string
 	versionFlag := flag.Bool("version", false, "Display version information")
 	flag.StringVar(&configPath, "config", "", "Custom path to igor.json")
@@ -189,26 +195,26 @@ func parseFlagsAndInit() (config.Config, string, bool) {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
 		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  igor-php [options] <directory>    Audit a project\n")
-		fmt.Fprintf(os.Stderr, "  igor-php init [options] [directory] Initialize a new igor.json config\n")
-		fmt.Fprintf(os.Stderr, "  igor-php review <json_file>       Review an audit JSON export with an LLM\n\n")
+		fmt.Fprintf(os.Stderr, "  %s [options] <directory>    Audit a project\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s init [options] [directory] Initialize a new igor.json config\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s review <json_file>       Review an audit JSON export with an LLM\n\n", binName)
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  igor-php .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --output json .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --container-dump igor-container.json .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --generate-baseline\n")
-		fmt.Fprintf(os.Stderr, "  igor-php -c custom-igor.json .\n")
-		fmt.Fprintf(os.Stderr, "  igor-php init\n")
-		fmt.Fprintf(os.Stderr, "  igor-php review igor-export.json\n")
-		fmt.Fprintf(os.Stderr, "  igor-php --env stage --verbose ./my-project\n")
+		fmt.Fprintf(os.Stderr, "  %s .\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --output json .\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --container-dump igor-container.json .\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --generate-baseline\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s -c custom-igor.json .\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s init\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s review igor-export.json\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --env stage --verbose ./my-project\n", binName)
 	}
 
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Fprintf(os.Stderr, "igor-php version %s\n", Version)
+		fmt.Fprintf(os.Stderr, "%s version %s\n", binName, Version)
 		return config.Config{}, "", true
 	}
 
@@ -271,7 +277,7 @@ func handleInitSubcommand(args []string, configPath string) {
 func handleReviewSubcommand(args []string, configPath string) {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "❌ Error: missing JSON file to review.")
-		fmt.Fprintln(os.Stderr, "Usage: igor-php review <json_file>")
+		fmt.Fprintf(os.Stderr, "Usage: %s review <json_file>\n", binName)
 		os.Exit(1)
 	}
 	jsonFile := args[1]
