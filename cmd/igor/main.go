@@ -445,7 +445,11 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	}
 
 	// --- STEP 2: Scan remaining local project files ---
-	auditList = append(auditList, collectLocalFiles(rootPath, cfg, aud, processedFiles)...)
+	// If Symfony is detected, we skip scanning the entire directory as we only audit
+	// registered services and their dependencies to avoid transient file false-positives.
+	if aud.Symfony == nil || aud.Symfony.Container == nil {
+		auditList = append(auditList, collectLocalFiles(rootPath, cfg, aud, processedFiles)...)
+	}
 
 	// --- STEP 3: Forced Vendor Scan ---
 	if len(cfg.ScanVendors) > 0 {
