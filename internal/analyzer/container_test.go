@@ -14,7 +14,7 @@ func TestLoadContainerDumpValidatesSuccessfully(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temporary file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer func() { _ = os.Remove(tempFile.Name()) }()
 
 	content := `{
         "services": [
@@ -26,7 +26,7 @@ func TestLoadContainerDumpValidatesSuccessfully(t *testing.T) {
 	if _, err := tempFile.Write([]byte(content)); err != nil {
 		t.Fatalf("Failed to write mock JSON content: %v", err)
 	}
-	tempFile.Close()
+	_ = tempFile.Close()
 
 	nonShared, err := LoadContainerDump(tempFile.Name())
 	if err != nil {
@@ -73,13 +73,13 @@ func TestLoadContainerDumpNormalizesLeadingBackslash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temporary file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer func() { _ = os.Remove(tempFile.Name()) }()
 
 	content := `{"services": [{"class": "\\App\\Http\\Stream", "shared": false}]}`
 	if _, err := tempFile.Write([]byte(content)); err != nil {
 		t.Fatalf("Failed to write mock JSON content: %v", err)
 	}
-	tempFile.Close()
+	_ = tempFile.Close()
 
 	nonShared, err := LoadContainerDump(tempFile.Name())
 	if err != nil {
