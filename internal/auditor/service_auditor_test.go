@@ -438,6 +438,36 @@ func TestAuditor_HelperMethods(t *testing.T) {
 		if a.IsDevPackagePath("vendor/symfony/http-kernel/Kernel.php") {
 			t.Error("Expected vendor/symfony/http-kernel path NOT to match dev package")
 		}
+
+		// Anchored to rootPath
+		root := filepath.FromSlash("/app")
+		nonVendorService := filepath.FromSlash("/app/src/SomeVendor/PHPUnit/PHPUnit/Service.php")
+		if a.IsDevPackagePath(nonVendorService, root) {
+			t.Errorf("Expected project service %q NOT to match dev package when anchored to root", nonVendorService)
+		}
+
+		// Even without explicit rootPath, directory segment must be clean /vendor/
+		if a.IsDevPackagePath(nonVendorService) {
+			t.Errorf("Expected project service %q NOT to match dev package even without rootPath", nonVendorService)
+		}
+
+		// Relative non-vendor path containing vendor in class/folder name
+		relativeNonVendor := filepath.FromSlash("src/SomeVendor/PHPUnit/PHPUnit/Service.php")
+		if a.IsDevPackagePath(relativeNonVendor) {
+			t.Errorf("Expected relative project path %q NOT to match dev package", relativeNonVendor)
+		}
+
+		// Absolute vendor path inside root
+		vendorDevService := filepath.FromSlash("/app/vendor/phpunit/phpunit/src/Framework/TestCase.php")
+		if !a.IsDevPackagePath(vendorDevService, root) {
+			t.Errorf("Expected dev vendor service %q to match dev package when anchored to root", vendorDevService)
+		}
+
+		// Case-insensitive matching in vendor
+		mixedCaseDev := filepath.FromSlash("vendor/PHPUnit/PHPUnit/src/Framework/TestCase.php")
+		if !a.IsDevPackagePath(mixedCaseDev) {
+			t.Errorf("Expected mixed-case dev vendor path %q to match dev package", mixedCaseDev)
+		}
 	})
 
 	// 2. Test IsDataPath
