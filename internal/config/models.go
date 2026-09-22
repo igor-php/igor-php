@@ -17,8 +17,8 @@ type Config struct {
 	Verbose                bool              `json:"verbose"`
 	BaselinePath           string            `json:"baseline"`
 	NoAgent                bool              `json:"-"` // Skip Igor Agent even if available
-	ProdPackages           []string          `json:"-"` // List of require packages from composer.json
-	DevPackages            []string          `json:"-"` // List of require-dev packages from composer.json
+	ProdPackages           []string          `json:"-"` // List of production packages from composer.json and composer.lock
+	DevPackages            []string          `json:"-"` // List of dev packages from composer.json, composer.lock, and installed.json
 	GenerateBaseline       bool              `json:"-"` // Internal: set if --generate-baseline is used
 	CheckBaseline          bool              `json:"-"` // Internal: set if --check-baseline is used
 	PruneBaseline          bool              `json:"-"` // Internal: set if --prune-baseline is used

@@ -102,7 +102,7 @@ func shouldSkipServicePath(_ string, path string, cfg config.Config, aud *audito
 	if cfg.IsExcluded(path, rootPath) {
 		return true, fmt.Sprintf("path %s is excluded", path)
 	}
-	if aud.IsDevPackagePath(path) {
+	if aud.IsDevPackagePath(path, rootPath) {
 		return true, "belongs to a dev package"
 	}
 	if cfg.IgnoreVendors && (symbol.AuditStatus{FilePath: path}).IsVendor(rootPath) {

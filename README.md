@@ -305,7 +305,7 @@ We've built an **interactive laboratory** using Symfony and FrankenPHP. You can 
 When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
 
 1.  **Level 1: Project Code (Recursive Scan)**: Igor scans all PHP files in your project directory (excluding `vendor`, `var`, `tests`, etc.). This ensures that even if Symfony "inlines" or "hides" a service for optimization, Igor will still find and audit it.
-2.  **Level 2: Smart Filtering (Composer)**: Igor automatically parses your `composer.json` to identify packages in `require-dev`. It will automatically exclude any service originating from these packages to reduce noise and focus only on production-ready code.
+2.  **Level 2: Smart Filtering (Composer)**: Igor automatically parses your `composer.json`, `composer.lock`, and `installed.json` to identify all development packages (both direct in `require-dev` and transitive dependencies like `fakerphp/faker`). It automatically excludes any service originating from these packages to reduce noise and focus only on production-ready code.
 3.  **Level 3: Igor Agent (Embedded Bundle)**: By enabling the optional PHP bundle, Igor becomes "infallible". The bundle hooks into the Symfony compilation process to export the exact map of all active shared services.
 
 ---
@@ -313,7 +313,7 @@ When a Symfony project is detected, Igor combines three layers of discovery to e
 ## 🧠 How it Works
 
 ### 1. Smart Filtering
-Igor reads the `require-dev` section of your `composer.json`. When it audits your Symfony container, it checks the physical path of each service. If a service is located inside a `vendor/` directory belonging to a dev package (like `phpunit/phpunit` or `symfony/maker-bundle`), Igor will automatically skip it.
+Igor inspects your Composer dependencies across `composer.json`, `composer.lock` (`packages-dev`), and `vendor/composer/installed.json` (`dev-package-names`). When it audits your Symfony container, it checks the physical path of each service. If a service is located inside a `vendor/` directory belonging to a direct or transitive dev package (like `phpunit/phpunit`, `symfony/maker-bundle`, or `fakerphp/faker`), Igor will automatically skip it. Packages required by production dependencies are never excluded.
 
 ### 2. Igor Agent (The PHP Bundle)
 The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear your Symfony cache (`php bin/console cache:clear`).

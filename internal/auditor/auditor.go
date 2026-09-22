@@ -496,13 +496,48 @@ func (a *Auditor) IsSharedService(className string) bool {
 	return a.Symfony.IsSharedService(className)
 }
 
-// IsDevPackagePath returns true if the file path belongs to a dev package in vendor/.
-func (a *Auditor) IsDevPackagePath(path string) bool {
-	// Convert to slash for cross-platform comparison
-	path = filepath.ToSlash(path)
+func isDevPackageMatch(relPathLower string, devPackages []string) bool {
+	if !strings.HasPrefix(relPathLower, "vendor/") && relPathLower != "vendor" {
+		return false
+	}
+	for _, pkg := range devPackages {
+		pkgLower := strings.ToLower(pkg)
+		target := "vendor/" + pkgLower
+		if strings.HasPrefix(relPathLower, target+"/") || relPathLower == target {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDevPackagePath returns true if the file path belongs to a dev package in the vendor/ directory.
+// An optional rootPath anchors the check to the project's actual Composer vendor directory.
+func (a *Auditor) IsDevPackagePath(path string, rootPath ...string) bool {
+	path = a.Config.NormalizePath(path)
+
+	var root string
+	if len(rootPath) > 0 && rootPath[0] != "" {
+		root = rootPath[0]
+	} else if a.Symfony != nil && a.Symfony.Root != "" {
+		root = a.Symfony.Root
+	}
+
+	if root != "" {
+		if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+			return isDevPackageMatch(strings.ToLower(filepath.ToSlash(rel)), a.Config.DevPackages)
+		}
+	}
+
+	// Fallback when root is unknown or path is outside root
+	pathLower := strings.ToLower(filepath.ToSlash(path))
+	if isDevPackageMatch(pathLower, a.Config.DevPackages) {
+		return true
+	}
+
 	for _, pkg := range a.Config.DevPackages {
-		vendorPath := "vendor/" + pkg + "/"
-		if strings.Contains(path, vendorPath) {
+		pkgLower := strings.ToLower(pkg)
+		target := "/vendor/" + pkgLower
+		if strings.Contains(pathLower, target+"/") || strings.HasSuffix(pathLower, target) {
 			return true
 		}
 	}
