@@ -237,3 +237,66 @@ func TestCollectFiles_SkipsExcludedServices(t *testing.T) {
 		t.Error("Expected LeakyService.php to be skipped due to container.excluded tag, but it was collected")
 	}
 }
+
+func TestCollectFiles_SameFile_ExcludedAndActive(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "collect_files_same_file_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("Failed to create src dir: %v", err)
+	}
+
+	servicePath := filepath.Join(srcDir, "MultiService.php")
+	if err := os.WriteFile(servicePath, []byte("<?php class MultiService {}"), 0644); err != nil {
+		t.Fatalf("Failed to write service file: %v", err)
+	}
+
+	cfg := config.Config{
+		NoAgent: true,
+	}
+
+	// Run multiple times to verify map iteration order doesn't cause active service to be dropped
+	for i := 0; i < 20; i++ {
+		aud := auditor.NewAuditor(cfg)
+		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", cfg)
+		bridge.Container = &symbol.SymfonyContainer{
+			Definitions: map[string]symbol.SymfonyService{
+				"app.excluded_definition": {
+					Class:  "App\\Service\\MultiService",
+					Public: true,
+					Shared: true,
+					Tags: []any{
+						map[string]any{"name": "container.excluded"},
+					},
+				},
+				"app.active_definition": {
+					Class:  "App\\Service\\MultiService",
+					Public: true,
+					Shared: true,
+				},
+			},
+		}
+		bridge.ClassToFile = map[string]string{
+			"App\\Service\\MultiService": servicePath,
+		}
+		aud.Symfony = bridge
+
+		auditList := collectFiles(tmpDir, cfg, aud)
+
+		hasService := false
+		for _, item := range auditList {
+			if filepath.Base(item.FilePath) == "MultiService.php" {
+				hasService = true
+				break
+			}
+		}
+
+		if !hasService {
+			t.Fatalf("Iteration %d: Expected MultiService.php to be collected for audit via active definition despite excluded definition on same file", i)
+		}
+	}
+}

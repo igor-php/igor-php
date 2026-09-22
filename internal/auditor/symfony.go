@@ -204,7 +204,7 @@ func (b *SymfonyBridge) IsSharedService(className string) bool {
 	for _, def := range b.Container.Definitions {
 		if strings.TrimPrefix(def.Class, "\\") == className {
 			if def.IsExcluded() {
-				return false
+				continue
 			}
 			return def.Shared
 		}
@@ -212,16 +212,23 @@ func (b *SymfonyBridge) IsSharedService(className string) bool {
 	return false
 }
 
-// IsExcludedService checks if a FQCN is explicitly excluded by Symfony (container.excluded tag).
+// IsExcludedService checks if a FQCN is explicitly excluded by Symfony (container.excluded tag)
+// and has no other active shared definition.
 func (b *SymfonyBridge) IsExcludedService(className string) bool {
 	if b == nil || b.Container == nil {
 		return false
 	}
 	className = strings.TrimPrefix(className, "\\")
+	hasExcluded := false
+	hasActive := false
 	for _, def := range b.Container.Definitions {
-		if strings.TrimPrefix(def.Class, "\\") == className && def.IsExcluded() {
-			return true
+		if strings.TrimPrefix(def.Class, "\\") == className {
+			if def.IsExcluded() {
+				hasExcluded = true
+			} else if def.Shared {
+				hasActive = true
+			}
 		}
 	}
-	return false
+	return hasExcluded && !hasActive
 }

@@ -124,11 +124,6 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", id, reason)
 			}
-			if def.IsExcluded() {
-				if path, found := aud.Symfony.ClassToFile[def.Class]; found {
-					processed[path] = true
-				}
-			}
 			continue
 		}
 
