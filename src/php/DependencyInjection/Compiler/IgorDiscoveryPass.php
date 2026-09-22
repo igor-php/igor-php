@@ -17,7 +17,7 @@ class IgorDiscoveryPass implements CompilerPassInterface
         ];
 
         foreach ($container->getDefinitions() as $id => $definition) {
-            if ($definition->isSynthetic() || !$definition->getClass()) {
+            if ($definition->isSynthetic() || !$definition->getClass() || $definition->hasTag('container.excluded')) {
                 continue;
             }
 

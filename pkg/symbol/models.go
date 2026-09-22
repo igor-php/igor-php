@@ -42,11 +42,8 @@ type SymfonyService struct {
 	Tags       any    `json:"tags"`
 }
 
-// IsResettable checks if this service is resettable in any supported format.
-func (s *SymfonyService) IsResettable() bool {
-	if s.Resettable {
-		return true
-	}
+// HasTag checks if this service has a specific tag in any supported format.
+func (s *SymfonyService) HasTag(tagName string) bool {
 	if s.Tags == nil {
 		return false
 	}
@@ -54,7 +51,7 @@ func (s *SymfonyService) IsResettable() bool {
 	if slice, ok := s.Tags.([]any); ok {
 		for _, item := range slice {
 			if m, ok := item.(map[string]any); ok {
-				if name, ok := m["name"].(string); ok && name == "kernel.reset" {
+				if name, ok := m["name"].(string); ok && name == tagName {
 					return true
 				}
 			}
@@ -62,11 +59,24 @@ func (s *SymfonyService) IsResettable() bool {
 	}
 	// Try parsing as map (alternative format)
 	if m, ok := s.Tags.(map[string]any); ok {
-		if _, exists := m["kernel.reset"]; exists {
+		if _, exists := m[tagName]; exists {
 			return true
 		}
 	}
 	return false
+}
+
+// IsResettable checks if this service is resettable in any supported format.
+func (s *SymfonyService) IsResettable() bool {
+	if s.Resettable {
+		return true
+	}
+	return s.HasTag("kernel.reset")
+}
+
+// IsExcluded checks if this service has been explicitly excluded by Symfony (container.excluded tag).
+func (s *SymfonyService) IsExcluded() bool {
+	return s.HasTag("container.excluded")
 }
 
 // AuditStatus represents the audit state of a single service.

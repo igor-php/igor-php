@@ -81,6 +81,17 @@ func TestShouldSkipServiceMeta(t *testing.T) {
 			expectedMsg:  "safe namespace",
 		},
 		{
+			name: "Excluded service via container.excluded tag",
+			id:   "app.excluded_service",
+			def: symbol.SymfonyService{
+				Shared: true,
+				Class:  "App\\Service\\ExcludedService",
+				Tags:   []any{map[string]any{"name": "container.excluded"}},
+			},
+			expectedSkip: true,
+			expectedMsg:  "container.excluded",
+		},
+		{
 			name:         "Valid shared service",
 			id:           "app.my_service",
 			def:          symbol.SymfonyService{Shared: true, Class: "App\\Service\\MySharedService"},

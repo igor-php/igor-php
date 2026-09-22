@@ -139,3 +139,64 @@ func TestSymfonyService_IsResettable(t *testing.T) {
 		})
 	}
 }
+
+func TestSymfonyService_IsExcluded(t *testing.T) {
+	tests := []struct {
+		name     string
+		service  SymfonyService
+		expected bool
+	}{
+		{
+			name: "Tags is nil",
+			service: SymfonyService{
+				Tags: nil,
+			},
+			expected: false,
+		},
+		{
+			name: "Tags is slice of maps containing container.excluded",
+			service: SymfonyService{
+				Tags: []any{
+					map[string]any{"name": "something_else"},
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Tags is slice of maps without container.excluded",
+			service: SymfonyService{
+				Tags: []any{
+					map[string]any{"name": "something_else"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Tags is map containing container.excluded",
+			service: SymfonyService{
+				Tags: map[string]any{
+					"container.excluded": map[string]any{},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Tags is map without container.excluded",
+			service: SymfonyService{
+				Tags: map[string]any{
+					"other.tag": map[string]any{},
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.service.IsExcluded(); got != tt.expected {
+				t.Errorf("SymfonyService.IsExcluded() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}

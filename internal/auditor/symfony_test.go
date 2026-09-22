@@ -43,6 +43,24 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 				Class:  "\\App\\NonShared", // with leading backslash
 				Shared: false,
 			},
+			"app.excluded": {
+				Class:  "App\\Excluded",
+				Shared: true,
+				Tags: []any{
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+			"app.both_excluded": {
+				Class:  "App\\Both",
+				Shared: true,
+				Tags: []any{
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+			"app.both_active": {
+				Class:  "App\\Both",
+				Shared: true,
+			},
 		},
 	}
 	sb.Container = container
@@ -55,7 +73,9 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 		{"\\App\\Shared", true},
 		{"App\\NonShared", false},
 		{"\\App\\NonShared", false},
-		{"App\\Unknown", false}, // not found, returns false
+		{"App\\Excluded", false}, // tagged container.excluded, should not be shared
+		{"App\\Both", true},      // has an active shared definition despite having an excluded one
+		{"App\\Unknown", false},   // not found, returns false
 	}
 
 	for _, tt := range tests {
@@ -64,6 +84,56 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 				t.Errorf("IsSharedService(%q) = %v, expected %v", tt.className, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestSymfonyBridge_IsExcludedService(t *testing.T) {
+	// Case 1: Container is nil
+	sb := &SymfonyBridge{Container: nil}
+	if sb.IsExcludedService("AnyClass") {
+		t.Error("Expected IsExcludedService to return false when Container is nil")
+	}
+
+	// Case 2: Container has definitions
+	container := &symbol.SymfonyContainer{
+		Definitions: map[string]symbol.SymfonyService{
+			"app.shared": {
+				Class:  "App\\Shared",
+				Shared: true,
+			},
+			"app.excluded": {
+				Class:  "App\\Excluded",
+				Shared: true,
+				Tags: []any{
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+			"app.both_excluded": {
+				Class:  "App\\Both",
+				Shared: true,
+				Tags: []any{
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+			"app.both_active": {
+				Class:  "App\\Both",
+				Shared: true,
+			},
+		},
+	}
+	sb.Container = container
+
+	if sb.IsExcludedService("App\\Shared") {
+		t.Error("Expected App\\Shared NOT to be excluded")
+	}
+	if !sb.IsExcludedService("App\\Excluded") {
+		t.Error("Expected App\\Excluded to be excluded")
+	}
+	if sb.IsExcludedService("App\\Both") {
+		t.Error("Expected App\\Both NOT to be excluded because it has an active definition")
+	}
+	if sb.IsExcludedService("App\\Unknown") {
+		t.Error("Expected App\\Unknown NOT to be excluded")
 	}
 }
 
