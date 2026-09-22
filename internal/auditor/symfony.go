@@ -197,13 +197,30 @@ func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 
 // IsSharedService checks if a FQCN is a shared service in Symfony.
 func (b *SymfonyBridge) IsSharedService(className string) bool {
-	if b.Container == nil {
+	if b == nil || b.Container == nil {
 		return true
 	}
 	className = strings.TrimPrefix(className, "\\")
 	for _, def := range b.Container.Definitions {
 		if strings.TrimPrefix(def.Class, "\\") == className {
+			if def.IsExcluded() {
+				return false
+			}
 			return def.Shared
+		}
+	}
+	return false
+}
+
+// IsExcludedService checks if a FQCN is explicitly excluded by Symfony (container.excluded tag).
+func (b *SymfonyBridge) IsExcludedService(className string) bool {
+	if b == nil || b.Container == nil {
+		return false
+	}
+	className = strings.TrimPrefix(className, "\\")
+	for _, def := range b.Container.Definitions {
+		if strings.TrimPrefix(def.Class, "\\") == className && def.IsExcluded() {
+			return true
 		}
 	}
 	return false

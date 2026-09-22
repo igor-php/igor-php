@@ -165,3 +165,75 @@ func TestCollectFiles_SkipsSafeNamespacesInherited(t *testing.T) {
 		t.Error("Expected App\\Safe\\MyInheritedSafeService to be skipped due to safe namespace prefix, but it was collected")
 	}
 }
+
+func TestCollectFiles_SkipsExcludedServices(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "collect_files_excluded_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	srcDir := filepath.Join(tmpDir, "src")
+	if err := os.MkdirAll(srcDir, 0755); err != nil {
+		t.Fatalf("Failed to create src dir: %v", err)
+	}
+
+	servicePath := filepath.Join(srcDir, "MyService.php")
+	if err := os.WriteFile(servicePath, []byte("<?php class MyService {}"), 0644); err != nil {
+		t.Fatalf("Failed to write service file: %v", err)
+	}
+
+	excludedPath := filepath.Join(srcDir, "LeakyService.php")
+	if err := os.WriteFile(excludedPath, []byte("<?php class LeakyService {}"), 0644); err != nil {
+		t.Fatalf("Failed to write excluded file: %v", err)
+	}
+
+	cfg := config.Config{
+		NoAgent: true,
+	}
+
+	aud := auditor.NewAuditor(cfg)
+	bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", cfg)
+	bridge.Container = &symbol.SymfonyContainer{
+		Definitions: map[string]symbol.SymfonyService{
+			"app.my_service": {
+				Class:  "App\\Service\\MyService",
+				Public: true,
+				Shared: true,
+			},
+			"app.leaky_service": {
+				Class:  "App\\Service\\LeakyService",
+				Public: true,
+				Shared: true,
+				Tags: []any{
+					map[string]any{"name": "container.excluded"},
+				},
+			},
+		},
+	}
+	bridge.ClassToFile = map[string]string{
+		"App\\Service\\MyService":    servicePath,
+		"App\\Service\\LeakyService": excludedPath,
+	}
+	aud.Symfony = bridge
+
+	auditList := collectFiles(tmpDir, cfg, aud)
+
+	hasService := false
+	hasExcluded := false
+	for _, item := range auditList {
+		if filepath.Base(item.FilePath) == "MyService.php" {
+			hasService = true
+		}
+		if filepath.Base(item.FilePath) == "LeakyService.php" {
+			hasExcluded = true
+		}
+	}
+
+	if !hasService {
+		t.Error("Expected MyService.php to be collected for audit")
+	}
+	if hasExcluded {
+		t.Error("Expected LeakyService.php to be skipped due to container.excluded tag, but it was collected")
+	}
+}

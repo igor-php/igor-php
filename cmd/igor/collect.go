@@ -29,6 +29,9 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 			if aud.IsSafeNamespace(class) {
 				continue
 			}
+			if aud.Symfony.IsExcludedService(class) {
+				continue
+			}
 			if skip, _ := shouldSkipServicePath("", path, cfg, aud, rootPath); skip {
 				continue
 			}
@@ -92,6 +95,9 @@ func shouldSkipServiceMeta(id string, def symbol.SymfonyService, aud *auditor.Au
 	if def.Class == "" {
 		return true, "no class defined"
 	}
+	if def.IsExcluded() {
+		return true, "tagged as container.excluded"
+	}
 	if aud.IsSafeNamespace(def.Class) {
 		return true, fmt.Sprintf("class %s belongs to a safe namespace", def.Class)
 	}
@@ -117,6 +123,11 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 		if skip, reason := shouldSkipServiceMeta(id, def, aud); skip {
 			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", id, reason)
+			}
+			if def.IsExcluded() {
+				if path, found := aud.Symfony.ClassToFile[def.Class]; found {
+					processed[path] = true
+				}
 			}
 			continue
 		}

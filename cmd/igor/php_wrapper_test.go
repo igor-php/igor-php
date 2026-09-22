@@ -18,9 +18,16 @@ func requirePHP(t *testing.T) {
 
 func TestPhpWrapperSyntax(t *testing.T) {
 	requirePHP(t)
-	cmd := exec.Command("php", "-l", "../../internal/auditor/find_class_files.php")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("PHP syntax check failed for find_class_files.php:\n%s", string(output))
+	files := []string{
+		"../../internal/auditor/find_class_files.php",
+		"../../src/php/IgorPhpBundle.php",
+		"../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php",
+	}
+	for _, f := range files {
+		cmd := exec.Command("php", "-l", f)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("PHP syntax check failed for %s:\n%s", f, string(output))
+		}
 	}
 }
