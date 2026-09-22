@@ -498,11 +498,12 @@ func (a *Auditor) IsSharedService(className string) bool {
 
 // IsDevPackagePath returns true if the file path belongs to a dev package in vendor/.
 func (a *Auditor) IsDevPackagePath(path string) bool {
-	// Convert to slash for cross-platform comparison
-	path = filepath.ToSlash(path)
+	// Convert to slash and lowercase for cross-platform and case-insensitive comparison
+	pathLower := strings.ToLower(filepath.ToSlash(path))
 	for _, pkg := range a.Config.DevPackages {
-		vendorPath := "vendor/" + pkg + "/"
-		if strings.Contains(path, vendorPath) {
+		pkgLower := strings.ToLower(pkg)
+		vendorPath := "vendor/" + pkgLower + "/"
+		if strings.Contains(pathLower, vendorPath) || strings.HasSuffix(pathLower, "vendor/"+pkgLower) {
 			return true
 		}
 	}
