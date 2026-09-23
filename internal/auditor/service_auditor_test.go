@@ -518,6 +518,16 @@ func TestAuditor_HelperMethods(t *testing.T) {
 			t.Error("Expected App\\Unsafe\\Helper NOT to be safe")
 		}
 	})
+
+	t.Run("Default SafeNamespaces includes Twig", func(t *testing.T) {
+		defaultAuditor := NewAuditor(config.DefaultConfig())
+		if !defaultAuditor.IsSafeNamespace("Twig\\Environment") {
+			t.Error("Expected Twig\\Environment to be in default safe namespace")
+		}
+		if !defaultAuditor.IsSafeNamespace("Twig\\Extension\\AbstractExtension") {
+			t.Error("Expected Twig extension to be in default safe namespace")
+		}
+	})
 }
 
 func TestAuditor_TypeTrackingIntegrationFixture(t *testing.T) {

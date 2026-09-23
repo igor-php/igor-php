@@ -285,3 +285,18 @@ func TestConfig_NormalizePath(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	foundTwig := false
+	for _, ns := range cfg.SafeNamespaces {
+		if ns == "Twig\\" {
+			foundTwig = true
+			break
+		}
+	}
+	if !foundTwig {
+		t.Error("Expected 'Twig\\' in default safe namespaces")
+	}
+}
+

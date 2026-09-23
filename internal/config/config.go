@@ -16,6 +16,7 @@ func DefaultConfig() Config {
 			"Doctrine\\",
 			"Psr\\",
 			"IgorPhp\\IgorBundle\\",
+			"Twig\\",
 		},
 		ConsolePath: "bin/console",
 		Env:         "dev",
@@ -110,6 +111,7 @@ func InitConfig(root string, customConfigPath string) (string, error) {
 			"Doctrine\\",
 			"Psr\\",
 			"IgorPhp\\IgorBundle\\",
+			"Twig\\",
 		},
 		ConsolePath: "bin/console",
 		Env:         "prod",
@@ -123,14 +125,14 @@ func InitConfig(root string, customConfigPath string) (string, error) {
 		content := string(data)
 		if strings.Contains(content, "symfony/framework-bundle") {
 			projectType = "Symfony"
-			c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\")
+			c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\", "Twig\\")
 		}
 	}
 
 	// 2. Additional folder detection
 	if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil && projectType == "Generic PHP" {
 		projectType = "Symfony (detected via bin/console)"
-		c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\")
+		c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\", "Twig\\")
 	}
 
 	// Deduplicate
