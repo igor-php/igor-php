@@ -383,7 +383,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 ```json
 {
   "exclude": ["vendor", "tests", "Entity"],
-  "safe_namespaces": ["Symfony\\", "Doctrine\\", "Psr\\", "Twig\\", "IgorPhp\\IgorBundle\\"],
+  "safe_namespaces": ["Symfony\\", "Doctrine\\", "Psr\\", "Twig\\", "ApiPlatform\\", "IgorPhp\\IgorBundle\\"],
   "scan_vendors": ["my-company/internal-bundle"],
   "ignore_vendors": false,
   "baseline": "igor-baseline.json",
@@ -396,7 +396,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 ```
 
 - **exclude**: List of directories to skip during indexing.
-- **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes (defaults: `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `IgorPhp\IgorBundle\`).
+- **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes (defaults: `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `ApiPlatform\`, `IgorPhp\IgorBundle\`).
 - **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
 - **ignore_vendors**: Set to `true` to skip auditing all services located within the `vendor/` directory. Defaults to `false`.
 - **baseline**: Path to a baseline file containing findings to ignore.
@@ -601,7 +601,7 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **🔄 Duplicate File**: Multiple Service IDs (aliases, locators, etc.) pointing to the same PHP file. Igor only audits each unique file once.
 - **♻️ Non-shared (Prototype)**: Services marked as `shared: false` are recreated on every request and don't persist state between workers. They are safe by design.
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
-- **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\`, `Doctrine\`, or `Twig\`).
+- **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\`, `Doctrine\`, `Twig\`, or `ApiPlatform\`).
 
 > 💡 **Pro Tip**: If you notice **Entities, DTOs, or Data Models** appearing in the Igor audit, it means they are registered as "Shared Services" in your Symfony container. This is usually a configuration error in your `services.yaml`. You should exclude these directories from autowiring:
 >
