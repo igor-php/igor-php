@@ -21,6 +21,11 @@ Everything you see is stored **exclusively in PHP's RAM**.
 5.  **Memory Pressure**: See how RAM usage grows and STAYS high.
 6.  **The Danger of Exit/Die**: Killing the worker thread.
 7.  **Shared Service Indirect Mutation**: Disabling filters on an EntityManager instance fetched into a local variable, showing how its state is modified permanently for all future requests.
+8.  **Closure State Leak**: Leaking state or request data via unmanaged closures.
+9.  **Local Static Variable**: Retaining state inside method execution using static variables.
+10. **PHP Superglobals**: Direct pollution of `$_SERVER`, `$_GET`, `$_POST`, etc.
+11. **Magic Method __destruct() Bypass**: `__destruct()` never runs in persistent workers until worker exit.
+12. **Dangerous Process State Mutations**: Functions altering process-wide C/PHP state (`chdir`, `umask`, `mb_internal_encoding`, `gc_disable`).
 
 ## 🛡️ How Igor-Php helps
 

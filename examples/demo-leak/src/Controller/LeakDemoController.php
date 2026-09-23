@@ -9,7 +9,9 @@ use App\Service\IncompleteResetService;
 use App\Service\StatefulService;
 use App\Service\StaticLeakService;
 use App\Service\DestructorLeakService;
+use App\Service\ProcessStateLeakService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
@@ -23,6 +25,7 @@ class LeakDemoController extends AbstractController
         private ClosureLeakService $closureLeakService,
         private LocalStaticService $localStaticService,
         private DestructorLeakService $destructorLeakService,
+        private ProcessStateLeakService $processStateLeakService,
     ) {}
 
     #[Route('/', name: 'demo_index')]
@@ -46,6 +49,7 @@ class LeakDemoController extends AbstractController
                 <li><a href='/local-static'>9. Local Static Variable</a></li>
                 <li><a href='/superglobals'>10. PHP Superglobals</a></li>
                 <li><a href='/destructor-leak' style='color: #fd7e14; font-weight: bold;'>11. Magic Method __destruct() Bypass (NEW)</a></li>
+                <li><a href='/process-state-leak' style='color: #e83e8c; font-weight: bold;'>12. Dangerous Process State Mutations (NEW)</a></li>
             </ul>
         ");
     }
@@ -373,6 +377,71 @@ class LeakDemoController extends AbstractController
                           "}";
 
         return $this->renderLayout($html, true, 'src/Service/DestructorLeakService.php', $controllerCode);
+    }
+
+    #[Route('/process-state-leak')]
+    public function processStateLeak(Request $request): Response
+    {
+        $poison = $request->query->get('poison');
+        $action = $request->query->get('action');
+
+        $message = null;
+        if ($poison === 'cwd') {
+            $this->processStateLeakService->poisonCwd('/tmp');
+            $message = "☣️ Injected: chdir('/tmp')";
+        } elseif ($poison === 'umask') {
+            $this->processStateLeakService->poisonUmask(0077);
+            $message = "☣️ Injected: umask(0077)";
+        } elseif ($poison === 'encoding') {
+            $this->processStateLeakService->poisonEncoding('ISO-8859-1');
+            $message = "☣️ Injected: mb_internal_encoding('ISO-8859-1')";
+        } elseif ($poison === 'gc') {
+            $this->processStateLeakService->poisonGc();
+            $message = "☣️ Injected: gc_disable()";
+        } elseif ($action === 'reset') {
+            chdir('/app');
+            umask(0022);
+            mb_internal_encoding('UTF-8');
+            gc_enable();
+            $message = "🔄 Restored default process parameters";
+        }
+
+        $state = $this->processStateLeakService->getCurrentState();
+
+        $alert = $message ? "<div style='background: #fff3cd; color: #856404; padding: 12px; border-radius: 5px; margin-bottom: 20px; font-weight: bold;'>$message</div>" : "";
+
+        $html = "<h2>12. Dangerous Process State Mutations</h2>
+                 $alert
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #e83e8c; margin-bottom: 20px;'>
+                    <b>🔍 The Experiment:</b><br>
+                    Functions like <code>chdir()</code>, <code>umask()</code>, <code>mb_internal_encoding()</code>, or <code>gc_disable()</code> mutate process-wide C/PHP state.<br>
+                    In <b>Classic Mode (port 8081)</b>, every request runs in a fresh process, so mutations disappear immediately on the next request.<br>
+                    In <b>Worker Mode (port 8080)</b>, the worker process stays alive! Any mutation persists across subsequent requests, altering path lookups, file permissions, string encoding, or disabling the garbage collector entirely until OOM!
+                 </div>
+
+                 <div style='margin-bottom: 20px;'>
+                    <a href='/process-state-leak' style='display: inline-block; padding: 10px 16px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>🔄 Clean Refresh (F5)</a>
+                    <a href='/process-state-leak?poison=cwd' style='display: inline-block; padding: 10px 16px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 8px;'>☣️ chdir('/tmp')</a>
+                    <a href='/process-state-leak?poison=umask' style='display: inline-block; padding: 10px 16px; background: #fd7e14; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 8px;'>☣️ umask(0077)</a>
+                    <a href='/process-state-leak?poison=encoding' style='display: inline-block; padding: 10px 16px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 8px;'>☣️ mb_encoding('ISO-8859-1')</a>
+                    <a href='/process-state-leak?poison=gc' style='display: inline-block; padding: 10px 16px; background: #d63384; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 8px;'>☣️ gc_disable()</a>
+                    <a href='/process-state-leak?action=reset' style='display: inline-block; padding: 10px 16px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 8px;'>♻️ Reset Defaults</a>
+                 </div>
+
+                 <h3>📊 Current PHP Process State:</h3>
+                 <pre style='background: #1a202c; color: #f7fafc; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 1.05em; overflow-x: auto;'>".htmlspecialchars(print_r($state, true), ENT_QUOTES, 'UTF-8')."</pre>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "#[Route('/process-state-leak')]\n" .
+                          "public function processStateLeak(Request \$request): Response {\n" .
+                          "    // Calling chdir(), umask(), or gc_disable() poisons the entire worker process!\n" .
+                          "    if (\$request->query->get('poison') === 'cwd') {\n" .
+                          "        \$this->processStateLeakService->poisonCwd('/tmp');\n" .
+                          "    }\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'src/Service/ProcessStateLeakService.php', $controllerCode);
     }
 
     private function renderLayout(string $content, bool $showBack = false, ?string $codeFile = null, ?string $customCode = null): Response

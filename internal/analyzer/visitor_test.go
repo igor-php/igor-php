@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
@@ -1425,3 +1426,265 @@ class ServiceWithSafeDependency {
 		t.Errorf("Expected 0 findings when dependency is in a safe namespace, got %d: %v", len(findings), findings)
 	}
 }
+
+func TestPHPVisitor_ProcessStateMutations(t *testing.T) {
+	code := `<?php
+class ProcessRisks {
+    public function dangerousOps() {
+        chdir('/tmp');
+        \chdir('/var');
+        umask(0077);
+        mb_internal_encoding('ISO-8859-1');
+        mb_regex_encoding('ASCII');
+        bcscale(8);
+        set_error_handler('my_handler');
+        set_exception_handler('my_handler');
+        register_shutdown_function('cleanup');
+        gc_disable();
+        header('X-Worker: 1');
+        http_response_code(500);
+        session_start();
+        session_id('sess123');
+        session_destroy();
+        date_default_timezone_set('UTC');
+        ini_set('memory_limit', '1G');
+        setlocale(LC_ALL, 'fr_FR');
+        error_reporting(E_ALL);
+        putenv('FOO=bar');
+    }
+
+    public function ignoredOps() {
+        // @igor-ignore
+        chdir('/tmp');
+        // @igor-ignore
+        gc_disable();
+    }
+
+    #[\App\Attribute\WorkerSafe]
+    public function workerSafeOps() {
+        chdir('/tmp');
+        gc_disable();
+    }
+
+    public function safeGetters() {
+        $a = mb_internal_encoding();
+        $b = mb_regex_encoding();
+        $c = bcscale();
+        $d = http_response_code();
+        $e = session_id();
+        $f = umask();
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	lang := sitter.NewLanguage(php.LanguagePHP())
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, nil)
+	v.Walk(tree.RootNode())
+
+	findings := v.Findings()
+	// dangerousOps has 20 calls (all dangerous).
+	// ignoredOps has 2 calls ignored via @igor-ignore.
+	// workerSafeOps has 2 calls ignored via #[WorkerSafe].
+	expectedCount := 20
+	if len(findings) != expectedCount {
+		t.Fatalf("Expected %d findings, got %d: %+v", expectedCount, len(findings), findings)
+	}
+
+	findingMap := make(map[string]symbol.Finding)
+	for _, f := range findings {
+		if f.Severity != "WARNING" {
+			t.Errorf("Expected WARNING severity for process mutation finding '%s', got %s", f.Message, f.Severity)
+		}
+		if f.Remediation == "" {
+			t.Errorf("Expected non-empty remediation for finding '%s'", f.Message)
+		}
+		findingMap[f.Snippet] = f
+	}
+
+	// Specific assertion checks
+	chdirFinding, exists := findingMap["chdir('/tmp')"]
+	if !exists {
+		t.Errorf("Expected finding for chdir('/tmp')")
+	} else {
+		if !strings.Contains(chdirFinding.Message, "working directory") {
+			t.Errorf("Unexpected message for chdir: %s", chdirFinding.Message)
+		}
+		if !strings.Contains(chdirFinding.Remediation, "absolute paths") {
+			t.Errorf("Unexpected remediation for chdir: %s", chdirFinding.Remediation)
+		}
+	}
+
+	gcFinding, exists := findingMap["gc_disable()"]
+	if !exists {
+		t.Errorf("Expected finding for gc_disable()")
+	} else {
+		if !strings.Contains(gcFinding.Message, "garbage collector") {
+			t.Errorf("Unexpected message for gc_disable: %s", gcFinding.Message)
+		}
+		if !strings.Contains(gcFinding.Remediation, "Disabling the cyclic garbage collector") {
+			t.Errorf("Unexpected remediation for gc_disable: %s", gcFinding.Remediation)
+		}
+	}
+}
+
+func TestPHPVisitor_NamespacedAndShadowedFunctions(t *testing.T) {
+	code := `<?php
+namespace App\Service;
+
+use function App\Helper\header;
+use function App\Helper\custom_chdir as chdir;
+use function App\Helper\{umask, custom_sess as session_start};
+
+function gc_disable() {
+    // Local user-defined function in same file
+}
+
+class CustomHelpersService {
+    public function execute() {
+        // Shadowed via "use function App\Helper\header" -> NOT a global process mutation
+        header('X-App: 1');
+
+        // Explicit fully qualified call \header() -> TARGETS GLOBAL BUILTIN -> MUST WARN!
+        \header('X-Global: 1');
+
+        // Shadowed via "use function ... as chdir" -> NOT a global process mutation
+        chdir('/tmp');
+
+        // Shadowed via grouped "use function" -> NOT a global process mutation
+        umask(0077);
+        session_start();
+
+        // Shadowed via top-level function gc_disable() in file -> NOT a global process mutation
+        gc_disable();
+
+        // Not shadowed: falls back to PHP global bcscale -> MUST WARN!
+        bcscale(5);
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	lang := sitter.NewLanguage(php.LanguagePHP())
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, nil)
+	v.Walk(tree.RootNode())
+
+	findings := v.Findings()
+	// Out of all calls, ONLY \header('X-Global: 1') and bcscale(5) should be reported!
+	if len(findings) != 2 {
+		t.Fatalf("Expected exactly 2 findings (\\header and bcscale), got %d: %+v", len(findings), findings)
+	}
+
+	foundGlobalHeader := false
+	foundBcscale := false
+	for _, f := range findings {
+		if strings.Contains(f.Snippet, "\\header") {
+			foundGlobalHeader = true
+		}
+		if strings.Contains(f.Snippet, "bcscale") {
+			foundBcscale = true
+		}
+	}
+
+	if !foundGlobalHeader {
+		t.Errorf("Expected finding for explicit global \\header call")
+	}
+	if !foundBcscale {
+		t.Errorf("Expected finding for un-shadowed bcscale call")
+	}
+}
+
+func TestPHPVisitor_NamespaceScopedShadowing_Bracketed(t *testing.T) {
+	code := `<?php
+namespace Foo {
+    use function App\Helper\header;
+
+    class ServiceA {
+        public function test() {
+            // Shadowed in Foo: helper function invoked -> NO WARNING
+            header('X-App: 1');
+        }
+    }
+}
+
+namespace Bar {
+    class ServiceB {
+        public function test() {
+            // NOT shadowed in Bar: falls back to global \header() -> MUST WARN!
+            header('X-Global: 1');
+        }
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	lang := sitter.NewLanguage(php.LanguagePHP())
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, nil)
+	v.Walk(tree.RootNode())
+
+	findings := v.Findings()
+	if len(findings) != 1 {
+		t.Fatalf("Expected exactly 1 finding in Bar namespace, got %d: %+v", len(findings), findings)
+	}
+
+	if !strings.Contains(findings[0].Snippet, "X-Global") {
+		t.Errorf("Expected finding for ServiceB header call, got: %s", findings[0].Snippet)
+	}
+}
+
+func TestPHPVisitor_NamespaceScopedShadowing_Unbracketed(t *testing.T) {
+	code := `<?php
+namespace Foo;
+
+use function App\Helper\chdir;
+
+class ServiceC {
+    public function test() {
+        // Shadowed in Foo: helper function invoked -> NO WARNING
+        chdir('/tmp');
+    }
+}
+
+namespace Bar;
+
+class ServiceD {
+    public function test() {
+        // NOT shadowed in Bar: falls back to global \chdir() -> MUST WARN!
+        chdir('/var');
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	lang := sitter.NewLanguage(php.LanguagePHP())
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, nil)
+	v.Walk(tree.RootNode())
+
+	findings := v.Findings()
+	if len(findings) != 1 {
+		t.Fatalf("Expected exactly 1 finding in Bar namespace, got %d: %+v", len(findings), findings)
+	}
+
+	if !strings.Contains(findings[0].Snippet, "/var") {
+		t.Errorf("Expected finding for ServiceD chdir call, got: %s", findings[0].Snippet)
+	}
+}
+
+
+

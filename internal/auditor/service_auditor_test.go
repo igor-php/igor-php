@@ -60,6 +60,12 @@ func TestAuditFixtures(t *testing.T) {
 			fixture:        "security_risks.php",
 			expectedErrors: 9, // 8 superglobals + 1 static var
 			contains:       "$request->query",
+		},
+		{
+			name:           "Process state mutations (chdir, umask, gc_disable, etc.)",
+			fixture:        "process_state.php",
+			expectedErrors: 15,
+			contains:       "modifies",
 		}, {
 			name:           "Complex mutations (nested & dynamic)",
 			fixture:        "complex_mutations.php",
