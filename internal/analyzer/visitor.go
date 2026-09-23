@@ -52,6 +52,13 @@ type PHPVisitor struct {
 	dependencies       []string
 	nonSharedServices  NonSharedServiceMap
 	localSharedVars    map[string]bool
+	namespaceScopes    []namespaceScope
+}
+
+type namespaceScope struct {
+	startByte uint
+	endByte   uint
+	shadowed  map[string]bool
 }
 
 // NewVisitor creates a new instance of the PHPVisitor.
@@ -84,6 +91,7 @@ func (v *PHPVisitor) SetNonSharedServices(m NonSharedServiceMap) {
 }
 
 func (v *PHPVisitor) Walk(n *sitter.Node) {
+	v.collectNamespaceScopes(n)
 	v.walk(n)
 }
 
@@ -378,6 +386,97 @@ func (v *PHPVisitor) handleUnset(n *sitter.Node) {
 	}
 }
 
+type dangerousFuncRule struct {
+	msg       string
+	hint      string
+	needsArgs bool
+}
+
+var dangerousFunctions = map[string]dangerousFuncRule{
+	"date_default_timezone_set": {
+		msg:  "Function 'date_default_timezone_set' modifies the global PHP process state.",
+		hint: "This change will persist across requests in Worker mode and might affect other users.",
+	},
+	"ini_set": {
+		msg:  "Function 'ini_set' modifies the global PHP process state.",
+		hint: "This change will persist across requests in Worker mode and might affect other users.",
+	},
+	"setlocale": {
+		msg:  "Function 'setlocale' modifies the global PHP process state.",
+		hint: "This change will persist across requests in Worker mode and might affect other users.",
+	},
+	"error_reporting": {
+		msg:  "Function 'error_reporting' modifies the global PHP process state.",
+		hint: "This change will persist across requests in Worker mode and might affect other users.",
+	},
+	"putenv": {
+		msg:  "Function 'putenv' modifies the global PHP process state.",
+		hint: "This change will persist across requests in Worker mode and might affect other users.",
+	},
+	"chdir": {
+		msg:  "Function 'chdir' modifies the global PHP process working directory.",
+		hint: "Changing working directory persists across requests in Worker mode. Use absolute paths instead of chdir().",
+	},
+	"umask": {
+		msg:       "Function 'umask' modifies the global PHP process file creation mask.",
+		hint:      "File creation mask changes persist across requests in Worker mode. Explicitly set file permissions with chmod() instead.",
+		needsArgs: true,
+	},
+	"mb_internal_encoding": {
+		msg:       "Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.",
+		hint:      "Encoding changes persist across requests in Worker mode. Pass explicit encoding parameters to mb_* functions instead.",
+		needsArgs: true,
+	},
+	"mb_regex_encoding": {
+		msg:       "Function 'mb_regex_encoding' modifies the global PHP process multibyte regex encoding.",
+		hint:      "Encoding changes persist across requests in Worker mode. Pass explicit encoding parameters to mb_ereg_* functions instead.",
+		needsArgs: true,
+	},
+	"bcscale": {
+		msg:       "Function 'bcscale' modifies the global BCMath default precision.",
+		hint:      "Default precision changes persist across requests in Worker mode. Pass explicit scale parameters to bc* functions instead.",
+		needsArgs: true,
+	},
+	"set_error_handler": {
+		msg:  "Function 'set_error_handler' modifies global process error handlers.",
+		hint: "Custom error handlers persist across requests in Worker mode and bypass framework error handling. Rely on Symfony error listeners instead.",
+	},
+	"set_exception_handler": {
+		msg:  "Function 'set_exception_handler' modifies global process exception handlers.",
+		hint: "Custom exception handlers persist across requests in Worker mode and bypass framework error handling. Rely on Symfony exception listeners instead.",
+	},
+	"register_shutdown_function": {
+		msg:  "Function 'register_shutdown_function' registers a process-level shutdown handler.",
+		hint: "Shutdown functions are deferred until worker process termination or accumulate across requests in Worker mode. Use Symfony kernel terminate events instead.",
+	},
+	"gc_disable": {
+		msg:  "Function 'gc_disable' modifies the global PHP garbage collector.",
+		hint: "Disabling the cyclic garbage collector will cause memory to accumulate indefinitely in Worker mode. Keep GC enabled or run gc_collect_cycles() explicitly.",
+	},
+	"header": {
+		msg:  "Function 'header' directly mutates SAPI HTTP output headers.",
+		hint: "Direct header output bypasses Symfony Response lifecycle and leaks into SAPI stream in Worker mode. Use Symfony Response object headers instead.",
+	},
+	"http_response_code": {
+		msg:       "Function 'http_response_code' directly mutates SAPI HTTP response status.",
+		hint:      "Direct response code changes bypass Symfony Response lifecycle and persist across requests in Worker mode. Use Symfony Response object status code instead.",
+		needsArgs: true,
+	},
+	"session_start": {
+		msg:  "Function 'session_start' directly manipulates native PHP session state.",
+		hint: "Native session functions bypass Symfony Session management and leak session locks or data across requests in Worker mode. Inject Symfony's Request::getSession() instead.",
+	},
+	"session_destroy": {
+		msg:  "Function 'session_destroy' directly manipulates native PHP session state.",
+		hint: "Native session functions bypass Symfony Session management and leak session locks or data across requests in Worker mode. Inject Symfony's Request::getSession() instead.",
+	},
+	"session_id": {
+		msg:       "Function 'session_id' directly manipulates native PHP session state.",
+		hint:      "Native session functions bypass Symfony Session management and leak session locks or data across requests in Worker mode. Inject Symfony's Request::getSession() instead.",
+		needsArgs: true,
+	},
+}
+
 func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 	nameNode := n.ChildByFieldName("function")
 	if nameNode == nil {
@@ -388,13 +487,226 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 		return
 	}
 
-	name := strings.ToLower(v.getContent(nameNode))
-	switch name {
-	case "date_default_timezone_set", "ini_set", "setlocale", "error_reporting", "putenv":
-		msg := fmt.Sprintf("Function '%s' modifies the global PHP process state.", name)
-		hint := "This change will persist across requests in Worker mode and might affect other users."
-		v.addFinding(n, msg, hint, "WARNING")
+	rawName := v.getContent(nameNode)
+	isFullyQualified := strings.HasPrefix(rawName, "\\")
+	name := strings.ToLower(rawName)
+	name = strings.TrimPrefix(name, "\\")
+
+	rule, exists := dangerousFunctions[name]
+	if !exists {
+		return
 	}
+
+	// Unqualified call shadowed by use function or local function definition in the current namespace scope
+	shadowed := v.getShadowedFunctions(n.StartByte())
+	if !isFullyQualified && shadowed != nil && shadowed[name] {
+		return
+	}
+
+	if rule.needsArgs && countArguments(n) == 0 {
+		return
+	}
+
+	v.addFinding(n, rule.msg, rule.hint, "WARNING")
+}
+
+func (v *PHPVisitor) getShadowedFunctions(pos uint) map[string]bool {
+	for _, sc := range v.namespaceScopes {
+		if pos >= sc.startByte && pos < sc.endByte {
+			return sc.shadowed
+		}
+	}
+	return nil
+}
+
+func (v *PHPVisitor) collectNamespaceScopes(root *sitter.Node) {
+	if root == nil {
+		return
+	}
+
+	totalLen := uint(len(v.content))
+
+	var nsNodes []*sitter.Node
+	for i := uint(0); i < root.ChildCount(); i++ {
+		child := root.Child(i)
+		if child.Kind() == "namespace_definition" {
+			nsNodes = append(nsNodes, child)
+		}
+	}
+
+	if len(nsNodes) == 0 {
+		scope := namespaceScope{
+			startByte: 0,
+			endByte:   totalLen,
+			shadowed:  make(map[string]bool),
+		}
+		v.scanScopeShadows(root, scope.shadowed)
+		v.namespaceScopes = []namespaceScope{scope}
+		return
+	}
+
+	isBracketed := false
+	for _, ns := range nsNodes {
+		for i := uint(0); i < ns.ChildCount(); i++ {
+			if ns.Child(i).Kind() == "compound_statement" {
+				isBracketed = true
+				break
+			}
+		}
+		if isBracketed {
+			break
+		}
+	}
+
+	if isBracketed {
+		for _, ns := range nsNodes {
+			scope := namespaceScope{
+				startByte: ns.StartByte(),
+				endByte:   ns.EndByte(),
+				shadowed:  make(map[string]bool),
+			}
+			v.scanScopeShadows(ns, scope.shadowed)
+			v.namespaceScopes = append(v.namespaceScopes, scope)
+		}
+		return
+	}
+
+	for i, ns := range nsNodes {
+		start := ns.StartByte()
+		if i == 0 {
+			start = 0
+		}
+		end := totalLen
+		if i+1 < len(nsNodes) {
+			end = nsNodes[i+1].StartByte()
+		}
+
+		scope := namespaceScope{
+			startByte: start,
+			endByte:   end,
+			shadowed:  make(map[string]bool),
+		}
+		for j := uint(0); j < root.ChildCount(); j++ {
+			child := root.Child(j)
+			if child.StartByte() >= start && child.StartByte() < end {
+				v.scanScopeShadows(child, scope.shadowed)
+			}
+		}
+		v.namespaceScopes = append(v.namespaceScopes, scope)
+	}
+}
+
+func (v *PHPVisitor) scanScopeShadows(n *sitter.Node, shadowed map[string]bool) {
+	if n == nil {
+		return
+	}
+
+	var scan func(curr *sitter.Node, inClass bool)
+	scan = func(curr *sitter.Node, inClass bool) {
+		if curr == nil {
+			return
+		}
+		kind := curr.Kind()
+		switch kind {
+		case "class_declaration", "trait_declaration", "interface_declaration", "enum_declaration", "anonymous_class":
+			inClass = true
+		case "function_definition":
+			if !inClass {
+				nameNode := curr.ChildByFieldName("name")
+				if nameNode != nil {
+					shadowed[strings.ToLower(v.getContent(nameNode))] = true
+				}
+			}
+		case "namespace_use_declaration":
+			v.extractFunctionUse(curr, shadowed)
+		}
+
+		for i := uint(0); i < curr.ChildCount(); i++ {
+			scan(curr.Child(i), inClass)
+		}
+	}
+
+	scan(n, false)
+}
+
+func (v *PHPVisitor) extractFunctionUse(n *sitter.Node, shadowed map[string]bool) {
+	isDeclFunction := false
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if n.Child(i).Kind() == "function" {
+			isDeclFunction = true
+			break
+		}
+	}
+
+	var processClause func(clause *sitter.Node)
+	processClause = func(clause *sitter.Node) {
+		isClauseFunction := isDeclFunction
+		for i := uint(0); i < clause.ChildCount(); i++ {
+			if clause.Child(i).Kind() == "function" {
+				isClauseFunction = true
+				break
+			}
+		}
+		if !isClauseFunction {
+			return
+		}
+
+		aliasNode := clause.ChildByFieldName("alias")
+		if aliasNode != nil {
+			shadowed[strings.ToLower(v.getContent(aliasNode))] = true
+			return
+		}
+		for i := uint(0); i < clause.ChildCount(); i++ {
+			if clause.Child(i).Kind() == "as" {
+				for j := i + 1; j < clause.ChildCount(); j++ {
+					if clause.Child(j).Kind() == "name" {
+						shadowed[strings.ToLower(v.getContent(clause.Child(j)))] = true
+						return
+					}
+				}
+			}
+		}
+
+		for i := uint(0); i < clause.ChildCount(); i++ {
+			child := clause.Child(i)
+			if child.Kind() == "name" {
+				shadowed[strings.ToLower(v.getContent(child))] = true
+				return
+			}
+			if child.Kind() == "qualified_name" {
+				parts := strings.Split(v.getContent(child), "\\")
+				lastName := parts[len(parts)-1]
+				shadowed[strings.ToLower(lastName)] = true
+				return
+			}
+		}
+	}
+
+	var findClauses func(curr *sitter.Node)
+	findClauses = func(curr *sitter.Node) {
+		if curr.Kind() == "namespace_use_clause" {
+			processClause(curr)
+			return
+		}
+		for i := uint(0); i < curr.ChildCount(); i++ {
+			findClauses(curr.Child(i))
+		}
+	}
+	findClauses(n)
+}
+
+func countArguments(n *sitter.Node) int {
+	argsNode := n.ChildByFieldName("arguments")
+	if argsNode == nil {
+		return 0
+	}
+	count := 0
+	for i := uint(0); i < argsNode.ChildCount(); i++ {
+		if argsNode.Child(i).Kind() == "argument" {
+			count++
+		}
+	}
+	return count
 }
 
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
