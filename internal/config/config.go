@@ -16,6 +16,8 @@ func DefaultConfig() Config {
 			"Doctrine\\",
 			"Psr\\",
 			"IgorPhp\\IgorBundle\\",
+			"Twig\\",
+			"ApiPlatform\\",
 		},
 		ConsolePath: "bin/console",
 		Env:         "dev",
@@ -103,18 +105,8 @@ func InitConfig(root string, customConfigPath string) (string, error) {
 	}
 
 	// Minimal base configuration
-	c := Config{
-		Exclude: []string{},
-		SafeNamespaces: []string{
-			"Symfony\\",
-			"Doctrine\\",
-			"Psr\\",
-			"IgorPhp\\IgorBundle\\",
-		},
-		ConsolePath: "bin/console",
-		Env:         "prod",
-		Verbose:     false,
-	}
+	c := DefaultConfig()
+	c.Env = "prod"
 	projectType := "Generic PHP"
 
 	// 1. Detect Frameworks via composer.json
@@ -123,14 +115,12 @@ func InitConfig(root string, customConfigPath string) (string, error) {
 		content := string(data)
 		if strings.Contains(content, "symfony/framework-bundle") {
 			projectType = "Symfony"
-			c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\")
 		}
 	}
 
 	// 2. Additional folder detection
 	if _, err := os.Stat(filepath.Join(root, "bin/console")); err == nil && projectType == "Generic PHP" {
 		projectType = "Symfony (detected via bin/console)"
-		c.SafeNamespaces = append(c.SafeNamespaces, "Symfony\\", "Doctrine\\")
 	}
 
 	// Deduplicate

@@ -285,3 +285,24 @@ func TestConfig_NormalizePath(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	foundTwig := false
+	foundApiPlatform := false
+	for _, ns := range cfg.SafeNamespaces {
+		if ns == "Twig\\" {
+			foundTwig = true
+		}
+		if ns == "ApiPlatform\\" {
+			foundApiPlatform = true
+		}
+	}
+	if !foundTwig {
+		t.Error("Expected 'Twig\\' in default safe namespaces")
+	}
+	if !foundApiPlatform {
+		t.Error("Expected 'ApiPlatform\\' in default safe namespaces")
+	}
+}
+
