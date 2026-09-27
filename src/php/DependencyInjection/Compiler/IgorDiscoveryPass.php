@@ -116,6 +116,17 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
+        if (is_object($data)) {
+            if (method_exists($data, 'getValues')) {
+                $this->extractDefinitionsRecursively($data->getValues(), $container, $serviceMap, $parentShared);
+                return;
+            }
+            if (method_exists($data, 'getValue')) {
+                $this->extractDefinitionsRecursively($data->getValue(), $container, $serviceMap, $parentShared);
+                return;
+            }
+        }
+
         if (is_array($data) || $data instanceof \Traversable) {
             foreach ($data as $item) {
                 $this->extractDefinitionsRecursively($item, $container, $serviceMap, $parentShared);
@@ -136,6 +147,10 @@ class IgorDiscoveryPass implements CompilerPassInterface
                 if (is_string($resolvedClass) && $resolvedClass !== '') {
                     $deps[] = ['type' => 'service', 'id' => 'inlined.' . $resolvedClass . '.' . spl_object_id($val)];
                 }
+            } elseif (is_object($val) && method_exists($val, 'getValues')) {
+                $extract($val->getValues());
+            } elseif (is_object($val) && method_exists($val, 'getValue')) {
+                $extract($val->getValue());
             } elseif (is_array($val) || $val instanceof \Traversable) {
                 foreach ($val as $subVal) {
                     $extract($subVal);

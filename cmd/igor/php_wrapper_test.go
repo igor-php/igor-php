@@ -95,6 +95,12 @@ namespace Symfony\Component\DependencyInjection {
         public function __toString(): string { return $this->id; }
     }
 }
+namespace Symfony\Component\DependencyInjection\Argument {
+    class ServiceClosureArgument {
+        public function __construct(private mixed $value) {}
+        public function getValues(): array { return [$this->value]; }
+    }
+}
 namespace Symfony\Component\HttpKernel\Bundle {
     abstract class Bundle {
         public function build(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void {}
@@ -118,14 +124,18 @@ namespace {
         exit(1);
     }
 
-    // 2. Verify process() captures inlined services and skips excluded/synthetic
+    // 2. Verify process() captures inlined services (direct and wrapped) and skips excluded/synthetic
     $cacheDir = sys_get_temp_dir() . '/igor_test_' . uniqid();
     $cb->parameters['kernel.cache_dir'] = $cacheDir;
 
     $inlinedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedHelper');
     $inlinedDef->shared = false; // inlined private service originally had shared false
 
-    $parentDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ParentService', [$inlinedDef]);
+    $wrappedInlinedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\WrappedInlinedHelper');
+    $wrappedInlinedDef->shared = false;
+    $wrappedArg = new \Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument($wrappedInlinedDef);
+
+    $parentDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ParentService', [$inlinedDef, $wrappedArg]);
     $parentDef->shared = true;
 
     $excludedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ExcludedService');
@@ -161,8 +171,9 @@ namespace {
         exit(1);
     }
 
-    // Check inlined definition presence
+    // Check direct inlined definition presence
     $foundInlined = false;
+    $foundWrappedInlined = false;
     foreach ($data['definitions'] as $id => $def) {
         if ($def['class'] === 'App\Service\InlinedHelper') {
             $foundInlined = true;
@@ -175,9 +186,24 @@ namespace {
                 exit(1);
             }
         }
+        if ($def['class'] === 'App\Service\WrappedInlinedHelper') {
+            $foundWrappedInlined = true;
+            if ($def['shared'] !== true) {
+                fwrite(STDERR, "Wrapped inlined service in shared parent should inherit shared=true\n");
+                exit(1);
+            }
+            if (!str_starts_with($id, 'inlined.App\Service\WrappedInlinedHelper.')) {
+                fwrite(STDERR, "Wrapped inlined id prefix invalid: $id\n");
+                exit(1);
+            }
+        }
     }
     if (!$foundInlined) {
         fwrite(STDERR, "Inlined definition was not found in service map\n");
+        exit(1);
+    }
+    if (!$foundWrappedInlined) {
+        fwrite(STDERR, "Wrapped inlined definition (ServiceClosureArgument) was not found in service map\n");
         exit(1);
     }
 
