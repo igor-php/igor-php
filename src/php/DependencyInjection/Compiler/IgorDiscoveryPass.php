@@ -51,6 +51,10 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
+        if (in_array(strtolower($class), ['int', 'float', 'string', 'bool', 'array', 'object', 'iterable', 'mixed', 'void', 'null', 'false', 'true'], true)) {
+            return;
+        }
+
         $isResettable = $definition->hasTag('kernel.reset');
         if (!$isResettable) {
             try {
