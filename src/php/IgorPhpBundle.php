@@ -3,6 +3,7 @@
 namespace IgorPhp\IgorBundle;
 
 use IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorDiscoveryPass;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\Bundle\Bundle;
 
@@ -12,6 +13,6 @@ class IgorPhpBundle extends Bundle
     {
         parent::build($container);
 
-        $container->addCompilerPass(new IgorDiscoveryPass());
+        $container->addCompilerPass(new IgorDiscoveryPass(), PassConfig::TYPE_AFTER_REMOVING);
     }
 }

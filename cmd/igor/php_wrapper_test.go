@@ -31,3 +31,166 @@ func TestPhpWrapperSyntax(t *testing.T) {
 		}
 	}
 }
+
+func TestIgorDiscoveryPass_AfterRemovingAndInlinedDefinitions(t *testing.T) {
+	requirePHP(t)
+
+	phpScript := `
+namespace Symfony\Component\DependencyInjection\Compiler {
+    interface CompilerPassInterface {
+        public function process(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void;
+    }
+    class PassConfig {
+        public const TYPE_AFTER_REMOVING = 'afterRemoving';
+    }
+}
+namespace Symfony\Component\DependencyInjection {
+    class ContainerBuilder {
+        public array $passes = [];
+        public array $definitions = [];
+        public array $aliases = [];
+        public array $parameters = [];
+        public function addCompilerPass($pass, string $type = 'beforeOptimization', int $priority = 0): static {
+            $this->passes[] = ['pass' => $pass, 'type' => $type, 'priority' => $priority];
+            return $this;
+        }
+        public function getDefinitions(): array { return $this->definitions; }
+        public function getAliases(): array { return $this->aliases; }
+        public function getParameter(string $name): mixed { return $this->parameters[$name] ?? null; }
+        public function getParameterBag(): object {
+            return new class {
+                public function resolveValue($v) { return $v; }
+            };
+        }
+    }
+    class Definition {
+        public ?string $class = null;
+        public bool $shared = true;
+        public bool $public = true;
+        public bool $synthetic = false;
+        public array $tags = [];
+        public array $arguments = [];
+        public array $methodCalls = [];
+        public array $properties = [];
+        public mixed $configurator = null;
+        public mixed $factory = null;
+
+        public function __construct(?string $class = null, array $arguments = []) {
+            $this->class = $class;
+            $this->arguments = $arguments;
+        }
+        public function getClass(): ?string { return $this->class; }
+        public function isShared(): bool { return $this->shared; }
+        public function isPublic(): bool { return $this->public; }
+        public function isSynthetic(): bool { return $this->synthetic; }
+        public function hasTag(string $name): bool { return isset($this->tags[$name]); }
+        public function getArguments(): array { return $this->arguments; }
+        public function getMethodCalls(): array { return $this->methodCalls; }
+        public function getProperties(): array { return $this->properties; }
+        public function getConfigurator(): mixed { return $this->configurator; }
+        public function getFactory(): mixed { return $this->factory; }
+    }
+    class Reference {
+        public function __construct(private string $id) {}
+        public function __toString(): string { return $this->id; }
+    }
+}
+namespace Symfony\Component\HttpKernel\Bundle {
+    abstract class Bundle {
+        public function build(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void {}
+    }
+}
+namespace {
+    require __DIR__ . '/../../src/php/IgorPhpBundle.php';
+    require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
+
+    // 1. Verify bundle registers with PassConfig::TYPE_AFTER_REMOVING
+    $cb = new \Symfony\Component\DependencyInjection\ContainerBuilder();
+    $bundle = new \IgorPhp\IgorBundle\IgorPhpBundle();
+    $bundle->build($cb);
+
+    if (count($cb->passes) !== 1) {
+        fwrite(STDERR, "Expected 1 compiler pass, got " . count($cb->passes) . "\n");
+        exit(1);
+    }
+    if ($cb->passes[0]['type'] !== 'afterRemoving') {
+        fwrite(STDERR, "Expected pass type 'afterRemoving', got " . $cb->passes[0]['type'] . "\n");
+        exit(1);
+    }
+
+    // 2. Verify process() captures inlined services and skips excluded/synthetic
+    $cacheDir = sys_get_temp_dir() . '/igor_test_' . uniqid();
+    $cb->parameters['kernel.cache_dir'] = $cacheDir;
+
+    $inlinedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedHelper');
+    $inlinedDef->shared = false; // inlined private service originally had shared false
+
+    $parentDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ParentService', [$inlinedDef]);
+    $parentDef->shared = true;
+
+    $excludedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ExcludedService');
+    $excludedDef->tags['container.excluded'] = [[]];
+
+    $syntheticDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\SyntheticService');
+    $syntheticDef->synthetic = true;
+
+    $cb->definitions['App\Service\ParentService'] = $parentDef;
+    $cb->definitions['App\Service\ExcludedService'] = $excludedDef;
+    $cb->definitions['App\Service\SyntheticService'] = $syntheticDef;
+
+    $pass = new \IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorDiscoveryPass();
+    $pass->process($cb);
+
+    $mapFile = $cacheDir . '/igor_service_map.json';
+    if (!file_exists($mapFile)) {
+        fwrite(STDERR, "Map file was not created at $mapFile\n");
+        exit(1);
+    }
+    $data = json_decode(file_get_contents($mapFile), true);
+
+    if (!isset($data['definitions']['App\Service\ParentService'])) {
+        fwrite(STDERR, "ParentService was not found in service map\n");
+        exit(1);
+    }
+    if (isset($data['definitions']['App\Service\ExcludedService'])) {
+        fwrite(STDERR, "ExcludedService should not be present in service map\n");
+        exit(1);
+    }
+    if (isset($data['definitions']['App\Service\SyntheticService'])) {
+        fwrite(STDERR, "SyntheticService should not be present in service map\n");
+        exit(1);
+    }
+
+    // Check inlined definition presence
+    $foundInlined = false;
+    foreach ($data['definitions'] as $id => $def) {
+        if ($def['class'] === 'App\Service\InlinedHelper') {
+            $foundInlined = true;
+            if ($def['shared'] !== true) {
+                fwrite(STDERR, "Inlined service in shared parent should inherit shared=true\n");
+                exit(1);
+            }
+            if (!str_starts_with($id, 'inlined.App\Service\InlinedHelper.')) {
+                fwrite(STDERR, "Inlined id prefix invalid: $id\n");
+                exit(1);
+            }
+        }
+    }
+    if (!$foundInlined) {
+        fwrite(STDERR, "Inlined definition was not found in service map\n");
+        exit(1);
+    }
+
+    // Clean up
+    @unlink($mapFile);
+    @rmdir($cacheDir);
+    echo "SUCCESS\n";
+}
+`
+
+	cmd := exec.Command("php", "-r", phpScript)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("IgorDiscoveryPass test failed: %v\nOutput: %s", err, string(output))
+	}
+}
