@@ -61,6 +61,14 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 				Class:  "App\\Both",
 				Shared: true,
 			},
+			"app.conflict_transient": {
+				Class:  "App\\Conflict",
+				Shared: false,
+			},
+			"app.conflict_shared": {
+				Class:  "App\\Conflict",
+				Shared: true,
+			},
 		},
 	}
 	sb.Container = container
@@ -75,6 +83,7 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 		{"\\App\\NonShared", false},
 		{"App\\Excluded", false}, // tagged container.excluded, should not be shared
 		{"App\\Both", true},      // has an active shared definition despite having an excluded one
+		{"App\\Conflict", true},  // has conflicting shared definitions, should resolve to shared (true)
 		{"App\\Unknown", false},   // not found, returns false
 	}
 

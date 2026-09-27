@@ -433,17 +433,32 @@ func (a *Auditor) IsExplicitlyNonShared(className string) bool {
 	}
 	possibleIDs := a.resolveAliases(className)
 
+	hasShared := false
+	hasNonShared := false
+
 	for defID, def := range a.Symfony.Container.Definitions {
 		normDefID := normalizeClassName(defID)
 		normDefClass := normalizeClassName(def.Class)
 
 		for _, id := range possibleIDs {
 			if normDefID == id || normDefClass == id {
-				return !def.Shared
+				if def.IsExcluded() {
+					continue
+				}
+				if def.Shared {
+					hasShared = true
+				} else {
+					hasNonShared = true
+				}
 			}
 		}
 	}
-	return false
+
+	// If ANY matching definition is shared, it is NOT explicitly non-shared (it can persist in worker memory)
+	if hasShared {
+		return false
+	}
+	return hasNonShared
 }
 
 func (a *Auditor) IsResettable(className string) bool {

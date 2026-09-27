@@ -55,6 +55,24 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
+        // If this class is retained as shared anywhere (directly or via a shared parent),
+        // ensure an unambiguous class-level lifecycle: all definitions for this class are marked shared.
+        if ($isShared) {
+            foreach ($serviceMap['definitions'] as &$existingDef) {
+                if ($existingDef['class'] === $class) {
+                    $existingDef['shared'] = true;
+                }
+            }
+            unset($existingDef);
+        } else {
+            foreach ($serviceMap['definitions'] as $existingDef) {
+                if ($existingDef['class'] === $class && $existingDef['shared']) {
+                    $isShared = true;
+                    break;
+                }
+            }
+        }
+
         $isResettable = $definition->hasTag('kernel.reset');
         if (!$isResettable) {
             try {

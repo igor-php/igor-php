@@ -155,6 +155,18 @@ func TestAuditor_IsResettable_And_IsExplicitlyNonShared(t *testing.T) {
 				Shared:     false,
 				Resettable: false,
 			},
+			"App\\Service\\ConflictingTransient": {
+				Class:      "App\\Service\\ConflictingService",
+				Public:     true,
+				Shared:     false,
+				Resettable: false,
+			},
+			"inlined.App\\Service\\ConflictingService.1": {
+				Class:      "App\\Service\\ConflictingService",
+				Public:     false,
+				Shared:     true,
+				Resettable: false,
+			},
 		},
 		Aliases: map[string]interface{}{
 			"App\\Translator\\TranslatorInterface": ".abstract.instanceof.App\\Translator\\MyTranslator",
@@ -242,6 +254,12 @@ func TestAuditor_IsResettable_And_IsExplicitlyNonShared(t *testing.T) {
 	t.Run("IsExplicitlyNonShared on shared service", func(t *testing.T) {
 		if a.IsExplicitlyNonShared("App\\Translator\\MyTranslator") {
 			t.Error("Expected shared MyTranslator to not be explicitly non-shared")
+		}
+	})
+
+	t.Run("IsExplicitlyNonShared with conflicting shared and non-shared definitions", func(t *testing.T) {
+		if a.IsExplicitlyNonShared("App\\Service\\ConflictingService") {
+			t.Error("Expected ConflictingService to not be explicitly non-shared when an inlined instance is shared")
 		}
 	})
 }

@@ -135,8 +135,14 @@ namespace {
     $wrappedInlinedDef->shared = false;
     $wrappedArg = new \Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument($wrappedInlinedDef);
 
-    $parentDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ParentService', [$inlinedDef, $wrappedArg]);
+    $dualInlinedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\DualLifecycleHelper');
+    $dualInlinedDef->shared = false;
+
+    $parentDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ParentService', [$inlinedDef, $wrappedArg, $dualInlinedDef]);
     $parentDef->shared = true;
+
+    $dualStandaloneDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\DualLifecycleHelper');
+    $dualStandaloneDef->shared = false;
 
     $excludedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ExcludedService');
     $excludedDef->tags['container.excluded'] = [[]];
@@ -145,6 +151,7 @@ namespace {
     $syntheticDef->synthetic = true;
 
     $cb->definitions['App\Service\ParentService'] = $parentDef;
+    $cb->definitions['App\Service\DualLifecycleHelper'] = $dualStandaloneDef;
     $cb->definitions['App\Service\ExcludedService'] = $excludedDef;
     $cb->definitions['App\Service\SyntheticService'] = $syntheticDef;
 
@@ -204,6 +211,22 @@ namespace {
     }
     if (!$foundWrappedInlined) {
         fwrite(STDERR, "Wrapped inlined definition (ServiceClosureArgument) was not found in service map\n");
+        exit(1);
+    }
+
+    // Verify conflicting definitions for the same class are resolved to shared=true
+    $dualDefinitions = [];
+    foreach ($data['definitions'] as $id => $def) {
+        if ($def['class'] === 'App\Service\DualLifecycleHelper') {
+            $dualDefinitions[$id] = $def;
+            if ($def['shared'] !== true) {
+                fwrite(STDERR, "Definition '$id' of DualLifecycleHelper should have been resolved to shared=true\n");
+                exit(1);
+            }
+        }
+    }
+    if (count($dualDefinitions) !== 2) {
+        fwrite(STDERR, "Expected 2 definitions for DualLifecycleHelper, got " . count($dualDefinitions) . "\n");
         exit(1);
     }
 
