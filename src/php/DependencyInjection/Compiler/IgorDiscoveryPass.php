@@ -55,24 +55,6 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
-        // If this class is retained as shared anywhere (directly or via a shared parent),
-        // ensure an unambiguous class-level lifecycle: all definitions for this class are marked shared.
-        if ($isShared) {
-            foreach ($serviceMap['definitions'] as &$existingDef) {
-                if ($existingDef['class'] === $class) {
-                    $existingDef['shared'] = true;
-                }
-            }
-            unset($existingDef);
-        } else {
-            foreach ($serviceMap['definitions'] as $existingDef) {
-                if ($existingDef['class'] === $class && $existingDef['shared']) {
-                    $isShared = true;
-                    break;
-                }
-            }
-        }
-
         $isResettable = $definition->hasTag('kernel.reset');
         if (!$isResettable) {
             try {
@@ -127,20 +109,29 @@ class IgorDiscoveryPass implements CompilerPassInterface
                 $resolvedClass = $container->getParameterBag()->resolveValue($rawClass);
                 if (is_string($resolvedClass) && $resolvedClass !== '') {
                     $inlinedId = 'inlined.' . $resolvedClass . '.' . spl_object_id($data);
-                    $this->registerDefinition($inlinedId, $data, $container, $serviceMap, $parentShared);
-                    $this->collectInlinedDefinitions($data, $container, $serviceMap, $parentShared);
+                    // An inlined service is shared if its parent singleton retains it, OR if explicitly marked shared
+                    $isShared = $parentShared ? true : $data->isShared();
+                    $this->registerDefinition($inlinedId, $data, $container, $serviceMap, $isShared);
+                    $this->collectInlinedDefinitions($data, $container, $serviceMap, $isShared);
                 }
             }
             return;
         }
 
         if (is_object($data)) {
+            // ServiceClosureArgument wraps definitions inside a closure factory.
+            // Since fresh instances can be created on each invocation, the parent does not retain them.
+            $isServiceClosure = ($data instanceof \Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument)
+                || str_ends_with(get_class($data), 'ServiceClosureArgument');
+
+            $childParentShared = $isServiceClosure ? false : $parentShared;
+
             if (method_exists($data, 'getValues')) {
-                $this->extractDefinitionsRecursively($data->getValues(), $container, $serviceMap, $parentShared);
+                $this->extractDefinitionsRecursively($data->getValues(), $container, $serviceMap, $childParentShared);
                 return;
             }
             if (method_exists($data, 'getValue')) {
-                $this->extractDefinitionsRecursively($data->getValue(), $container, $serviceMap, $parentShared);
+                $this->extractDefinitionsRecursively($data->getValue(), $container, $serviceMap, $childParentShared);
                 return;
             }
         }

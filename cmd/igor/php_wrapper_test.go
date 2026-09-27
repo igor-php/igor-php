@@ -195,8 +195,9 @@ namespace {
         }
         if ($def['class'] === 'App\Service\WrappedInlinedHelper') {
             $foundWrappedInlined = true;
-            if ($def['shared'] !== true) {
-                fwrite(STDERR, "Wrapped inlined service in shared parent should inherit shared=true\n");
+            // Since it was wrapped in a ServiceClosureArgument with shared=false, it must retain shared=false
+            if ($def['shared'] !== false) {
+                fwrite(STDERR, "Wrapped inlined service in ServiceClosureArgument with shared=false must retain shared=false\n");
                 exit(1);
             }
             if (!str_starts_with($id, 'inlined.App\Service\WrappedInlinedHelper.')) {
@@ -214,19 +215,34 @@ namespace {
         exit(1);
     }
 
-    // Verify conflicting definitions for the same class are resolved to shared=true
+    // Verify each definition preserves its own lifecycle intact:
+    // the prototype definition keeps shared=false, and the inlined definition in shared parent keeps shared=true
     $dualDefinitions = [];
     foreach ($data['definitions'] as $id => $def) {
         if ($def['class'] === 'App\Service\DualLifecycleHelper') {
             $dualDefinitions[$id] = $def;
-            if ($def['shared'] !== true) {
-                fwrite(STDERR, "Definition '$id' of DualLifecycleHelper should have been resolved to shared=true\n");
-                exit(1);
-            }
         }
     }
     if (count($dualDefinitions) !== 2) {
         fwrite(STDERR, "Expected 2 definitions for DualLifecycleHelper, got " . count($dualDefinitions) . "\n");
+        exit(1);
+    }
+    if ($dualDefinitions['App\Service\DualLifecycleHelper']['shared'] !== false) {
+        fwrite(STDERR, "Standalone prototype definition should preserve shared=false\n");
+        exit(1);
+    }
+    $inlinedFound = false;
+    foreach ($dualDefinitions as $id => $def) {
+        if (str_starts_with($id, 'inlined.')) {
+            $inlinedFound = true;
+            if ($def['shared'] !== true) {
+                fwrite(STDERR, "Inlined definition in shared parent must have shared=true\n");
+                exit(1);
+            }
+        }
+    }
+    if (!$inlinedFound) {
+        fwrite(STDERR, "Inlined definition for DualLifecycleHelper not found\n");
         exit(1);
     }
 
@@ -241,5 +257,118 @@ namespace {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("IgorDiscoveryPass test failed: %v\nOutput: %s", err, string(output))
+	}
+}
+
+func TestIgorDiscoveryPass_RealSymfonyCompilation(t *testing.T) {
+	requirePHP(t)
+
+	phpScript := `
+$autoload = __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';
+if (!file_exists($autoload)) {
+    echo "SKIPPED: demo-leak autoload not found\n";
+    exit(0);
+}
+require $autoload;
+require __DIR__ . '/../../src/php/IgorPhpBundle.php';
+require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
+
+use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
+use IgorPhp\IgorBundle\IgorPhpBundle;
+
+$container = new ContainerBuilder();
+$cacheDir = sys_get_temp_dir() . '/igor_real_test_' . uniqid();
+$container->setParameter('kernel.cache_dir', $cacheDir);
+
+// 1. Shared parent service
+$parent = new Definition('stdClass');
+$parent->setPublic(true);
+$parent->setShared(true);
+
+// 2. Private service inlined into parent by Symfony
+$inlined = new Definition('ArrayObject');
+$inlined->setPublic(false);
+$inlined->setShared(false);
+$container->setDefinition('app.inlined_helper', $inlined);
+
+// 3. Service wrapped in ServiceClosureArgument with shared=false
+$closureService = new Definition('ArrayIterator');
+$closureService->setPublic(false);
+$closureService->setShared(false);
+$container->setDefinition('app.closure_helper', $closureService);
+$wrappedArg = new ServiceClosureArgument(new Reference('app.closure_helper'));
+
+$parent->setArguments([new Reference('app.inlined_helper'), $wrappedArg]);
+$container->setDefinition('app.parent', $parent);
+
+// 4. Dead/unreferenced private service that Symfony will prune
+$unused = new Definition('SplStack');
+$unused->setPublic(false);
+$container->setDefinition('app.unused_dead_service', $unused);
+
+// Register bundle
+$bundle = new IgorPhpBundle();
+$bundle->build($container);
+
+// Compile container executing real Symfony passes (InlineServiceDefinitionsPass, RemoveUnusedDefinitionsPass)
+$container->compile();
+
+$mapFile = $cacheDir . '/igor_service_map.json';
+if (!file_exists($mapFile)) {
+    fwrite(STDERR, "Service map was not created at $mapFile\n");
+    exit(1);
+}
+$data = json_decode(file_get_contents($mapFile), true);
+
+if (isset($data['definitions']['app.unused_dead_service'])) {
+    fwrite(STDERR, "Unused service should have been pruned by RemoveUnusedDefinitionsPass\n");
+    exit(1);
+}
+if (!isset($data['definitions']['app.parent'])) {
+    fwrite(STDERR, "Parent service must be in service map\n");
+    exit(1);
+}
+
+$foundInlined = false;
+$foundClosureInlined = false;
+foreach ($data['definitions'] as $id => $def) {
+    if ($def['class'] === 'ArrayObject') {
+        $foundInlined = true;
+        if ($def['shared'] !== true) {
+            fwrite(STDERR, "Inlined ArrayObject in shared parent must have shared=true\n");
+            exit(1);
+        }
+    }
+    if ($def['class'] === 'ArrayIterator') {
+        $foundClosureInlined = true;
+        if ($def['shared'] !== false) {
+            fwrite(STDERR, "Inlined ArrayIterator in ServiceClosureArgument must retain shared=false\n");
+            exit(1);
+        }
+    }
+}
+
+if (!$foundInlined) {
+    fwrite(STDERR, "Inlined ArrayObject was not found in service map\n");
+    exit(1);
+}
+if (!$foundClosureInlined) {
+    fwrite(STDERR, "Inlined ArrayIterator was not found in service map\n");
+    exit(1);
+}
+
+// Clean up
+@unlink($mapFile);
+@rmdir($cacheDir);
+echo "SUCCESS\n";
+`
+
+	cmd := exec.Command("php", "-r", phpScript)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Real Symfony container compilation test failed: %v\nOutput: %s", err, string(output))
 	}
 }
