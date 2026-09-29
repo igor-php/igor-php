@@ -28,6 +28,7 @@ type Auditor struct {
 	classParents         map[string]string
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
+	FileContentOverrides map[string][]byte
 	mu                   sync.Mutex
 }
 
@@ -42,6 +43,7 @@ func NewAuditor(cfg config.Config) *Auditor {
 		classParents:         make(map[string]string),
 		declaredMethods:      make(map[string]map[string]bool),
 		parentClassCache:     make(map[string]string),
+		FileContentOverrides: make(map[string][]byte),
 	}
 }
 
@@ -249,9 +251,37 @@ func (a *Auditor) MarkReachability(results []symbol.AuditStatus) {
 	}
 }
 
+func (a *Auditor) SetFileOverride(path string, content []byte) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.FileContentOverrides == nil {
+		a.FileContentOverrides = make(map[string][]byte)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		a.FileContentOverrides[abs] = content
+	}
+	a.FileContentOverrides[filepath.Clean(path)] = content
+}
+
+func (a *Auditor) getFileContent(path string) ([]byte, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.FileContentOverrides != nil {
+		if content, ok := a.FileContentOverrides[filepath.Clean(path)]; ok {
+			return content, nil
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			if content, ok := a.FileContentOverrides[abs]; ok {
+				return content, nil
+			}
+		}
+	}
+	return os.ReadFile(path)
+}
+
 // Audit analyzes a single PHP file and returns findings.
 func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, error) {
-	content, err := os.ReadFile(path)
+	content, err := a.getFileContent(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %v", path, err)
 	}
@@ -294,7 +324,7 @@ func isVendorPath(path string) bool {
 
 // ExtractFQCN extracts the full class name from a file.
 func (a *Auditor) ExtractFQCN(path string) (string, error) {
-	content, err := os.ReadFile(path)
+	content, err := a.getFileContent(path)
 	if err != nil {
 		return "", err
 	}

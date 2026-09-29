@@ -12,6 +12,10 @@ import (
 )
 
 func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	if cfg.TargetFile != "" {
+		return collectSingleFile(rootPath, cfg.TargetFile, cfg, aud)
+	}
+
 	var auditList []symbol.AuditStatus
 	processedFiles := make(map[string]bool)
 
@@ -191,3 +195,68 @@ func collectForcedVendorFiles(rootPath string, cfg config.Config, processed map[
 	}
 	return list
 }
+
+func collectSingleFile(rootPath string, targetFile string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	cleanTarget, err := filepath.Abs(targetFile)
+	if err != nil {
+		cleanTarget = targetFile
+	}
+
+	if skip, reason := shouldSkipServicePath("", cleanTarget, cfg, aud, rootPath); skip {
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': %s\n", cleanTarget, reason)
+		}
+		return nil
+	}
+
+	fqcn, _ := aud.ExtractFQCN(cleanTarget)
+	if fqcn == "" {
+		fqcn = filepath.Base(cleanTarget)
+	}
+
+	// If Symfony is detected, check if it's a shared service
+	if aud.Symfony != nil && aud.Symfony.Container != nil {
+		var matchedDef *symbol.SymfonyService
+		var serviceID string
+
+		for id, def := range aud.Symfony.Container.Definitions {
+			if def.Class == fqcn || id == fqcn {
+				matchedDef = &def
+				serviceID = id
+				break
+			}
+		}
+
+		if matchedDef != nil {
+			if skip, reason := shouldSkipServiceMeta(serviceID, *matchedDef, aud); skip {
+				if cfg.Verbose {
+					fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", serviceID, reason)
+				}
+				return nil
+			}
+			if !matchedDef.Shared {
+				if cfg.Verbose {
+					fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': service is not shared\n", serviceID)
+				}
+				return nil
+			}
+			deps := extractDependencies(*matchedDef)
+			return []symbol.AuditStatus{{
+				ServiceID:    serviceID,
+				FilePath:     cleanTarget,
+				Status:       "⏳ PENDING",
+				Dependencies: deps,
+				IsShared:     matchedDef.Shared,
+				IsPublic:     matchedDef.Public,
+			}}
+		}
+	}
+
+	return []symbol.AuditStatus{{
+		ServiceID: fqcn,
+		FilePath:  cleanTarget,
+		Status:    "⏳ PENDING",
+		IsShared:  true,
+	}}
+}
+

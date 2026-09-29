@@ -19,7 +19,7 @@ func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg conf
 	for res := range resultsChan {
 		res.FilePath = cfg.NormalizePath(res.FilePath)
 		if !cfg.GenerateBaseline && !cfg.CheckBaseline && !cfg.PruneBaseline && baseline.Files != nil {
-			res.Findings = config.FilterFindings(baseline, res.FilePath, res.Findings, rootPath)
+			res.Findings = config.FilterFindingsWithIgnored(baseline, res.FilePath, res.Findings, rootPath, cfg.IncludeIgnored)
 			res.Status = calculateAuditStatus(res.Findings)
 		}
 		finalResults = append(finalResults, res)

@@ -18,12 +18,17 @@ func loadAuditBaseline(rootPath string, cfg *config.Config) config.Baseline {
 	var baseline config.Baseline
 	baseline.Files = make(map[string][]config.BaselineEntry)
 
-	if cfg.BaselinePath != "" {
-		baselineFile := cfg.BaselinePath
-		if !filepath.IsAbs(baselineFile) {
-			baselineFile = filepath.Join(rootPath, baselineFile)
+	baselineFile := cfg.BaselinePath
+	if baselineFile == "" {
+		defaultCandidate := filepath.Join(rootPath, "igor-baseline.json")
+		if _, err := os.Stat(defaultCandidate); err == nil {
+			baselineFile = defaultCandidate
 		}
+	} else if !filepath.IsAbs(baselineFile) {
+		baselineFile = filepath.Join(rootPath, baselineFile)
+	}
 
+	if baselineFile != "" {
 		loaded, err := config.LoadBaseline(baselineFile)
 		if err == nil {
 			baseline = loaded

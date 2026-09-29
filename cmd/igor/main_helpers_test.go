@@ -180,6 +180,7 @@ func TestApplyFlagOverrides(t *testing.T) {
 	ignoreExternalBaselineFlag := true
 	checkBaselineFlag := true
 	pruneBaselineFlag := true
+	includeIgnoredFlag := true
 
 	applyFlagOverrides(
 		&cfg,
@@ -194,6 +195,7 @@ func TestApplyFlagOverrides(t *testing.T) {
 		&ignoreExternalBaselineFlag,
 		&checkBaselineFlag,
 		&pruneBaselineFlag,
+		&includeIgnoredFlag,
 	)
 
 	if cfg.ConsolePath != "custom/console" {
@@ -225,6 +227,9 @@ func TestApplyFlagOverrides(t *testing.T) {
 	}
 	if !cfg.GenerateBaseline {
 		t.Error("Expected GenerateBaseline override to be true")
+	}
+	if !cfg.IncludeIgnored {
+		t.Error("Expected IncludeIgnored override to be true")
 	}
 	if cfg.BaselinePath != "custom-baseline.json" {
 		t.Errorf("Expected BaselinePath override, got %s", cfg.BaselinePath)

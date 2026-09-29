@@ -300,3 +300,49 @@ func TestCollectFiles_SameFile_ExcludedAndActive(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectFiles_SingleFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceFile := filepath.Join(tmpDir, "src", "Service", "SingleService.php")
+	if err := os.MkdirAll(filepath.Dir(serviceFile), 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	content := `<?php
+namespace App\Service;
+class SingleService {
+    private $state = [];
+    public function mutate() { $this->state[] = 1; }
+}
+`
+	if err := os.WriteFile(serviceFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write service file: %v", err)
+	}
+
+	cfg := config.Config{
+		TargetFile: serviceFile,
+	}
+	aud := auditor.NewAuditor(cfg)
+
+	list := collectFiles(tmpDir, cfg, aud)
+	if len(list) != 1 {
+		t.Fatalf("Expected exactly 1 item in audit list, got %d", len(list))
+	}
+	if list[0].FilePath != serviceFile {
+		t.Errorf("Expected FilePath %s, got %s", serviceFile, list[0].FilePath)
+	}
+}
+
+func TestFindProjectRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	composerPath := filepath.Join(tmpDir, "composer.json")
+	_ = os.WriteFile(composerPath, []byte("{}"), 0644)
+
+	deepDir := filepath.Join(tmpDir, "src", "Sub", "Service")
+	_ = os.MkdirAll(deepDir, 0755)
+
+	foundRoot := findProjectRoot(deepDir)
+	if foundRoot != tmpDir {
+		t.Errorf("findProjectRoot(%s) = %s, expected %s", deepDir, foundRoot, tmpDir)
+	}
+}
+

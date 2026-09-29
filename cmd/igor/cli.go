@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,8 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	outputFlag := fs.String("output", "cli", "Output format (cli, llm, json)")
 	containerDumpFlag := fs.String("container-dump", "", "Path to a generic container dump JSON ({\"services\":[{\"class\":...,\"shared\":bool}]}) used to skip transient (non-shared) classes")
 	ignoreExternalBaselineFlag := fs.Bool("ignore-external-baseline", false, "Ignore baseline files defined in external vendor packages")
+	stdinFilePathFlag := fs.String("stdin-filepath", "", "Path of the file when passing file content via standard input (stdin)")
+	includeIgnoredFlag := fs.Bool("include-ignored", false, "Include baseline-ignored findings marked with ignored: true")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -86,14 +89,38 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		}
 	}
 
-	if len(parsedArgs) < 1 {
-		fs.Usage()
-		return config.Config{}, "", true, fmt.Errorf("missing target directory to audit")
+	var targetFile string
+	var rootPath string
+
+	if *stdinFilePathFlag != "" {
+		targetPath, _ := filepath.Abs(*stdinFilePathFlag)
+		targetFile = targetPath
+		rootPath = findProjectRoot(filepath.Dir(targetPath))
+	} else {
+		if len(parsedArgs) < 1 {
+			fs.Usage()
+			return config.Config{}, "", true, fmt.Errorf("missing target directory to audit")
+		}
+		targetPath, _ := filepath.Abs(parsedArgs[0])
+
+		if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() {
+			targetFile = targetPath
+			rootPath = findProjectRoot(filepath.Dir(targetPath))
+		} else {
+			rootPath = targetPath
+		}
 	}
-	rootPath, _ := filepath.Abs(parsedArgs[0])
 
 	cfg := config.LoadConfig(rootPath, configPath)
-	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag)
+	cfg.TargetFile = targetFile
+
+	if *stdinFilePathFlag != "" {
+		stdinBytes, err := io.ReadAll(os.Stdin)
+		if err == nil {
+			cfg.StdinContent = stdinBytes
+		}
+	}
+	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag, includeIgnoredFlag)
 
 	// Display summary of packages
 	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
@@ -107,7 +134,10 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	return cfg, rootPath, false, nil
 }
 
-func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string, ignoreExternalBaselineFlag *bool, checkBaselineFlag, pruneBaselineFlag *bool) {
+func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string, ignoreExternalBaselineFlag *bool, checkBaselineFlag, pruneBaselineFlag *bool, includeIgnoredFlag *bool) {
+	if *includeIgnoredFlag {
+		cfg.IncludeIgnored = true
+	}
 	if *consoleFlag != "" {
 		cfg.ConsolePath = *consoleFlag
 	}
@@ -149,3 +179,28 @@ func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verbos
 		cfg.BaselinePath = "igor-baseline.json"
 	}
 }
+
+func findProjectRoot(startDir string) string {
+	curr := startDir
+	for {
+		if _, err := os.Stat(filepath.Join(curr, "composer.json")); err == nil {
+			return curr
+		}
+		if _, err := os.Stat(filepath.Join(curr, "bin", "console")); err == nil {
+			return curr
+		}
+		if _, err := os.Stat(filepath.Join(curr, "igor.json")); err == nil {
+			return curr
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr || parent == "." || parent == "/" {
+			if _, err := os.Stat(filepath.Join(parent, "composer.json")); err == nil {
+				return parent
+			}
+			break
+		}
+		curr = parent
+	}
+	return startDir
+}
+
