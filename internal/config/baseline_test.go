@@ -272,3 +272,52 @@ func TestWriteBaseline(t *testing.T) {
 		t.Errorf("Unexpected loaded baseline content: %v", loaded.Files["test.php"])
 	}
 }
+
+func TestFilterFindingsWithIgnored(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "igor_baseline_test_ignored")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	filePath := filepath.Join(tmpDir, "service.php")
+	_ = os.WriteFile(filePath, []byte("<?php class Service {}"), 0644)
+
+	findings := []symbol.Finding{
+		{Message: "Error 1", Severity: "ERROR"},
+		{Message: "Warning 1", Severity: "WARNING"},
+	}
+
+	results := []symbol.AuditStatus{
+		{
+			FilePath: filePath,
+			Findings: findings,
+		},
+	}
+
+	baselinePath := filepath.Join(tmpDir, "igor-baseline.json")
+	_ = SaveBaseline(baselinePath, results, tmpDir)
+
+	baseline, err := LoadBaseline(baselinePath)
+	if err != nil {
+		t.Fatalf("Failed to load baseline: %v", err)
+	}
+
+	// 1. With includeIgnored = true: findings are kept and marked Ignored = true
+	withIgnored := FilterFindingsWithIgnored(baseline, filePath, findings, tmpDir, true)
+	if len(withIgnored) != 2 {
+		t.Fatalf("Expected 2 findings with includeIgnored=true, got %d", len(withIgnored))
+	}
+	for _, f := range withIgnored {
+		if !f.Ignored {
+			t.Errorf("Expected finding %q to have Ignored = true", f.Message)
+		}
+	}
+
+	// 2. With includeIgnored = false: findings are stripped
+	withoutIgnored := FilterFindingsWithIgnored(baseline, filePath, findings, tmpDir, false)
+	if len(withoutIgnored) != 0 {
+		t.Errorf("Expected 0 findings with includeIgnored=false, got %d", len(withoutIgnored))
+	}
+}
+

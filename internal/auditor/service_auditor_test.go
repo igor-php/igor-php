@@ -697,3 +697,36 @@ func TestAuditor_UnitEdgeCases(t *testing.T) {
 		t.Error("Expected isBuiltinType to return false for MyCustomClass")
 	}
 }
+
+func TestAuditor_SetFileOverride(t *testing.T) {
+	aud := NewAuditor(config.Config{})
+	fakePath := "/fake/project/src/Service/MyVirtualService.php"
+	overrideContent := []byte(`<?php
+namespace App\Service;
+class MyVirtualService {
+    private $state = 0;
+    public function bump() {
+        $this->state++;
+    }
+}
+`)
+
+	aud.SetFileOverride(fakePath, overrideContent)
+
+	fqcn, err := aud.ExtractFQCN(fakePath)
+	if err != nil {
+		t.Fatalf("ExtractFQCN failed with override: %v", err)
+	}
+	if fqcn != "App\\Service\\MyVirtualService" {
+		t.Errorf("Expected FQCN App\\Service\\MyVirtualService, got %s", fqcn)
+	}
+
+	findings, err := aud.Audit(fakePath, nil)
+	if err != nil {
+		t.Fatalf("Audit failed with override: %v", err)
+	}
+	if len(findings) == 0 {
+		t.Errorf("Expected state mutation finding from in-memory content, got none")
+	}
+}
+

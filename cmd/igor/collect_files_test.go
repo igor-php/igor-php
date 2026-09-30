@@ -346,3 +346,49 @@ func TestFindProjectRoot(t *testing.T) {
 	}
 }
 
+func TestCli_ParseFlags_StdinFilepathAndIncludeIgnored(t *testing.T) {
+	relPath := filepath.Join("src", "Service", "VirtualService.php")
+	args := []string{"igor", "--stdin-filepath", relPath, "--include-ignored", "."}
+	cfg, _, shouldExit, err := parseFlagsAndInit(args)
+	if err != nil {
+		t.Fatalf("parseFlagsAndInit failed: %v", err)
+	}
+	if shouldExit {
+		t.Fatalf("Expected shouldExit to be false, got true")
+	}
+	expectedAbs, _ := filepath.Abs(relPath)
+	if cfg.TargetFile != expectedAbs {
+		t.Errorf("Expected TargetFile %s, got %s", expectedAbs, cfg.TargetFile)
+	}
+	if !cfg.IncludeIgnored {
+		t.Errorf("Expected IncludeIgnored to be true")
+	}
+}
+
+func TestCollectFiles_SingleFile_WithFileOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	virtualFile := filepath.Join(tmpDir, "src", "Service", "InMemoryService.php")
+	content := []byte(`<?php
+namespace App\Service;
+class InMemoryService {
+    private $items = [];
+    public function add($item) { $this->items[] = $item; }
+}
+`)
+
+	cfg := config.Config{
+		TargetFile: virtualFile,
+	}
+	aud := auditor.NewAuditor(cfg)
+	aud.SetFileOverride(virtualFile, content)
+
+	list := collectFiles(tmpDir, cfg, aud)
+	if len(list) != 1 {
+		t.Fatalf("Expected exactly 1 item in audit list, got %d", len(list))
+	}
+	if list[0].ServiceID != "App\\Service\\InMemoryService" {
+		t.Errorf("Expected ServiceID App\\Service\\InMemoryService, got %s", list[0].ServiceID)
+	}
+}
+
+
