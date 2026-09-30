@@ -13,6 +13,9 @@
   <a href="https://packagist.org/packages/igor-php/igor-php">
     <img src="https://img.shields.io/packagist/dt/igor-php/igor-php.svg?style=flat-square&colorB=green" alt="Total Downloads" />
   </a>
+  <a href="https://plugins.jetbrains.com/plugin/34646-igor-php">
+    <img src="https://img.shields.io/jetbrains/plugin/v/34646.svg?label=PhpStorm%20Plugin&style=flat-square&colorB=blue" alt="JetBrains Plugin" />
+  </a>
 </p>
 
 **The faithful assistant for your FrankenPHP Workers.**
@@ -37,6 +40,27 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🎯 Reachability Ranking**: Cross-references every flagged mutator against your own call graph. Findings actually reachable from your application code are tagged `[HIGH]` and surface first; findings with no call site found are tagged `[INFO]`.
 - **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment, or target entire classes, methods, and properties using modern **PHP 8 Attributes** (`#[WorkerSafe]`).
 - Bridge-Agnostic Bridge**: Not on Symfony? Feed Igor your container's service graph via `--container-dump <file.json>` so it skips transient (non-shared) value objects and per-request helpers — the same precision the Symfony bridge gives, for **any** framework (Laravel, Laminas, …).
+
+---
+
+## 🔌 Official PhpStorm / JetBrains Plugin
+
+Detect state pollution and memory leaks in real time as you write code!
+
+<p align="center">
+  <a href="https://plugins.jetbrains.com/plugin/34646-igor-php">
+    <img src="https://img.shields.io/badge/JetBrains%20Marketplace-Install%20Igor--PHP%20Plugin-blue?logo=jetbrains&style=for-the-badge" alt="Install from JetBrains Marketplace" />
+  </a>
+</p>
+
+- **⚡ Zero-Latency Live Analysis**: Under-5ms in-memory inspection directly in your editor as you type.
+- **🧟 Gutter Markers**: Visual status icons in the left margin for shared Symfony services and memory hazards.
+- **🛡️ Zero-Pollution Baseline**: Ignore legacy warnings into `igor-baseline.json` in one click (`Alt + Enter`) with custom reasons without adding comments to your PHP code.
+- **🚨 1-Click GitHub Reporting**: Pre-fills issue templates with environment and code context directly from the editor.
+- **⚙️ Quality Tools Native Integration**: Located right under `Settings > PHP > Quality Tools > Igor-PHP`.
+- **📜 Schema Autocompletion**: Interactive documentation and autocompletion for `igor.json`.
+
+👉 **[Install Igor-PHP from JetBrains Marketplace](https://plugins.jetbrains.com/plugin/34646-igor-php)** or search for **`Igor-PHP`** in PhpStorm via `Settings > Plugins`.
 
 ---
 
