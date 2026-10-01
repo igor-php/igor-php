@@ -210,19 +210,19 @@ func findProjectRoot(startDir string) string {
 		}
 	}
 
+	// Nearest marked directory inside vendor/, used when no host project contains it
+	// (e.g. an application located under a directory named "vendor")
+	vendorFallback := ""
 	curr := startDir
 	for {
 		// Do not treat a package inside vendor/ as the project root if it has a vendor ancestor
 		isInsideVendor := strings.Contains(filepath.ToSlash(curr), "/vendor/")
-		if !isInsideVendor {
-			if _, err := os.Stat(filepath.Join(curr, "composer.json")); err == nil {
+		if hasProjectRootMarker(curr) {
+			if !isInsideVendor {
 				return curr
 			}
-			if _, err := os.Stat(filepath.Join(curr, "bin", "console")); err == nil {
-				return curr
-			}
-			if _, err := os.Stat(filepath.Join(curr, "igor.json")); err == nil {
-				return curr
+			if vendorFallback == "" {
+				vendorFallback = curr
 			}
 		}
 		parent := filepath.Dir(curr)
@@ -234,5 +234,17 @@ func findProjectRoot(startDir string) string {
 		}
 		curr = parent
 	}
+	if vendorFallback != "" {
+		return vendorFallback
+	}
 	return startDir
+}
+
+func hasProjectRootMarker(dir string) bool {
+	for _, marker := range []string{"composer.json", filepath.Join("bin", "console"), "igor.json"} {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
 }
