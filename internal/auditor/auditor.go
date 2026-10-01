@@ -322,11 +322,20 @@ func isVendorPath(path string) bool {
 	return false
 }
 
-// ExtractFQCN extracts the full class name from a file.
+// ExtractFQCN extracts the full name of the first class or trait declared in a file.
 func (a *Auditor) ExtractFQCN(path string) (string, error) {
+	fqcns, err := a.ExtractFQCNs(path)
+	if err != nil || len(fqcns) == 0 {
+		return "", err
+	}
+	return fqcns[0], nil
+}
+
+// ExtractFQCNs extracts the full names of every class and trait declared in a file, in declaration order.
+func (a *Auditor) ExtractFQCNs(path string) ([]string, error) {
 	content, err := a.getFileContent(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	p := sitter.NewParser()
@@ -335,11 +344,12 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 
 	tree := p.Parse(content, nil)
 	if tree == nil {
-		return "", fmt.Errorf("failed to parse %s", path)
+		return nil, fmt.Errorf("failed to parse %s", path)
 	}
 	defer tree.Close()
 
-	var namespace, className string
+	var namespace string
+	var fqcns []string
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
 		if n == nil {
@@ -347,15 +357,18 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 		}
 		switch n.Kind() {
 		case "namespace_definition":
+			namespace = ""
 			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 				namespace = string(content[nameNode.StartByte():nameNode.EndByte()])
 			}
 		case "class_declaration", "trait_declaration":
 			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
-				className = string(content[nameNode.StartByte():nameNode.EndByte()])
+				className := string(content[nameNode.StartByte():nameNode.EndByte()])
+				if namespace != "" {
+					className = namespace + "\\" + className
+				}
+				fqcns = append(fqcns, className)
 			}
-		}
-		if className != "" {
 			return
 		}
 		for i := uint(0); i < n.ChildCount(); i++ {
@@ -364,13 +377,7 @@ func (a *Auditor) ExtractFQCN(path string) (string, error) {
 	}
 	walk(tree.RootNode())
 
-	if className == "" {
-		return "", nil
-	}
-	if namespace == "" {
-		return className, nil
-	}
-	return namespace + "\\" + className, nil
+	return fqcns, nil
 }
 
 func (a *Auditor) RecordClassAudited(name string) {

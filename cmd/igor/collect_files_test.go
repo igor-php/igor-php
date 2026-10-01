@@ -599,3 +599,32 @@ func TestCollectFiles_SingleFile_SymfonyInheritedMatchesDeclaredClass(t *testing
 		t.Errorf("Expected unsaved renamed class to be skipped, got %+v", listRenamed)
 	}
 }
+
+func TestCollectFiles_SingleFile_SymfonyServiceAmongSeveralClasses(t *testing.T) {
+	sources := map[string]string{
+		"helper before service": "<?php\nnamespace App\\Service;\nfinal class ReportRow {}\nclass ReportService {}\n",
+		"helper after service":  "<?php\nnamespace App\\Service;\nclass ReportService {}\nfinal class ReportRow {}\n",
+	}
+	for name, source := range sources {
+		t.Run(name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			serviceFile := filepath.Join(tmpDir, "src", "Service", "ReportService.php")
+			_ = os.MkdirAll(filepath.Dir(serviceFile), 0755)
+			_ = os.WriteFile(serviceFile, []byte(source), 0644)
+
+			aud := auditor.NewAuditor(config.Config{})
+			bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{})
+			bridge.Container = &symbol.SymfonyContainer{
+				Definitions: map[string]symbol.SymfonyService{
+					"app.report": {Class: "App\\Service\\ReportService", Shared: true},
+				},
+			}
+			aud.Symfony = bridge
+
+			list := collectFiles(tmpDir, config.Config{TargetFile: serviceFile}, aud)
+			if len(list) != 1 || list[0].ServiceID != "app.report" {
+				t.Fatalf("Expected shared service to be audited as app.report, got %+v", list)
+			}
+		})
+	}
+}

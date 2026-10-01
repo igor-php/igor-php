@@ -209,31 +209,39 @@ func collectSingleFile(rootPath string, targetFile string, cfg config.Config, au
 		return nil
 	}
 
-	fqcn, _ := aud.ExtractFQCN(cleanTarget)
-	if fqcn == "" {
-		fqcn = filepath.Base(cleanTarget)
+	fqcns, _ := aud.ExtractFQCNs(cleanTarget)
+	if len(fqcns) == 0 {
+		fqcns = []string{filepath.Base(cleanTarget)}
 	}
 
 	// If Symfony is detected, only audit the file if it backs a shared service
 	if aud.Symfony != nil && aud.Symfony.Container != nil {
-		return collectSingleSymfonyFile(cleanTarget, fqcn, cfg, aud)
+		return collectSingleSymfonyFile(cleanTarget, fqcns, cfg, aud)
 	}
 
 	return []symbol.AuditStatus{{
-		ServiceID: fqcn,
+		ServiceID: fqcns[0],
 		FilePath:  cleanTarget,
 		Status:    "⏳ PENDING",
 		IsShared:  true,
 	}}
 }
 
-func collectSingleSymfonyFile(cleanTarget, fqcn string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
-	if serviceID, matchedDef := findTargetDefinition(fqcn, aud); matchedDef != nil {
+// collectSingleSymfonyFile audits the file if any class it declares backs a shared service,
+// as a project audit would, even when it is not the first class in the file.
+func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	hasDefinition := make(map[string]bool)
+	for _, fqcn := range fqcns {
+		serviceID, matchedDef := findTargetDefinition(fqcn, aud)
+		if matchedDef == nil {
+			continue
+		}
+		hasDefinition[fqcn] = true
 		if skip, reason := shouldSkipServiceMeta(serviceID, *matchedDef, aud); skip {
 			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", serviceID, reason)
 			}
-			return nil
+			continue
 		}
 		return []symbol.AuditStatus{{
 			ServiceID:    serviceID,
@@ -245,11 +253,18 @@ func collectSingleSymfonyFile(cleanTarget, fqcn string, cfg config.Config, aud *
 		}}
 	}
 
-	// Match parent classes and traits by the class the file (or editor buffer) declares,
+	// Match parent classes and traits by the classes the file (or editor buffer) declares,
 	// not by path: an unsaved rename must not inherit the saved class's mapping.
-	if path, found := aud.Symfony.ClassToFile[fqcn]; found && filepath.Clean(path) == cleanTarget {
+	for _, fqcn := range fqcns {
+		if hasDefinition[fqcn] {
+			continue
+		}
+		path, found := aud.Symfony.ClassToFile[fqcn]
+		if !found || filepath.Clean(path) != cleanTarget {
+			continue
+		}
 		if aud.IsSafeNamespace(fqcn) || aud.Symfony.IsExcludedService(fqcn) {
-			return nil
+			continue
 		}
 		return []symbol.AuditStatus{{
 			ServiceID: "Inherited/" + fqcn,

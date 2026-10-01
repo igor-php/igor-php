@@ -3,6 +3,7 @@ package auditor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -730,3 +731,30 @@ class MyVirtualService {
 	}
 }
 
+func TestAuditor_ExtractFQCNs_MultipleClassesAndNamespaces(t *testing.T) {
+	aud := NewAuditor(config.Config{})
+	fakePath := "/fake/project/src/Service/Multi.php"
+	aud.SetFileOverride(fakePath, []byte(`<?php
+namespace App\Model {
+    final class Row {}
+}
+namespace App\Service {
+    trait Loggable {}
+    class ReportService { use Loggable; }
+}
+`))
+
+	fqcns, err := aud.ExtractFQCNs(fakePath)
+	if err != nil {
+		t.Fatalf("ExtractFQCNs failed: %v", err)
+	}
+	expected := []string{"App\\Model\\Row", "App\\Service\\Loggable", "App\\Service\\ReportService"}
+	if !reflect.DeepEqual(fqcns, expected) {
+		t.Errorf("Expected %v, got %v", expected, fqcns)
+	}
+
+	first, _ := aud.ExtractFQCN(fakePath)
+	if first != expected[0] {
+		t.Errorf("Expected ExtractFQCN to return the first class %s, got %s", expected[0], first)
+	}
+}
