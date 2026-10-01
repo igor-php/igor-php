@@ -201,13 +201,25 @@ func (b *SymfonyBridge) IsSharedService(className string) bool {
 		return true
 	}
 	className = strings.TrimPrefix(className, "\\")
+	hasShared := false
+	hasNonShared := false
 	for _, def := range b.Container.Definitions {
 		if strings.TrimPrefix(def.Class, "\\") == className {
 			if def.IsExcluded() {
 				continue
 			}
-			return def.Shared
+			if def.Shared {
+				hasShared = true
+			} else {
+				hasNonShared = true
+			}
 		}
+	}
+	if hasShared {
+		return true
+	}
+	if hasNonShared {
+		return false
 	}
 	return false
 }

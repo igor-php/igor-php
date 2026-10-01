@@ -8,3 +8,15 @@ services:
         resource: '../src/'
         exclude:
             - '../src/Kernel.php'
+            - '../src/Model/'
+            - '../src/Internal/'
+
+    # Private services, as in a standard Symfony application: Symfony removes the unused ones
+    # and inlines the ones referenced only once (see the "Dead & inlined services" section of the README).
+    App\Model\:
+        resource: '../src/Model/'
+        public: false
+
+    App\Internal\:
+        resource: '../src/Internal/'
+        public: false

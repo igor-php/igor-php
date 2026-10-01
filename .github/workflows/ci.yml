@@ -64,7 +64,12 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
-          
+
+      # The demo lab requires Symfony 8 (PHP >= 8.4): installing it enables the real container compilation test
+      - name: Install demo-leak dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.4'
+        run: composer install --no-interaction --no-progress --no-scripts -d examples/demo-leak
+
       - name: Run Tests with Race Detector & Coverage
         run: go test -race -v -coverprofile coverage.out -covermode atomic ./...
 
