@@ -53,7 +53,7 @@ Detect state pollution and memory leaks in real time as you write code!
   </a>
 </p>
 
-- **⚡ Zero-Latency Live Analysis**: Under-5ms in-memory inspection directly in your editor as you type.
+- **⚡ Live Analysis**: Inspects the current editor buffer as you type, even before the file is saved.
 - **🧟 Gutter Markers**: Visual status icons in the left margin for shared Symfony services and memory hazards.
 - **🛡️ Zero-Pollution Baseline**: Ignore legacy warnings into `igor-baseline.json` in one click (`Alt + Enter`) with custom reasons without adding comments to your PHP code.
 - **🚨 1-Click GitHub Reporting**: Pre-fills issue templates with environment and code context directly from the editor.
@@ -182,7 +182,28 @@ igor-php --console app/console --env stage --verbose .
 
 # Non-Symfony project or skip Symfony discovery
 igor-php --no-agent .
+
+# Audit a single file
+igor-php src/Service/MyService.php
 ```
+
+### 🔌 Editor & IDE Integration
+
+Igor can audit a single file, including unsaved editor content, which is what the PhpStorm plugin relies on. Any editor or tool can use the same flags:
+
+```bash
+# Audit the unsaved buffer of a file, piped through standard input
+cat src/Service/MyService.php | igor-php --stdin-filepath src/Service/MyService.php --output json
+
+# Also return baseline-exempt findings, flagged with "ignored": true and their "ignore_reason"
+igor-php --stdin-filepath src/Service/MyService.php --include-ignored --output json < src/Service/MyService.php
+```
+
+- **Single-file target**: Passing a file instead of a directory audits only that file. The project root is resolved from the nearest `composer.json`, `bin/console` or `igor.json` (or the host application for files under `vendor/`), so configuration, baselines and Symfony discovery behave as in a full audit.
+- **`--stdin-filepath <path>`**: Reads the file content from standard input and audits it as if it were located at `<path>`. An empty input is audited as an empty file; the saved file on disk is never used instead.
+- **`--include-ignored`**: Keeps findings exempted by the baseline in the output, marked as ignored with the baseline reason. They do not affect the audit status or exit code.
+- In Symfony projects, a single file is only audited if one of its classes backs a shared service (or is a parent class or trait of one), exactly as in a full audit.
+- Baseline management flags (`--generate-baseline`, `--check-baseline`, `--prune-baseline`) cannot be combined with a single-file target or `--stdin-filepath`.
 
 ### 🧠 Semantic Explanation Matrix (Diagnostic Mode)
 If you want to understand the exact sémantique and diagnostic criteria that led Igor to flag or approve a service, you can run the `explain` command:
@@ -423,7 +444,7 @@ You can customize Igor's behavior by creating an `igor.json` file at the root of
 - **safe_namespaces**: Igor will ignore state mutations in classes starting with these prefixes (defaults: `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `ApiPlatform\`, `IgorPhp\IgorBundle\`).
 - **scan_vendors**: List of sub-directories within `vendor/` to scan recursively.
 - **ignore_vendors**: Set to `true` to skip auditing all services located within the `vendor/` directory. Defaults to `false`.
-- **baseline**: Path to a baseline file containing findings to ignore.
+- **baseline**: Path to a baseline file containing findings to ignore. Defaults to `igor-baseline.json` at the project root, which is loaded automatically when present.
 - **ignore_external_baseline**: Set to `true` to skip discovering and merging baseline files from external vendor packages. Defaults to `false`.
 - **container_dump**: Path to a generic container dump JSON (`{ "services": [ { "class": ..., "shared": bool } ], "aliases": { "Interface": "ConcreteClass" } }`) listing non-shared/transient classes to skip and optional interface-to-implementation aliases for reachability. Equivalent to the `--container-dump` flag.
 - **console_path**: Custom path to the Symfony console binary. Defaults to `bin/console`.
@@ -439,7 +460,7 @@ When you first adopt Igor, you might want to grandfather in existing technical d
 igor-php --generate-baseline .
 ```
 
-Subsequent audits will ignore findings present in this baseline file.
+Subsequent audits will ignore findings present in this baseline file. If no `baseline` is configured and no `--baseline` flag is passed, Igor automatically loads `igor-baseline.json` from the project root when it exists.
 
 #### Support for External Vendor Baselines
 If your project depends on other local packages or vendor dependencies that also manage their technical debt with `igor-php`, Igor will **automatically discover, translate, and merge** their baselines into the audit!
