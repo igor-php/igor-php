@@ -539,7 +539,7 @@ class ExemptService {
 
 	baseline := config.Baseline{
 		Files: map[string][]config.BaselineEntry{
-			"src/Service/ExemptService.php": {
+			filepath.Join("src", "Service", "ExemptService.php"): {
 				{Message: rawResults[0].Findings[0].Message, Reason: "Exempted legacy"},
 			},
 		},
