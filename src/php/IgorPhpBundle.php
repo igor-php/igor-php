@@ -13,6 +13,8 @@ class IgorPhpBundle extends Bundle
     {
         parent::build($container);
 
-        $container->addCompilerPass(new IgorDiscoveryPass(), PassConfig::TYPE_AFTER_REMOVING);
+        // Run after Symfony removed unused definitions, and last within that stage so that
+        // definitions registered by other after-removing passes are captured too.
+        $container->addCompilerPass(new IgorDiscoveryPass(), PassConfig::TYPE_AFTER_REMOVING, -1000);
     }
 }

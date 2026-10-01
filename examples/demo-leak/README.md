@@ -35,6 +35,16 @@ Igor is designed to catch all these issues automatically. Run it on this project
 igor-php examples/demo-leak
 ```
 
+### 🪦 Dead & inlined services
+
+Most lab services are public so they are easy to explore, but `src/Model/` and `src/Internal/` are registered as private services, like in a standard Symfony application. They show how the `IgorPhpBundle` service map follows what the compiled container actually keeps:
+
+| Class | What Symfony does | What Igor does |
+|---|---|---|
+| `App\Model\Order` | Never injected: removed by `RemoveUnusedDefinitionsPass` | Not audited (it never exists at runtime) |
+| `App\Internal\OrphanStatefulHelper` | Never injected: removed by `RemoveUnusedDefinitionsPass` | Not audited (it never exists at runtime) |
+| `App\Internal\InlinedRequestCounter` | Injected only into `InlinedConsumerService`: inlined into that singleton | Audited as a shared service (`inlined.*` entry), its `$count` mutation is reported |
+
 ## 🧹 Cleanup
 ```bash
 docker compose down

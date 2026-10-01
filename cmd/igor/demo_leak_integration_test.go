@@ -66,8 +66,12 @@ func TestDemoLeakFeatures(t *testing.T) {
 
 	t.Run("Agent Detection in demo-leak", func(t *testing.T) {
 		requirePHP(t) // LoadContainer locates files via PHP reflection
+		// Build the mocked project in a temporary directory: writing the mocks into
+		// examples/demo-leak would overwrite (then delete) its real vendor/autoload.php.
+		projectDir := t.TempDir()
+
 		// 1. Mock Agent Map
-		cacheDir := filepath.Join(root, "var", "cache", "dev")
+		cacheDir := filepath.Join(projectDir, "var", "cache", "dev")
 		if err := os.MkdirAll(cacheDir, 0755); err != nil {
 			t.Fatalf("failed to create cache dir: %v", err)
 		}
@@ -77,30 +81,28 @@ func TestDemoLeakFeatures(t *testing.T) {
 		if err := os.WriteFile(mapPath, []byte(mockMap), 0644); err != nil {
 			t.Fatalf("failed to write agent map: %v", err)
 		}
-		defer func() { _ = os.Remove(mapPath) }()
 
-		// 2. Mock vendor/autoload.php (needed for reflection even with agent)
-		vendorDir := filepath.Join(root, "vendor")
+		// 2. Mock vendor/autoload.php (needed for reflection even with agent), loading the lab's StatefulService
+		vendorDir := filepath.Join(projectDir, "vendor")
 		if err := os.MkdirAll(vendorDir, 0755); err != nil {
 			t.Fatalf("failed to create vendor dir: %v", err)
 		}
 		autoloadPath := filepath.Join(vendorDir, "autoload.php")
-		// Correct path for StatefulService relative to demo-leak root is src/Service/StatefulService.php
+		statefulServicePath := filepath.ToSlash(filepath.Join(root, "src", "Service", "StatefulService.php"))
 		autoloadContent := `<?php
 spl_autoload_register(function ($class) {
     if ($class === 'App\\Service\\StatefulService') {
-        require_once __DIR__ . '/../src/Service/StatefulService.php';
+        require_once '` + statefulServicePath + `';
     }
 });`
 		if err := os.WriteFile(autoloadPath, []byte(autoloadContent), 0644); err != nil {
 			t.Fatalf("failed to write mock autoloader: %v", err)
 		}
-		defer func() { _ = os.Remove(autoloadPath) }()
 
 		cfg := config.DefaultConfig()
 		cfg.Env = "dev"
 
-		bridge := auditor.NewSymfonyBridge(root, "bin/console", cfg)
+		bridge := auditor.NewSymfonyBridge(projectDir, "bin/console", cfg)
 
 		err := bridge.LoadContainer("dev")
 		if err != nil {

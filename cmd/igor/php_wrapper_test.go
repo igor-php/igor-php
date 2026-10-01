@@ -1,7 +1,10 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -121,6 +124,10 @@ namespace {
     }
     if ($cb->passes[0]['type'] !== 'afterRemoving') {
         fwrite(STDERR, "Expected pass type 'afterRemoving', got " . $cb->passes[0]['type'] . "\n");
+        exit(1);
+    }
+    if ($cb->passes[0]['priority'] >= 0) {
+        fwrite(STDERR, "Expected a negative priority so the pass runs last, got " . $cb->passes[0]['priority'] . "\n");
         exit(1);
     }
 
@@ -263,13 +270,17 @@ namespace {
 func TestIgorDiscoveryPass_RealSymfonyCompilation(t *testing.T) {
 	requirePHP(t)
 
+	// Report the test as skipped (not passed) when the demo's Composer dependencies are not installed
+	autoload := filepath.Join("..", "..", "examples", "demo-leak", "vendor", "autoload.php")
+	if _, err := os.Stat(autoload); err != nil {
+		t.Skip("skipping: examples/demo-leak dependencies not installed (run `composer install -d examples/demo-leak`)")
+	}
+	if err := exec.Command("php", "-r", "exit(PHP_VERSION_ID >= 80400 ? 0 : 1);").Run(); err != nil {
+		t.Skip("skipping: examples/demo-leak requires PHP >= 8.4 (Symfony 8)")
+	}
+
 	phpScript := `
-$autoload = __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';
-if (!file_exists($autoload)) {
-    echo "SKIPPED: demo-leak autoload not found\n";
-    exit(0);
-}
-require $autoload;
+require __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';
 require __DIR__ . '/../../src/php/IgorPhpBundle.php';
 require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
 
@@ -370,5 +381,8 @@ echo "SUCCESS\n";
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Real Symfony container compilation test failed: %v\nOutput: %s", err, string(output))
+	}
+	if !strings.Contains(string(output), "SUCCESS") {
+		t.Fatalf("Real Symfony container compilation test did not complete: %s", string(output))
 	}
 }
