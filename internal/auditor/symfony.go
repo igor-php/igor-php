@@ -101,6 +101,10 @@ func (b *SymfonyBridge) LoadContainer(env string) error {
 	}
 	b.Container = &container
 
+	if b.Config.TargetFile != "" {
+		return nil
+	}
+
 	// 3. Locate files
 	return b.locateFilesViaReflection(jsonPart)
 }
@@ -132,6 +136,10 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 
 			b.Container = &container
 			fmt.Fprintf(os.Stderr, "⚡ Igor Agent detected: Using cached service map from %s\n", path)
+
+			if b.Config.TargetFile != "" {
+				return true, nil
+			}
 
 			jsonPart, _ := json.Marshal(container)
 			if err := b.locateFilesViaReflection(string(jsonPart)); err != nil {

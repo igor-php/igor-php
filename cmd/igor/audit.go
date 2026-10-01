@@ -29,13 +29,22 @@ func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg conf
 }
 
 func calculateAuditStatus(findings []symbol.Finding) string {
-	if len(findings) == 0 {
+	hasActive := false
+	hasError := false
+	for _, f := range findings {
+		if f.Ignored {
+			continue
+		}
+		hasActive = true
+		if f.Severity == "ERROR" {
+			hasError = true
+		}
+	}
+	if !hasActive {
 		return "✅ OK"
 	}
-	for _, f := range findings {
-		if f.Severity == "ERROR" {
-			return "❌ KO"
-		}
+	if hasError {
+		return "❌ KO"
 	}
 	return "⚠️  WARN"
 }

@@ -38,9 +38,31 @@ func loadAuditBaseline(rootPath string, cfg *config.Config) config.Baseline {
 		}
 	}
 
-	discoverAndMergeExternalBaselines(rootPath, cfg, &baseline)
+	if cfg.TargetFile == "" {
+		discoverAndMergeExternalBaselines(rootPath, cfg, &baseline)
+	} else if strings.Contains(filepath.ToSlash(cfg.TargetFile), "/vendor/") {
+		discoverTargetVendorBaseline(rootPath, cfg.TargetFile, cfg, &baseline)
+	}
 
 	return baseline
+}
+
+func discoverTargetVendorBaseline(rootPath, targetFile string, cfg *config.Config, baseline *config.Baseline) {
+	if cfg.IgnoreExternalBaseline || cfg.CheckBaseline || cfg.PruneBaseline {
+		return
+	}
+	slashPath := filepath.ToSlash(targetFile)
+	idx := strings.LastIndex(slashPath, "/vendor/")
+	if idx == -1 {
+		return
+	}
+	relVendor := slashPath[idx+len("/vendor/"):]
+	parts := strings.Split(relVendor, "/")
+	if len(parts) < 2 {
+		return
+	}
+	vendorPkgDir := filepath.Join(rootPath, "vendor", parts[0], parts[1])
+	loadAndMergePackageBaseline(vendorPkgDir, parts[0], parts[1], false, *cfg, baseline)
 }
 
 func discoverAndMergeExternalBaselines(rootPath string, cfg *config.Config, baseline *config.Baseline) {

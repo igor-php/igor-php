@@ -684,7 +684,7 @@ func parseMethodDeclaration(node *sitter.Node, content []byte, namespace, classN
 }
 
 func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[string]string, string, error) {
-	content, err := os.ReadFile(filePath)
+	content, err := a.getFileContent(filePath)
 	if err != nil {
 		return nil, "", err
 	}

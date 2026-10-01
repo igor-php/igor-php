@@ -25,7 +25,7 @@ func main() {
 
 	// 1. Initialize Components
 	aud := auditor.NewAuditor(cfg)
-	if len(cfg.StdinContent) > 0 && cfg.TargetFile != "" {
+	if cfg.StdinContent != nil && cfg.TargetFile != "" {
 		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
 	}
 	rep := setupReporter(cfg)

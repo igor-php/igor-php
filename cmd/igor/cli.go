@@ -111,14 +111,19 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		}
 	}
 
+	if (*stdinFilePathFlag != "" || targetFile != "") && (*generateBaselineFlag || *checkBaselineFlag || *pruneBaselineFlag) {
+		return config.Config{}, "", true, fmt.Errorf("baseline management flags (--generate-baseline, --check-baseline, --prune-baseline) cannot be used with a single file target or --stdin-filepath")
+	}
+
 	cfg := config.LoadConfig(rootPath, configPath)
 	cfg.TargetFile = targetFile
 
 	if *stdinFilePathFlag != "" {
 		stdinBytes, err := io.ReadAll(os.Stdin)
-		if err == nil {
-			cfg.StdinContent = stdinBytes
+		if err != nil {
+			return config.Config{}, "", true, fmt.Errorf("failed to read from standard input: %w", err)
 		}
+		cfg.StdinContent = stdinBytes
 	}
 	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag, includeIgnoredFlag)
 
@@ -181,16 +186,34 @@ func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verbos
 }
 
 func findProjectRoot(startDir string) string {
+	clean := filepath.Clean(startDir)
+	slashPath := filepath.ToSlash(clean)
+	// If the file is inside a vendor/ directory, locate the host project root containing vendor/
+	if idx := strings.LastIndex(slashPath, "/vendor/"); idx != -1 {
+		hostCandidate := clean[:idx]
+		if _, err := os.Stat(filepath.Join(hostCandidate, "composer.json")); err == nil {
+			return hostCandidate
+		}
+	} else if strings.HasPrefix(slashPath, "vendor/") {
+		if _, err := os.Stat("composer.json"); err == nil {
+			return "."
+		}
+	}
+
 	curr := startDir
 	for {
-		if _, err := os.Stat(filepath.Join(curr, "composer.json")); err == nil {
-			return curr
-		}
-		if _, err := os.Stat(filepath.Join(curr, "bin", "console")); err == nil {
-			return curr
-		}
-		if _, err := os.Stat(filepath.Join(curr, "igor.json")); err == nil {
-			return curr
+		// Do not treat a package inside vendor/ as the project root if it has a vendor ancestor
+		isInsideVendor := strings.Contains(filepath.ToSlash(curr), "/vendor/")
+		if !isInsideVendor {
+			if _, err := os.Stat(filepath.Join(curr, "composer.json")); err == nil {
+				return curr
+			}
+			if _, err := os.Stat(filepath.Join(curr, "bin", "console")); err == nil {
+				return curr
+			}
+			if _, err := os.Stat(filepath.Join(curr, "igor.json")); err == nil {
+				return curr
+			}
 		}
 		parent := filepath.Dir(curr)
 		if parent == curr || parent == "." || parent == "/" {

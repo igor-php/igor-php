@@ -221,9 +221,18 @@ func collectSingleFile(rootPath string, targetFile string, cfg config.Config, au
 
 		for id, def := range aud.Symfony.Container.Definitions {
 			if def.Class == fqcn || id == fqcn {
-				matchedDef = &def
-				serviceID = id
-				break
+				skip, _ := shouldSkipServiceMeta(id, def, aud)
+				if def.Shared && !skip {
+					d := def
+					matchedDef = &d
+					serviceID = id
+					break
+				}
+				if matchedDef == nil {
+					d := def
+					matchedDef = &d
+					serviceID = id
+				}
 			}
 		}
 
@@ -250,6 +259,27 @@ func collectSingleFile(rootPath string, targetFile string, cfg config.Config, au
 				IsPublic:     matchedDef.Public,
 			}}
 		}
+
+		if aud.Symfony.ClassToFile != nil {
+			for class, path := range aud.Symfony.ClassToFile {
+				if filepath.Clean(path) == cleanTarget {
+					if aud.IsSafeNamespace(class) || aud.Symfony.IsExcludedService(class) {
+						return nil
+					}
+					return []symbol.AuditStatus{{
+						ServiceID: "Inherited/" + class,
+						FilePath:  cleanTarget,
+						Status:    "⏳ PENDING",
+						IsShared:  true,
+					}}
+				}
+			}
+		}
+
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
+		}
+		return nil
 	}
 
 	return []symbol.AuditStatus{{
