@@ -24,10 +24,10 @@ $bootstrapper = new class()
         }
 
         $os = strtolower(PHP_OS_FAMILY);
-        $arch = php_uname('m');
+        $arch = strtolower(php_uname('m'));
 
-        // Map architecture names
-        if ($arch === 'x86_64') {
+        // Map architecture names (Windows reports "AMD64")
+        if ($arch === 'x86_64' || $arch === 'amd64') {
             $arch = 'amd64';
         } elseif ($arch === 'arm64' || $arch === 'aarch64') {
             $arch = 'arm64';
