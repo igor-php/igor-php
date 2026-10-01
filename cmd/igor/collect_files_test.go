@@ -405,6 +405,21 @@ func TestFindProjectRoot_InsideVendor(t *testing.T) {
 	}
 }
 
+func TestFindProjectRoot_NestedVendor(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte("{}"), 0644)
+	outerPkgDir := filepath.Join(tmpDir, "vendor", "acme", "foo")
+	innerPkgDir := filepath.Join(outerPkgDir, "vendor", "bar", "baz")
+	_ = os.MkdirAll(filepath.Join(innerPkgDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(outerPkgDir, "composer.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(innerPkgDir, "composer.json"), []byte("{}"), 0644)
+
+	foundRoot := findProjectRoot(filepath.Join(innerPkgDir, "src"))
+	if foundRoot != tmpDir {
+		t.Errorf("Expected host project root %s, got %s", tmpDir, foundRoot)
+	}
+}
+
 func TestCli_BaselineFlags_RejectsSingleFile(t *testing.T) {
 	args := []string{"igor", "--generate-baseline", "--stdin-filepath", "src/Foo.php", "."}
 	_, _, _, err := parseFlagsAndInit(args)
@@ -545,5 +560,3 @@ class ExemptService {
 		t.Errorf("Expected status '✅ OK' for baseline-ignored finding, got %s", results[0].Status)
 	}
 }
-
-

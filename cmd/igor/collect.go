@@ -214,72 +214,9 @@ func collectSingleFile(rootPath string, targetFile string, cfg config.Config, au
 		fqcn = filepath.Base(cleanTarget)
 	}
 
-	// If Symfony is detected, check if it's a shared service
+	// If Symfony is detected, only audit the file if it backs a shared service
 	if aud.Symfony != nil && aud.Symfony.Container != nil {
-		var matchedDef *symbol.SymfonyService
-		var serviceID string
-
-		for id, def := range aud.Symfony.Container.Definitions {
-			if def.Class == fqcn || id == fqcn {
-				skip, _ := shouldSkipServiceMeta(id, def, aud)
-				if def.Shared && !skip {
-					d := def
-					matchedDef = &d
-					serviceID = id
-					break
-				}
-				if matchedDef == nil {
-					d := def
-					matchedDef = &d
-					serviceID = id
-				}
-			}
-		}
-
-		if matchedDef != nil {
-			if skip, reason := shouldSkipServiceMeta(serviceID, *matchedDef, aud); skip {
-				if cfg.Verbose {
-					fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", serviceID, reason)
-				}
-				return nil
-			}
-			if !matchedDef.Shared {
-				if cfg.Verbose {
-					fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': service is not shared\n", serviceID)
-				}
-				return nil
-			}
-			deps := extractDependencies(*matchedDef)
-			return []symbol.AuditStatus{{
-				ServiceID:    serviceID,
-				FilePath:     cleanTarget,
-				Status:       "⏳ PENDING",
-				Dependencies: deps,
-				IsShared:     matchedDef.Shared,
-				IsPublic:     matchedDef.Public,
-			}}
-		}
-
-		if aud.Symfony.ClassToFile != nil {
-			for class, path := range aud.Symfony.ClassToFile {
-				if filepath.Clean(path) == cleanTarget {
-					if aud.IsSafeNamespace(class) || aud.Symfony.IsExcludedService(class) {
-						return nil
-					}
-					return []symbol.AuditStatus{{
-						ServiceID: "Inherited/" + class,
-						FilePath:  cleanTarget,
-						Status:    "⏳ PENDING",
-						IsShared:  true,
-					}}
-				}
-			}
-		}
-
-		if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
-		}
-		return nil
+		return collectSingleSymfonyFile(cleanTarget, fqcn, cfg, aud)
 	}
 
 	return []symbol.AuditStatus{{
@@ -290,3 +227,62 @@ func collectSingleFile(rootPath string, targetFile string, cfg config.Config, au
 	}}
 }
 
+func collectSingleSymfonyFile(cleanTarget, fqcn string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	if serviceID, matchedDef := findTargetDefinition(fqcn, aud); matchedDef != nil {
+		if skip, reason := shouldSkipServiceMeta(serviceID, *matchedDef, aud); skip {
+			if cfg.Verbose {
+				fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", serviceID, reason)
+			}
+			return nil
+		}
+		return []symbol.AuditStatus{{
+			ServiceID:    serviceID,
+			FilePath:     cleanTarget,
+			Status:       "⏳ PENDING",
+			Dependencies: extractDependencies(*matchedDef),
+			IsShared:     matchedDef.Shared,
+			IsPublic:     matchedDef.Public,
+		}}
+	}
+
+	for class, path := range aud.Symfony.ClassToFile {
+		if filepath.Clean(path) != cleanTarget {
+			continue
+		}
+		if aud.IsSafeNamespace(class) || aud.Symfony.IsExcludedService(class) {
+			return nil
+		}
+		return []symbol.AuditStatus{{
+			ServiceID: "Inherited/" + class,
+			FilePath:  cleanTarget,
+			Status:    "⏳ PENDING",
+			IsShared:  true,
+		}}
+	}
+
+	if cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
+	}
+	return nil
+}
+
+// findTargetDefinition returns the definition backing fqcn, preferring an active shared one
+// so that map iteration order cannot hide it behind an excluded or non-shared definition.
+func findTargetDefinition(fqcn string, aud *auditor.Auditor) (string, *symbol.SymfonyService) {
+	var matchedDef *symbol.SymfonyService
+	var serviceID string
+	for id, def := range aud.Symfony.Container.Definitions {
+		if def.Class != fqcn && id != fqcn {
+			continue
+		}
+		d := def
+		if skip, _ := shouldSkipServiceMeta(id, def, aud); !skip {
+			return id, &d
+		}
+		if matchedDef == nil {
+			matchedDef = &d
+			serviceID = id
+		}
+	}
+	return serviceID, matchedDef
+}

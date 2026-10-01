@@ -72,44 +72,15 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	}
 
 	parsedArgs := fs.Args()
-	if len(parsedArgs) > 0 {
-		switch parsedArgs[0] {
-		case "init":
-			err := handleInitSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "review":
-			err := handleReviewSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "explain":
-			err := handleExplainSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "debug-external-baseline":
-			err := handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		}
+	if handled, err := dispatchSubcommand(parsedArgs, configPath); handled {
+		return config.Config{}, "", true, err
 	}
 
-	var targetFile string
-	var rootPath string
-
-	if *stdinFilePathFlag != "" {
-		targetPath, _ := filepath.Abs(*stdinFilePathFlag)
-		targetFile = targetPath
-		rootPath = findProjectRoot(filepath.Dir(targetPath))
-	} else {
-		if len(parsedArgs) < 1 {
-			fs.Usage()
-			return config.Config{}, "", true, fmt.Errorf("missing target directory to audit")
-		}
-		targetPath, _ := filepath.Abs(parsedArgs[0])
-
-		if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() {
-			targetFile = targetPath
-			rootPath = findProjectRoot(filepath.Dir(targetPath))
-		} else {
-			rootPath = targetPath
-		}
+	if *stdinFilePathFlag == "" && len(parsedArgs) < 1 {
+		fs.Usage()
+		return config.Config{}, "", true, fmt.Errorf("missing target directory to audit")
 	}
+	targetFile, rootPath := resolveAuditTarget(*stdinFilePathFlag, parsedArgs)
 
 	if (*stdinFilePathFlag != "" || targetFile != "") && (*generateBaselineFlag || *checkBaselineFlag || *pruneBaselineFlag) {
 		return config.Config{}, "", true, fmt.Errorf("baseline management flags (--generate-baseline, --check-baseline, --prune-baseline) cannot be used with a single file target or --stdin-filepath")
@@ -137,6 +108,37 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	}
 
 	return cfg, rootPath, false, nil
+}
+
+// dispatchSubcommand runs the subcommand named by the first positional argument, if any.
+func dispatchSubcommand(parsedArgs []string, configPath string) (bool, error) {
+	if len(parsedArgs) == 0 {
+		return false, nil
+	}
+	switch parsedArgs[0] {
+	case "init":
+		return true, handleInitSubcommand(parsedArgs, configPath)
+	case "review":
+		return true, handleReviewSubcommand(parsedArgs, configPath)
+	case "explain":
+		return true, handleExplainSubcommand(parsedArgs, configPath)
+	case "debug-external-baseline":
+		return true, handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
+	}
+	return false, nil
+}
+
+// resolveAuditTarget returns the single file to audit (empty for a directory audit) and the project root.
+func resolveAuditTarget(stdinFilePath string, parsedArgs []string) (string, string) {
+	if stdinFilePath != "" {
+		targetPath, _ := filepath.Abs(stdinFilePath)
+		return targetPath, findProjectRoot(filepath.Dir(targetPath))
+	}
+	targetPath, _ := filepath.Abs(parsedArgs[0])
+	if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() {
+		return targetPath, findProjectRoot(filepath.Dir(targetPath))
+	}
+	return "", targetPath
 }
 
 func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string, ignoreExternalBaselineFlag *bool, checkBaselineFlag, pruneBaselineFlag *bool, includeIgnoredFlag *bool) {
@@ -188,11 +190,19 @@ func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verbos
 func findProjectRoot(startDir string) string {
 	clean := filepath.Clean(startDir)
 	slashPath := filepath.ToSlash(clean)
-	// If the file is inside a vendor/ directory, locate the host project root containing vendor/
-	if idx := strings.LastIndex(slashPath, "/vendor/"); idx != -1 {
-		hostCandidate := clean[:idx]
-		if _, err := os.Stat(filepath.Join(hostCandidate, "composer.json")); err == nil {
-			return hostCandidate
+	// If the file is inside a vendor/ directory, locate the host project root containing vendor/.
+	// Walk vendor/ segments from the outermost one so nested vendor directories resolve to the host application.
+	if strings.Contains(slashPath, "/vendor/") {
+		for offset := 0; ; {
+			idx := strings.Index(slashPath[offset:], "/vendor/")
+			if idx == -1 {
+				break
+			}
+			hostCandidate := clean[:offset+idx]
+			if _, err := os.Stat(filepath.Join(hostCandidate, "composer.json")); err == nil {
+				return hostCandidate
+			}
+			offset += idx + len("/vendor")
 		}
 	} else if strings.HasPrefix(slashPath, "vendor/") {
 		if _, err := os.Stat("composer.json"); err == nil {
@@ -226,4 +236,3 @@ func findProjectRoot(startDir string) string {
 	}
 	return startDir
 }
-

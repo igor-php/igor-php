@@ -51,12 +51,14 @@ func discoverTargetVendorBaseline(rootPath, targetFile string, cfg *config.Confi
 	if cfg.IgnoreExternalBaseline || cfg.CheckBaseline || cfg.PruneBaseline {
 		return
 	}
-	slashPath := filepath.ToSlash(targetFile)
-	idx := strings.LastIndex(slashPath, "/vendor/")
-	if idx == -1 {
+	rel, err := filepath.Rel(rootPath, targetFile)
+	if err != nil {
 		return
 	}
-	relVendor := slashPath[idx+len("/vendor/"):]
+	relVendor, found := strings.CutPrefix(filepath.ToSlash(rel), "vendor/")
+	if !found {
+		return
+	}
 	parts := strings.Split(relVendor, "/")
 	if len(parts) < 2 {
 		return
