@@ -26,6 +26,9 @@ type Config struct {
 	ContainerDump          string            `json:"container_dump"` // Path to a generic container dump (framework-agnostic non-shared service graph)
 	LLMConfig              LLMConfig         `json:"llm"`
 	SymlinkMap             map[string]string `json:"-"` // Maps real path of symlinked vendors to their vendor-relative paths
+	TargetFile             string            `json:"-"` // Internal: set if a single file is audited instead of a directory
+	StdinContent           []byte            `json:"-"` // Internal: set if file content is provided via stdin
+	IncludeIgnored         bool              `json:"-"` // Internal: set if --include-ignored is used
 }
 
 // NormalizePath translates a physical path (which may be a resolved symlink)

@@ -18,6 +18,8 @@ type Finding struct {
 	ContextClass  string   `json:"context_class,omitempty"`
 	ContextMethod string   `json:"context_method,omitempty"`
 	Reachability  string   `json:"reachability,omitempty"`
+	Ignored       bool     `json:"ignored,omitempty"`
+	IgnoreReason  string   `json:"ignore_reason,omitempty"`
 }
 
 // Result groups findings by file.

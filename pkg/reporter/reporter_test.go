@@ -352,3 +352,49 @@ func TestReporter_PrintFindings_GitHub(t *testing.T) {
 		t.Errorf("Expected GitHub actions warning annotation, got: %q", output2)
 	}
 }
+
+func TestReporter_PrintFindings_IgnoredFinding(t *testing.T) {
+	rep := NewReporter()
+	r := rep.(*CLIReporter)
+	r.IsGitHub = true
+	projectRoot := "/tmp/project"
+
+	res := symbol.AuditStatus{
+		ServiceID: "app.service",
+		FilePath:  "/tmp/project/src/Service.php",
+		Findings: []symbol.Finding{
+			{
+				Message:      "Legacy state mutation",
+				Code:         "$this->state = 1;",
+				Remediation:  "Refactor me",
+				Severity:     "ERROR",
+				Line:         10,
+				Ignored:      true,
+				IgnoreReason: "Reset by kernel.reset",
+			},
+		},
+	}
+
+	old := os.Stdout
+	rOut, wOut, _ := os.Pipe()
+	os.Stdout = wOut
+
+	r.PrintFindings(res, projectRoot, false)
+
+	_ = wOut.Close()
+	os.Stdout = old
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rOut)
+	output := stripANSI(buf.String())
+
+	if !strings.Contains(output, "[IGNORED] Legacy state mutation") {
+		t.Errorf("Expected ignored finding to be tagged [IGNORED], got: %q", output)
+	}
+	if !strings.Contains(output, "Baseline reason: Reset by kernel.reset") {
+		t.Errorf("Expected baseline reason to be displayed, got: %q", output)
+	}
+	if strings.Contains(output, "::error") || strings.Contains(output, "::warning") {
+		t.Errorf("Expected no GitHub annotation for ignored finding, got: %q", output)
+	}
+}

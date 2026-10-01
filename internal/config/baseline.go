@@ -62,8 +62,9 @@ func WriteBaseline(path string, b Baseline) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// FilterFindings removes findings that are present in the baseline.
-func FilterFindings(baseline Baseline, filePath string, findings []symbol.Finding, rootPath string) []symbol.Finding {
+// FilterFindingsWithIgnored removes findings that are present in the baseline,
+// or marks them with Ignored = true if includeIgnored is set to true.
+func FilterFindingsWithIgnored(baseline Baseline, filePath string, findings []symbol.Finding, rootPath string, includeIgnored bool) []symbol.Finding {
 	if baseline.Files == nil {
 		return findings
 	}
@@ -81,18 +82,31 @@ func FilterFindings(baseline Baseline, filePath string, findings []symbol.Findin
 	filtered := []symbol.Finding{}
 	for _, f := range findings {
 		isIgnored := false
+		var reason string
 		for _, entry := range ignoredEntries {
 			if entry.Message == f.Message {
 				isIgnored = true
+				reason = entry.Reason
 				break
 			}
 		}
-		if !isIgnored {
+		if isIgnored {
+			if includeIgnored {
+				f.Ignored = true
+				f.IgnoreReason = reason
+				filtered = append(filtered, f)
+			}
+		} else {
 			filtered = append(filtered, f)
 		}
 	}
 
 	return filtered
+}
+
+// FilterFindings removes findings that are present in the baseline.
+func FilterFindings(baseline Baseline, filePath string, findings []symbol.Finding, rootPath string) []symbol.Finding {
+	return FilterFindingsWithIgnored(baseline, filePath, findings, rootPath, false)
 }
 
 // StaleBaselineEntry represents a stale entry in the baseline.

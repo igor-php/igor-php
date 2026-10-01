@@ -3,6 +3,7 @@ package auditor
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -695,5 +696,65 @@ func TestAuditor_UnitEdgeCases(t *testing.T) {
 	}
 	if isBuiltinType("MyCustomClass") {
 		t.Error("Expected isBuiltinType to return false for MyCustomClass")
+	}
+}
+
+func TestAuditor_SetFileOverride(t *testing.T) {
+	aud := NewAuditor(config.Config{})
+	fakePath := "/fake/project/src/Service/MyVirtualService.php"
+	overrideContent := []byte(`<?php
+namespace App\Service;
+class MyVirtualService {
+    private $state = 0;
+    public function bump() {
+        $this->state++;
+    }
+}
+`)
+
+	aud.SetFileOverride(fakePath, overrideContent)
+
+	fqcn, err := aud.ExtractFQCN(fakePath)
+	if err != nil {
+		t.Fatalf("ExtractFQCN failed with override: %v", err)
+	}
+	if fqcn != "App\\Service\\MyVirtualService" {
+		t.Errorf("Expected FQCN App\\Service\\MyVirtualService, got %s", fqcn)
+	}
+
+	findings, err := aud.Audit(fakePath, nil)
+	if err != nil {
+		t.Fatalf("Audit failed with override: %v", err)
+	}
+	if len(findings) == 0 {
+		t.Errorf("Expected state mutation finding from in-memory content, got none")
+	}
+}
+
+func TestAuditor_ExtractFQCNs_MultipleClassesAndNamespaces(t *testing.T) {
+	aud := NewAuditor(config.Config{})
+	fakePath := "/fake/project/src/Service/Multi.php"
+	aud.SetFileOverride(fakePath, []byte(`<?php
+namespace App\Model {
+    final class Row {}
+}
+namespace App\Service {
+    trait Loggable {}
+    class ReportService { use Loggable; }
+}
+`))
+
+	fqcns, err := aud.ExtractFQCNs(fakePath)
+	if err != nil {
+		t.Fatalf("ExtractFQCNs failed: %v", err)
+	}
+	expected := []string{"App\\Model\\Row", "App\\Service\\Loggable", "App\\Service\\ReportService"}
+	if !reflect.DeepEqual(fqcns, expected) {
+		t.Errorf("Expected %v, got %v", expected, fqcns)
+	}
+
+	first, _ := aud.ExtractFQCN(fakePath)
+	if first != expected[0] {
+		t.Errorf("Expected ExtractFQCN to return the first class %s, got %s", expected[0], first)
 	}
 }

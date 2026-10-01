@@ -18,12 +18,17 @@ func loadAuditBaseline(rootPath string, cfg *config.Config) config.Baseline {
 	var baseline config.Baseline
 	baseline.Files = make(map[string][]config.BaselineEntry)
 
-	if cfg.BaselinePath != "" {
-		baselineFile := cfg.BaselinePath
-		if !filepath.IsAbs(baselineFile) {
-			baselineFile = filepath.Join(rootPath, baselineFile)
+	baselineFile := cfg.BaselinePath
+	if baselineFile == "" {
+		defaultCandidate := filepath.Join(rootPath, "igor-baseline.json")
+		if _, err := os.Stat(defaultCandidate); err == nil {
+			baselineFile = defaultCandidate
 		}
+	} else if !filepath.IsAbs(baselineFile) {
+		baselineFile = filepath.Join(rootPath, baselineFile)
+	}
 
+	if baselineFile != "" {
 		loaded, err := config.LoadBaseline(baselineFile)
 		if err == nil {
 			baseline = loaded
@@ -33,9 +38,33 @@ func loadAuditBaseline(rootPath string, cfg *config.Config) config.Baseline {
 		}
 	}
 
-	discoverAndMergeExternalBaselines(rootPath, cfg, &baseline)
+	if cfg.TargetFile == "" {
+		discoverAndMergeExternalBaselines(rootPath, cfg, &baseline)
+	} else if strings.Contains(filepath.ToSlash(cfg.TargetFile), "/vendor/") {
+		discoverTargetVendorBaseline(rootPath, cfg.TargetFile, cfg, &baseline)
+	}
 
 	return baseline
+}
+
+func discoverTargetVendorBaseline(rootPath, targetFile string, cfg *config.Config, baseline *config.Baseline) {
+	if cfg.IgnoreExternalBaseline || cfg.CheckBaseline || cfg.PruneBaseline {
+		return
+	}
+	rel, err := filepath.Rel(rootPath, targetFile)
+	if err != nil {
+		return
+	}
+	relVendor, found := strings.CutPrefix(filepath.ToSlash(rel), "vendor/")
+	if !found {
+		return
+	}
+	parts := strings.Split(relVendor, "/")
+	if len(parts) < 2 {
+		return
+	}
+	vendorPkgDir := filepath.Join(rootPath, "vendor", parts[0], parts[1])
+	loadAndMergePackageBaseline(vendorPkgDir, parts[0], parts[1], false, *cfg, baseline)
 }
 
 func discoverAndMergeExternalBaselines(rootPath string, cfg *config.Config, baseline *config.Baseline) {

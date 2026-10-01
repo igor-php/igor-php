@@ -300,3 +300,331 @@ func TestCollectFiles_SameFile_ExcludedAndActive(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectFiles_SingleFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceFile := filepath.Join(tmpDir, "src", "Service", "SingleService.php")
+	if err := os.MkdirAll(filepath.Dir(serviceFile), 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	content := `<?php
+namespace App\Service;
+class SingleService {
+    private $state = [];
+    public function mutate() { $this->state[] = 1; }
+}
+`
+	if err := os.WriteFile(serviceFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write service file: %v", err)
+	}
+
+	cfg := config.Config{
+		TargetFile: serviceFile,
+	}
+	aud := auditor.NewAuditor(cfg)
+
+	list := collectFiles(tmpDir, cfg, aud)
+	if len(list) != 1 {
+		t.Fatalf("Expected exactly 1 item in audit list, got %d", len(list))
+	}
+	if list[0].FilePath != serviceFile {
+		t.Errorf("Expected FilePath %s, got %s", serviceFile, list[0].FilePath)
+	}
+}
+
+func TestFindProjectRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	composerPath := filepath.Join(tmpDir, "composer.json")
+	_ = os.WriteFile(composerPath, []byte("{}"), 0644)
+
+	deepDir := filepath.Join(tmpDir, "src", "Sub", "Service")
+	_ = os.MkdirAll(deepDir, 0755)
+
+	foundRoot := findProjectRoot(deepDir)
+	if foundRoot != tmpDir {
+		t.Errorf("findProjectRoot(%s) = %s, expected %s", deepDir, foundRoot, tmpDir)
+	}
+}
+
+func TestCli_ParseFlags_StdinFilepathAndIncludeIgnored(t *testing.T) {
+	relPath := filepath.Join("src", "Service", "VirtualService.php")
+	args := []string{"igor", "--stdin-filepath", relPath, "--include-ignored", "."}
+	cfg, _, shouldExit, err := parseFlagsAndInit(args)
+	if err != nil {
+		t.Fatalf("parseFlagsAndInit failed: %v", err)
+	}
+	if shouldExit {
+		t.Fatalf("Expected shouldExit to be false, got true")
+	}
+	expectedAbs, _ := filepath.Abs(relPath)
+	if cfg.TargetFile != expectedAbs {
+		t.Errorf("Expected TargetFile %s, got %s", expectedAbs, cfg.TargetFile)
+	}
+	if !cfg.IncludeIgnored {
+		t.Errorf("Expected IncludeIgnored to be true")
+	}
+}
+
+func TestCollectFiles_SingleFile_WithFileOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	virtualFile := filepath.Join(tmpDir, "src", "Service", "InMemoryService.php")
+	content := []byte(`<?php
+namespace App\Service;
+class InMemoryService {
+    private $items = [];
+    public function add($item) { $this->items[] = $item; }
+}
+`)
+
+	cfg := config.Config{
+		TargetFile: virtualFile,
+	}
+	aud := auditor.NewAuditor(cfg)
+	aud.SetFileOverride(virtualFile, content)
+
+	list := collectFiles(tmpDir, cfg, aud)
+	if len(list) != 1 {
+		t.Fatalf("Expected exactly 1 item in audit list, got %d", len(list))
+	}
+	if list[0].ServiceID != "App\\Service\\InMemoryService" {
+		t.Errorf("Expected ServiceID App\\Service\\InMemoryService, got %s", list[0].ServiceID)
+	}
+}
+
+func TestFindProjectRoot_InsideVendor(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte("{}"), 0644)
+	vendorPkgDir := filepath.Join(tmpDir, "vendor", "acme", "foo")
+	_ = os.MkdirAll(filepath.Join(vendorPkgDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(vendorPkgDir, "composer.json"), []byte("{}"), 0644)
+	targetFile := filepath.Join(vendorPkgDir, "src", "Bar.php")
+
+	foundRoot := findProjectRoot(filepath.Dir(targetFile))
+	if foundRoot != tmpDir {
+		t.Errorf("Expected host project root %s, got %s", tmpDir, foundRoot)
+	}
+}
+
+func TestFindProjectRoot_NestedVendor(t *testing.T) {
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(tmpDir, "composer.json"), []byte("{}"), 0644)
+	outerPkgDir := filepath.Join(tmpDir, "vendor", "acme", "foo")
+	innerPkgDir := filepath.Join(outerPkgDir, "vendor", "bar", "baz")
+	_ = os.MkdirAll(filepath.Join(innerPkgDir, "src"), 0755)
+	_ = os.WriteFile(filepath.Join(outerPkgDir, "composer.json"), []byte("{}"), 0644)
+	_ = os.WriteFile(filepath.Join(innerPkgDir, "composer.json"), []byte("{}"), 0644)
+
+	foundRoot := findProjectRoot(filepath.Join(innerPkgDir, "src"))
+	if foundRoot != tmpDir {
+		t.Errorf("Expected host project root %s, got %s", tmpDir, foundRoot)
+	}
+}
+
+func TestCli_BaselineFlags_RejectsSingleFile(t *testing.T) {
+	args := []string{"igor", "--generate-baseline", "--stdin-filepath", "src/Foo.php", "."}
+	_, _, _, err := parseFlagsAndInit(args)
+	if err == nil {
+		t.Fatalf("Expected error when combining --generate-baseline and --stdin-filepath, got nil")
+	}
+}
+
+func TestCollectFiles_SingleFile_SymfonyMultiDefAndUnregistered(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceFile := filepath.Join(tmpDir, "src", "Service", "DualService.php")
+	_ = os.MkdirAll(filepath.Dir(serviceFile), 0755)
+	_ = os.WriteFile(serviceFile, []byte("<?php namespace App\\Service; class DualService {}"), 0644)
+
+	dtoFile := filepath.Join(tmpDir, "src", "DTO", "UserDTO.php")
+	_ = os.MkdirAll(filepath.Dir(dtoFile), 0755)
+	_ = os.WriteFile(dtoFile, []byte("<?php namespace App\\DTO; class UserDTO {}"), 0644)
+
+	cfg := config.Config{}
+	aud := auditor.NewAuditor(cfg)
+	bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", cfg)
+	bridge.Container = &symbol.SymfonyContainer{
+		Definitions: map[string]symbol.SymfonyService{
+			"app.dual_non_shared": {
+				Class:  "App\\Service\\DualService",
+				Shared: false,
+			},
+			"app.dual_shared": {
+				Class:  "App\\Service\\DualService",
+				Shared: true,
+			},
+		},
+	}
+	aud.Symfony = bridge
+
+	// 1. Dual service should deterministically pick the shared definition
+	cfgDual := config.Config{TargetFile: serviceFile}
+	list := collectFiles(tmpDir, cfgDual, aud)
+	if len(list) != 1 {
+		t.Fatalf("Expected 1 item for DualService, got %d", len(list))
+	}
+	if !list[0].IsShared || list[0].ServiceID != "app.dual_shared" {
+		t.Errorf("Expected shared definition app.dual_shared, got %s (shared=%v)", list[0].ServiceID, list[0].IsShared)
+	}
+
+	// 2. Unregistered DTO should return nil (skipped) in Symfony mode
+	cfgDTO := config.Config{TargetFile: dtoFile}
+	listDTO := collectFiles(tmpDir, cfgDTO, aud)
+	if len(listDTO) != 0 {
+		t.Errorf("Expected unregistered DTO to be skipped in Symfony mode, got %d items", len(listDTO))
+	}
+}
+
+func TestEndToEnd_StdinBufferOverride_And_EmptyBuffer(t *testing.T) {
+	tmpDir := t.TempDir()
+	cleanFile := filepath.Join(tmpDir, "src", "Service", "CleanService.php")
+	_ = os.MkdirAll(filepath.Dir(cleanFile), 0755)
+	_ = os.WriteFile(cleanFile, []byte("<?php namespace App\\Service; class CleanService {}"), 0644)
+
+	// 1. Unsaved buffer introduces a state mutation
+	unsavedBuffer := []byte(`<?php
+namespace App\Service;
+class CleanService {
+    private $state = 0;
+    public function bump() { $this->state++; }
+}
+`)
+	cfg := config.Config{TargetFile: cleanFile}
+	aud := auditor.NewAuditor(cfg)
+	aud.SetFileOverride(cleanFile, unsavedBuffer)
+
+	auditList := collectFiles(tmpDir, cfg, aud)
+	results := executeAudit(auditList, aud, cfg, config.Baseline{}, tmpDir)
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+	if len(results[0].Findings) == 0 {
+		t.Errorf("Expected findings for unsaved editor buffer with mutation, got 0")
+	}
+
+	// 2. Unsaved buffer is empty ([]byte{}) -> should yield 0 findings, NOT read disk file
+	audEmpty := auditor.NewAuditor(cfg)
+	audEmpty.SetFileOverride(cleanFile, []byte{})
+	resultsEmpty := executeAudit(auditList, audEmpty, cfg, config.Baseline{}, tmpDir)
+	if len(resultsEmpty) != 1 {
+		t.Fatalf("Expected 1 result for empty buffer, got %d", len(resultsEmpty))
+	}
+	if len(resultsEmpty[0].Findings) != 0 {
+		t.Errorf("Expected 0 findings for empty buffer override, got %d", len(resultsEmpty[0].Findings))
+	}
+}
+
+func TestEndToEnd_IncludeIgnored_StatusIsOK(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "src", "Service", "ExemptService.php")
+	_ = os.MkdirAll(filepath.Dir(file), 0755)
+	code := `<?php
+namespace App\Service;
+class ExemptService {
+    private $count = 0;
+    public function inc() { $this->count++; }
+}
+`
+	_ = os.WriteFile(file, []byte(code), 0644)
+	cfg := config.Config{
+		TargetFile:     file,
+		IncludeIgnored: true,
+	}
+	aud := auditor.NewAuditor(cfg)
+	auditList := collectFiles(tmpDir, cfg, aud)
+
+	// Pre-generate baseline containing this finding
+	rawResults := executeAudit(auditList, aud, config.Config{TargetFile: file}, config.Baseline{}, tmpDir)
+	if len(rawResults) == 0 || len(rawResults[0].Findings) == 0 {
+		t.Fatalf("Expected raw findings, got none")
+	}
+
+	baseline := config.Baseline{
+		Files: map[string][]config.BaselineEntry{
+			filepath.Join("src", "Service", "ExemptService.php"): {
+				{Message: rawResults[0].Findings[0].Message, Reason: "Exempted legacy"},
+			},
+		},
+	}
+
+	results := executeAudit(auditList, aud, cfg, baseline, tmpDir)
+	if len(results) != 1 {
+		t.Fatalf("Expected 1 result, got %d", len(results))
+	}
+	if len(results[0].Findings) == 0 {
+		t.Fatalf("Expected findings to be retained with IncludeIgnored=true, got 0")
+	}
+	if !results[0].Findings[0].Ignored {
+		t.Errorf("Expected finding to be marked Ignored=true")
+	}
+	// Status must be OK because active findings count is 0
+	if results[0].Status != "✅ OK" {
+		t.Errorf("Expected status '✅ OK' for baseline-ignored finding, got %s", results[0].Status)
+	}
+}
+
+func TestCollectFiles_SingleFile_SymfonyInheritedMatchesDeclaredClass(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceFile := filepath.Join(tmpDir, "src", "Service", "FooService.php")
+	baseFile := filepath.Join(tmpDir, "src", "Service", "BaseService.php")
+	_ = os.MkdirAll(filepath.Dir(serviceFile), 0755)
+	_ = os.WriteFile(serviceFile, []byte("<?php namespace App\\Service; class FooService extends BaseService {}"), 0644)
+	_ = os.WriteFile(baseFile, []byte("<?php namespace App\\Service; abstract class BaseService {}"), 0644)
+
+	newAuditor := func() *auditor.Auditor {
+		aud := auditor.NewAuditor(config.Config{})
+		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{})
+		bridge.Container = &symbol.SymfonyContainer{
+			Definitions: map[string]symbol.SymfonyService{
+				"App\\Service\\FooService": {Class: "App\\Service\\FooService", Shared: true},
+			},
+		}
+		bridge.ClassToFile = map[string]string{
+			"App\\Service\\FooService":  serviceFile,
+			"App\\Service\\BaseService": baseFile,
+		}
+		aud.Symfony = bridge
+		return aud
+	}
+
+	// 1. A parent class of a shared service is audited through the reflection mapping
+	list := collectFiles(tmpDir, config.Config{TargetFile: baseFile}, newAuditor())
+	if len(list) != 1 || list[0].ServiceID != "Inherited/App\\Service\\BaseService" {
+		t.Fatalf("Expected parent class to be audited as Inherited/App\\Service\\BaseService, got %+v", list)
+	}
+
+	// 2. An unsaved buffer renaming the service class must not reuse the saved class mapping
+	aud := newAuditor()
+	aud.SetFileOverride(serviceFile, []byte("<?php namespace App\\Service; class RenamedService extends BaseService {}"))
+	listRenamed := collectFiles(tmpDir, config.Config{TargetFile: serviceFile}, aud)
+	if len(listRenamed) != 0 {
+		t.Errorf("Expected unsaved renamed class to be skipped, got %+v", listRenamed)
+	}
+}
+
+func TestCollectFiles_SingleFile_SymfonyServiceAmongSeveralClasses(t *testing.T) {
+	sources := map[string]string{
+		"helper before service": "<?php\nnamespace App\\Service;\nfinal class ReportRow {}\nclass ReportService {}\n",
+		"helper after service":  "<?php\nnamespace App\\Service;\nclass ReportService {}\nfinal class ReportRow {}\n",
+	}
+	for name, source := range sources {
+		t.Run(name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			serviceFile := filepath.Join(tmpDir, "src", "Service", "ReportService.php")
+			_ = os.MkdirAll(filepath.Dir(serviceFile), 0755)
+			_ = os.WriteFile(serviceFile, []byte(source), 0644)
+
+			aud := auditor.NewAuditor(config.Config{})
+			bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{})
+			bridge.Container = &symbol.SymfonyContainer{
+				Definitions: map[string]symbol.SymfonyService{
+					"app.report": {Class: "App\\Service\\ReportService", Shared: true},
+				},
+			}
+			aud.Symfony = bridge
+
+			list := collectFiles(tmpDir, config.Config{TargetFile: serviceFile}, aud)
+			if len(list) != 1 || list[0].ServiceID != "app.report" {
+				t.Fatalf("Expected shared service to be audited as app.report, got %+v", list)
+			}
+		})
+	}
+}

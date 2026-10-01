@@ -139,6 +139,16 @@ func (r *CLIReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, 
 			rankTag = " \033[90m[INFO]\033[0m"
 		}
 
+		// Baseline-exempt findings (--include-ignored) are shown dimmed and never annotated
+		if f.Ignored {
+			fmt.Printf("  %s \033[90m[IGNORED] %s\033[0m\n", sourceIndicator, f.Message)
+			fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
+			if f.IgnoreReason != "" {
+				fmt.Printf("  \033[90m🛡️  Baseline reason: %s\033[0m\n", f.IgnoreReason)
+			}
+			continue
+		}
+
 		// Standard CLI output
 		fmt.Printf("  %s%s %s%s\033[0m\n", sourceIndicator, rankTag, color, f.Message)
 		fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))

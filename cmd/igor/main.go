@@ -25,6 +25,9 @@ func main() {
 
 	// 1. Initialize Components
 	aud := auditor.NewAuditor(cfg)
+	if cfg.StdinContent != nil && cfg.TargetFile != "" {
+		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
+	}
 	rep := setupReporter(cfg)
 
 	// 1b. Load generic container dump (non-shared/transient classes to skip)

@@ -12,6 +12,10 @@ import (
 )
 
 func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	if cfg.TargetFile != "" {
+		return collectSingleFile(rootPath, cfg.TargetFile, cfg, aud)
+	}
+
 	var auditList []symbol.AuditStatus
 	processedFiles := make(map[string]bool)
 
@@ -190,4 +194,109 @@ func collectForcedVendorFiles(rootPath string, cfg config.Config, processed map[
 		})
 	}
 	return list
+}
+
+func collectSingleFile(rootPath string, targetFile string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	cleanTarget, err := filepath.Abs(targetFile)
+	if err != nil {
+		cleanTarget = targetFile
+	}
+
+	if skip, reason := shouldSkipServicePath("", cleanTarget, cfg, aud, rootPath); skip {
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': %s\n", cleanTarget, reason)
+		}
+		return nil
+	}
+
+	fqcns, _ := aud.ExtractFQCNs(cleanTarget)
+	if len(fqcns) == 0 {
+		fqcns = []string{filepath.Base(cleanTarget)}
+	}
+
+	// If Symfony is detected, only audit the file if it backs a shared service
+	if aud.Symfony != nil && aud.Symfony.Container != nil {
+		return collectSingleSymfonyFile(cleanTarget, fqcns, cfg, aud)
+	}
+
+	return []symbol.AuditStatus{{
+		ServiceID: fqcns[0],
+		FilePath:  cleanTarget,
+		Status:    "⏳ PENDING",
+		IsShared:  true,
+	}}
+}
+
+// collectSingleSymfonyFile audits the file if any class it declares backs a shared service,
+// as a project audit would, even when it is not the first class in the file.
+func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Config, aud *auditor.Auditor) []symbol.AuditStatus {
+	hasDefinition := make(map[string]bool)
+	for _, fqcn := range fqcns {
+		serviceID, matchedDef := findTargetDefinition(fqcn, aud)
+		if matchedDef == nil {
+			continue
+		}
+		hasDefinition[fqcn] = true
+		if skip, reason := shouldSkipServiceMeta(serviceID, *matchedDef, aud); skip {
+			if cfg.Verbose {
+				fmt.Fprintf(os.Stderr, "  ⏭️  Skipped service '%s': %s\n", serviceID, reason)
+			}
+			continue
+		}
+		return []symbol.AuditStatus{{
+			ServiceID:    serviceID,
+			FilePath:     cleanTarget,
+			Status:       "⏳ PENDING",
+			Dependencies: extractDependencies(*matchedDef),
+			IsShared:     matchedDef.Shared,
+			IsPublic:     matchedDef.Public,
+		}}
+	}
+
+	// Match parent classes and traits by the classes the file (or editor buffer) declares,
+	// not by path: an unsaved rename must not inherit the saved class's mapping.
+	for _, fqcn := range fqcns {
+		if hasDefinition[fqcn] {
+			continue
+		}
+		path, found := aud.Symfony.ClassToFile[fqcn]
+		if !found || filepath.Clean(path) != cleanTarget {
+			continue
+		}
+		if aud.IsSafeNamespace(fqcn) || aud.Symfony.IsExcludedService(fqcn) {
+			continue
+		}
+		return []symbol.AuditStatus{{
+			ServiceID: "Inherited/" + fqcn,
+			FilePath:  cleanTarget,
+			Status:    "⏳ PENDING",
+			IsShared:  true,
+		}}
+	}
+
+	if cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
+	}
+	return nil
+}
+
+// findTargetDefinition returns the definition backing fqcn, preferring an active shared one
+// so that map iteration order cannot hide it behind an excluded or non-shared definition.
+func findTargetDefinition(fqcn string, aud *auditor.Auditor) (string, *symbol.SymfonyService) {
+	var matchedDef *symbol.SymfonyService
+	var serviceID string
+	for id, def := range aud.Symfony.Container.Definitions {
+		if def.Class != fqcn && id != fqcn {
+			continue
+		}
+		d := def
+		if skip, _ := shouldSkipServiceMeta(id, def, aud); !skip {
+			return id, &d
+		}
+		if matchedDef == nil {
+			matchedDef = &d
+			serviceID = id
+		}
+	}
+	return serviceID, matchedDef
 }

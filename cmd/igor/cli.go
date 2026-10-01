@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,8 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	outputFlag := fs.String("output", "cli", "Output format (cli, llm, json)")
 	containerDumpFlag := fs.String("container-dump", "", "Path to a generic container dump JSON ({\"services\":[{\"class\":...,\"shared\":bool}]}) used to skip transient (non-shared) classes")
 	ignoreExternalBaselineFlag := fs.Bool("ignore-external-baseline", false, "Ignore baseline files defined in external vendor packages")
+	stdinFilePathFlag := fs.String("stdin-filepath", "", "Path of the file when passing file content via standard input (stdin)")
+	includeIgnoredFlag := fs.Bool("include-ignored", false, "Include baseline-ignored findings marked with ignored: true")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -69,31 +72,31 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	}
 
 	parsedArgs := fs.Args()
-	if len(parsedArgs) > 0 {
-		switch parsedArgs[0] {
-		case "init":
-			err := handleInitSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "review":
-			err := handleReviewSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "explain":
-			err := handleExplainSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		case "debug-external-baseline":
-			err := handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
-			return config.Config{}, "", true, err
-		}
+	if handled, err := dispatchSubcommand(parsedArgs, configPath); handled {
+		return config.Config{}, "", true, err
 	}
 
-	if len(parsedArgs) < 1 {
+	if *stdinFilePathFlag == "" && len(parsedArgs) < 1 {
 		fs.Usage()
 		return config.Config{}, "", true, fmt.Errorf("missing target directory to audit")
 	}
-	rootPath, _ := filepath.Abs(parsedArgs[0])
+	targetFile, rootPath := resolveAuditTarget(*stdinFilePathFlag, parsedArgs)
+
+	if (*stdinFilePathFlag != "" || targetFile != "") && (*generateBaselineFlag || *checkBaselineFlag || *pruneBaselineFlag) {
+		return config.Config{}, "", true, fmt.Errorf("baseline management flags (--generate-baseline, --check-baseline, --prune-baseline) cannot be used with a single file target or --stdin-filepath")
+	}
 
 	cfg := config.LoadConfig(rootPath, configPath)
-	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag)
+	cfg.TargetFile = targetFile
+
+	if *stdinFilePathFlag != "" {
+		stdinBytes, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return config.Config{}, "", true, fmt.Errorf("failed to read from standard input: %w", err)
+		}
+		cfg.StdinContent = stdinBytes
+	}
+	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag, includeIgnoredFlag)
 
 	// Display summary of packages
 	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
@@ -107,7 +110,41 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	return cfg, rootPath, false, nil
 }
 
-func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string, ignoreExternalBaselineFlag *bool, checkBaselineFlag, pruneBaselineFlag *bool) {
+// dispatchSubcommand runs the subcommand named by the first positional argument, if any.
+func dispatchSubcommand(parsedArgs []string, configPath string) (bool, error) {
+	if len(parsedArgs) == 0 {
+		return false, nil
+	}
+	switch parsedArgs[0] {
+	case "init":
+		return true, handleInitSubcommand(parsedArgs, configPath)
+	case "review":
+		return true, handleReviewSubcommand(parsedArgs, configPath)
+	case "explain":
+		return true, handleExplainSubcommand(parsedArgs, configPath)
+	case "debug-external-baseline":
+		return true, handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
+	}
+	return false, nil
+}
+
+// resolveAuditTarget returns the single file to audit (empty for a directory audit) and the project root.
+func resolveAuditTarget(stdinFilePath string, parsedArgs []string) (string, string) {
+	if stdinFilePath != "" {
+		targetPath, _ := filepath.Abs(stdinFilePath)
+		return targetPath, findProjectRoot(filepath.Dir(targetPath))
+	}
+	targetPath, _ := filepath.Abs(parsedArgs[0])
+	if fi, err := os.Stat(targetPath); err == nil && !fi.IsDir() {
+		return targetPath, findProjectRoot(filepath.Dir(targetPath))
+	}
+	return "", targetPath
+}
+
+func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verboseFlag, noAgentFlag *bool, outputFlag *string, generateBaselineFlag *bool, baselineFlag, containerDumpFlag *string, ignoreExternalBaselineFlag *bool, checkBaselineFlag, pruneBaselineFlag *bool, includeIgnoredFlag *bool) {
+	if *includeIgnoredFlag {
+		cfg.IncludeIgnored = true
+	}
 	if *consoleFlag != "" {
 		cfg.ConsolePath = *consoleFlag
 	}
@@ -148,4 +185,66 @@ func applyFlagOverrides(cfg *config.Config, consoleFlag, envFlag *string, verbos
 	case cfg.BaselinePath == "" && (cfg.CheckBaseline || cfg.PruneBaseline):
 		cfg.BaselinePath = "igor-baseline.json"
 	}
+}
+
+func findProjectRoot(startDir string) string {
+	clean := filepath.Clean(startDir)
+	slashPath := filepath.ToSlash(clean)
+	// If the file is inside a vendor/ directory, locate the host project root containing vendor/.
+	// Walk vendor/ segments from the outermost one so nested vendor directories resolve to the host application.
+	if strings.Contains(slashPath, "/vendor/") {
+		for offset := 0; ; {
+			idx := strings.Index(slashPath[offset:], "/vendor/")
+			if idx == -1 {
+				break
+			}
+			hostCandidate := clean[:offset+idx]
+			if _, err := os.Stat(filepath.Join(hostCandidate, "composer.json")); err == nil {
+				return hostCandidate
+			}
+			offset += idx + len("/vendor")
+		}
+	} else if strings.HasPrefix(slashPath, "vendor/") {
+		if _, err := os.Stat("composer.json"); err == nil {
+			return "."
+		}
+	}
+
+	// Nearest marked directory inside vendor/, used when no host project contains it
+	// (e.g. an application located under a directory named "vendor")
+	vendorFallback := ""
+	curr := startDir
+	for {
+		// Do not treat a package inside vendor/ as the project root if it has a vendor ancestor
+		isInsideVendor := strings.Contains(filepath.ToSlash(curr), "/vendor/")
+		if hasProjectRootMarker(curr) {
+			if !isInsideVendor {
+				return curr
+			}
+			if vendorFallback == "" {
+				vendorFallback = curr
+			}
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr || parent == "." || parent == "/" {
+			if _, err := os.Stat(filepath.Join(parent, "composer.json")); err == nil {
+				return parent
+			}
+			break
+		}
+		curr = parent
+	}
+	if vendorFallback != "" {
+		return vendorFallback
+	}
+	return startDir
+}
+
+func hasProjectRootMarker(dir string) bool {
+	for _, marker := range []string{"composer.json", filepath.Join("bin", "console"), "igor.json"} {
+		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
 }
