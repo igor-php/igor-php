@@ -12,6 +12,8 @@ services:
       - APP_SECRET=igor_secret
     volumes:
       - .:/app
+      # IgorPhpBundle sources, autoloaded from ../../src/php/ (see composer.json)
+      - ../../src/php:/src/php:ro
     tty: true
 
   php-classic:
@@ -25,4 +27,6 @@ services:
       - APP_SECRET=igor_secret
     volumes:
       - .:/app
+      # IgorPhpBundle sources, autoloaded from ../../src/php/ (see composer.json)
+      - ../../src/php:/src/php:ro
     tty: true
