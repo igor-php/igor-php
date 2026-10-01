@@ -245,15 +245,14 @@ func collectSingleSymfonyFile(cleanTarget, fqcn string, cfg config.Config, aud *
 		}}
 	}
 
-	for class, path := range aud.Symfony.ClassToFile {
-		if filepath.Clean(path) != cleanTarget {
-			continue
-		}
-		if aud.IsSafeNamespace(class) || aud.Symfony.IsExcludedService(class) {
+	// Match parent classes and traits by the class the file (or editor buffer) declares,
+	// not by path: an unsaved rename must not inherit the saved class's mapping.
+	if path, found := aud.Symfony.ClassToFile[fqcn]; found && filepath.Clean(path) == cleanTarget {
+		if aud.IsSafeNamespace(fqcn) || aud.Symfony.IsExcludedService(fqcn) {
 			return nil
 		}
 		return []symbol.AuditStatus{{
-			ServiceID: "Inherited/" + class,
+			ServiceID: "Inherited/" + fqcn,
 			FilePath:  cleanTarget,
 			Status:    "⏳ PENDING",
 			IsShared:  true,

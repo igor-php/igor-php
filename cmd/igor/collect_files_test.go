@@ -560,3 +560,42 @@ class ExemptService {
 		t.Errorf("Expected status '✅ OK' for baseline-ignored finding, got %s", results[0].Status)
 	}
 }
+
+func TestCollectFiles_SingleFile_SymfonyInheritedMatchesDeclaredClass(t *testing.T) {
+	tmpDir := t.TempDir()
+	serviceFile := filepath.Join(tmpDir, "src", "Service", "FooService.php")
+	baseFile := filepath.Join(tmpDir, "src", "Service", "BaseService.php")
+	_ = os.MkdirAll(filepath.Dir(serviceFile), 0755)
+	_ = os.WriteFile(serviceFile, []byte("<?php namespace App\\Service; class FooService extends BaseService {}"), 0644)
+	_ = os.WriteFile(baseFile, []byte("<?php namespace App\\Service; abstract class BaseService {}"), 0644)
+
+	newAuditor := func() *auditor.Auditor {
+		aud := auditor.NewAuditor(config.Config{})
+		bridge := auditor.NewSymfonyBridge(tmpDir, "bin/console", config.Config{})
+		bridge.Container = &symbol.SymfonyContainer{
+			Definitions: map[string]symbol.SymfonyService{
+				"App\\Service\\FooService": {Class: "App\\Service\\FooService", Shared: true},
+			},
+		}
+		bridge.ClassToFile = map[string]string{
+			"App\\Service\\FooService":  serviceFile,
+			"App\\Service\\BaseService": baseFile,
+		}
+		aud.Symfony = bridge
+		return aud
+	}
+
+	// 1. A parent class of a shared service is audited through the reflection mapping
+	list := collectFiles(tmpDir, config.Config{TargetFile: baseFile}, newAuditor())
+	if len(list) != 1 || list[0].ServiceID != "Inherited/App\\Service\\BaseService" {
+		t.Fatalf("Expected parent class to be audited as Inherited/App\\Service\\BaseService, got %+v", list)
+	}
+
+	// 2. An unsaved buffer renaming the service class must not reuse the saved class mapping
+	aud := newAuditor()
+	aud.SetFileOverride(serviceFile, []byte("<?php namespace App\\Service; class RenamedService extends BaseService {}"))
+	listRenamed := collectFiles(tmpDir, config.Config{TargetFile: serviceFile}, aud)
+	if len(listRenamed) != 0 {
+		t.Errorf("Expected unsaved renamed class to be skipped, got %+v", listRenamed)
+	}
+}
