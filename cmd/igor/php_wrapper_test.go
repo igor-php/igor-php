@@ -184,11 +184,15 @@ namespace {
     $cb->definitions['app.inlined_resettable'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedResettable');
     $cb->aliases['App\Service\CacheInterface'] = 'App\Service\ResettableCache';
     $cb->aliases['App\Service\InlinedInterface'] = 'app.inlined_resettable';
+    $cb->definitions['app.dead_service'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\DeadService');
+    $cb->aliases['App\Service\DeadInterface'] = 'app.dead_service';
     $cb->passes[0]['pass']->process($cb);
 
-    // ...then RemovePrivateAliasesPass drops them and app.inlined_resettable gets inlined
+    // ...then RemovePrivateAliasesPass drops them, app.inlined_resettable gets inlined
+    // into ParentService and app.dead_service is pruned as unused
     $cb->aliases = [];
-    unset($cb->definitions['app.inlined_resettable']);
+    unset($cb->definitions['app.inlined_resettable'], $cb->definitions['app.dead_service']);
+    $parentDef->arguments[] = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedResettable');
     $cb->passes[1]['pass']->process($cb);
 
     $mapFile = $cacheDir . '/igor_service_map.json';
@@ -208,6 +212,10 @@ namespace {
     }
     if (($data['aliases']['App\Service\InlinedInterface'] ?? null) !== 'App\Service\InlinedResettable') {
         fwrite(STDERR, "Alias to an inlined service must point to the service class\n");
+        exit(1);
+    }
+    if (isset($data['aliases']['App\Service\DeadInterface'])) {
+        fwrite(STDERR, "Alias to a pruned service must not be exported\n");
         exit(1);
     }
     if (isset($data['definitions']['App\Service\ExcludedService'])) {
@@ -352,6 +360,8 @@ $container->setDefinition('app.parent', $parent);
 
 // 5. Private interface alias (as autowiring registers them), removed by RemovePrivateAliasesPass
 $container->setAlias('Countable', 'app.inlined_helper')->setPublic(false);
+// 6. Private interface alias to the dead service, removed along with it
+$container->setAlias('IteratorAggregate', 'app.unused_dead_service')->setPublic(false);
 
 // 4. Dead/unreferenced private service that Symfony will prune
 $unused = new Definition('SplStack');
@@ -386,6 +396,10 @@ if ($container->hasAlias('Countable')) {
 }
 if (($data['aliases']['Countable'] ?? null) !== 'ArrayObject') {
     fwrite(STDERR, "Private interface alias must be kept in the service map and point to the inlined class\n");
+    exit(1);
+}
+if (isset($data['aliases']['IteratorAggregate'])) {
+    fwrite(STDERR, "Alias to a pruned service must not be exported\n");
     exit(1);
 }
 

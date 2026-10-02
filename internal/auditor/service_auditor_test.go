@@ -1,6 +1,7 @@
 package auditor
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -775,4 +776,51 @@ namespace App\Service {
 	if first != expected[0] {
 		t.Errorf("Expected ExtractFQCN to return the first class %s, got %s", expected[0], first)
 	}
+}
+
+// TestAuditor_ResettableInterfaceAliasFromServiceMap reproduces the service map written by
+// IgorPhpBundle: the private alias "CacheInterface" => "RedisCache" is restored from the alias
+// snapshot and RedisCache was inlined, so only its class identifies it.
+func TestAuditor_ResettableInterfaceAliasFromServiceMap(t *testing.T) {
+	const serviceMap = `{
+		"definitions": {
+			"App\\Service\\ReportService": {"class": "App\\Service\\ReportService", "public": true, "shared": true, "resettable": false, "arguments": []},
+			"inlined.App\\Service\\RedisCache.42": {"class": "App\\Service\\RedisCache", "public": false, "shared": true, "resettable": true, "arguments": []}
+		},
+		"aliases": {
+			"App\\Service\\CacheInterface": "App\\Service\\RedisCache"
+		}
+	}`
+	fixture := filepath.Join("..", "..", "test", "fixtures", "resettable_interface_alias.php")
+
+	audit := func(t *testing.T, removeAlias bool) []symbol.Finding {
+		t.Helper()
+		var container symbol.SymfonyContainer
+		if err := json.Unmarshal([]byte(serviceMap), &container); err != nil {
+			t.Fatalf("invalid service map: %v", err)
+		}
+		if removeAlias {
+			delete(container.Aliases, "App\\Service\\CacheInterface")
+		}
+		a := NewAuditor(config.Config{})
+		a.Symfony = &SymfonyBridge{Container: &container}
+		findings, err := a.Audit(fixture, nil)
+		if err != nil {
+			t.Fatalf("audit failed: %v", err)
+		}
+		return findings
+	}
+
+	t.Run("mutation allowed through the restored interface alias", func(t *testing.T) {
+		if findings := audit(t, false); len(findings) != 0 {
+			t.Errorf("Expected no findings, got %d: %+v", len(findings), findings)
+		}
+	})
+
+	t.Run("mutation flagged when the interface alias is missing", func(t *testing.T) {
+		findings := audit(t, true)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "$this->cache") {
+			t.Errorf("Expected one mutation finding on $this->cache, got %+v", findings)
+		}
+	})
 }

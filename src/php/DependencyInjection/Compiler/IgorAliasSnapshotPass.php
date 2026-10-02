@@ -38,14 +38,22 @@ class IgorAliasSnapshotPass implements CompilerPassInterface
     }
 
     /**
-     * Returns the recorded aliases. An alias whose target no longer exists in $container
-     * (e.g. a private service inlined after the snapshot) points to the target's class instead.
+     * Returns the recorded aliases whose target is still part of $container.
+     *
+     * An alias whose target was inlined after the snapshot points to the target's class, provided
+     * one of $liveClasses still backs it. Aliases to services pruned as unused are dropped.
+     *
+     * @param string[] $liveClasses classes of the definitions exported in the service map, inlined ones included
      */
-    public function getAliases(ContainerBuilder $container): array
+    public function getAliases(ContainerBuilder $container, array $liveClasses): array
     {
+        $liveClasses = array_flip($liveClasses);
         $aliases = [];
         foreach ($this->aliases as $id => $target) {
-            if (!$container->hasDefinition($target) && !$container->hasAlias($target) && isset($this->targetClasses[$id])) {
+            if (!$container->hasDefinition($target) && !$container->hasAlias($target)) {
+                if (!isset($this->targetClasses[$id], $liveClasses[$this->targetClasses[$id]])) {
+                    continue;
+                }
                 $target = $this->targetClasses[$id];
             }
             $aliases[$id] = $target;

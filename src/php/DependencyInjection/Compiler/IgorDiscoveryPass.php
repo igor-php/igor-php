@@ -27,7 +27,8 @@ class IgorDiscoveryPass implements CompilerPassInterface
 
         // Private aliases are already removed at this stage: restore them from the snapshot
         if ($this->aliasSnapshot !== null) {
-            $serviceMap['aliases'] = $this->aliasSnapshot->getAliases($container);
+            $liveClasses = array_column($serviceMap['definitions'], 'class');
+            $serviceMap['aliases'] = $this->aliasSnapshot->getAliases($container, $liveClasses);
         }
         foreach ($container->getAliases() as $id => $alias) {
             $serviceMap['aliases'][$id] = (string) $alias;
