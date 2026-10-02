@@ -25,6 +25,7 @@ func TestPhpWrapperSyntax(t *testing.T) {
 		"../../internal/auditor/find_class_files.php",
 		"../../src/php/IgorPhpBundle.php",
 		"../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php",
+		"../../src/php/DependencyInjection/Compiler/IgorAliasSnapshotPass.php",
 	}
 	for _, f := range files {
 		cmd := exec.Command("php", "-l", f)
@@ -44,6 +45,7 @@ namespace Symfony\Component\DependencyInjection\Compiler {
         public function process(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void;
     }
     class PassConfig {
+        public const TYPE_BEFORE_REMOVING = 'beforeRemoving';
         public const TYPE_AFTER_REMOVING = 'afterRemoving';
     }
 }
@@ -59,6 +61,13 @@ namespace Symfony\Component\DependencyInjection {
         }
         public function getDefinitions(): array { return $this->definitions; }
         public function getAliases(): array { return $this->aliases; }
+        public function hasDefinition(string $id): bool { return isset($this->definitions[$id]); }
+        public function hasAlias(string $id): bool { return isset($this->aliases[$id]); }
+        public function findDefinition(string $id): Definition {
+            while (isset($this->aliases[$id])) { $id = $this->aliases[$id]; }
+            if (!isset($this->definitions[$id])) { throw new \RuntimeException("Unknown service $id"); }
+            return $this->definitions[$id];
+        }
         public function getParameter(string $name): mixed { return $this->parameters[$name] ?? null; }
         public function getParameterBag(): object {
             return new class {
@@ -112,23 +121,30 @@ namespace Symfony\Component\HttpKernel\Bundle {
 namespace {
     require __DIR__ . '/../../src/php/IgorPhpBundle.php';
     require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
+    require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorAliasSnapshotPass.php';
 
-    // 1. Verify bundle registers with PassConfig::TYPE_AFTER_REMOVING
+    // 1. Verify bundle registers the alias snapshot before removing, and the discovery pass after removing
     $cb = new \Symfony\Component\DependencyInjection\ContainerBuilder();
     $bundle = new \IgorPhp\IgorBundle\IgorPhpBundle();
     $bundle->build($cb);
 
-    if (count($cb->passes) !== 1) {
-        fwrite(STDERR, "Expected 1 compiler pass, got " . count($cb->passes) . "\n");
+    if (count($cb->passes) !== 2) {
+        fwrite(STDERR, "Expected 2 compiler passes, got " . count($cb->passes) . "\n");
         exit(1);
     }
-    if ($cb->passes[0]['type'] !== 'afterRemoving') {
-        fwrite(STDERR, "Expected pass type 'afterRemoving', got " . $cb->passes[0]['type'] . "\n");
+    if (!$cb->passes[0]['pass'] instanceof \IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorAliasSnapshotPass || $cb->passes[0]['type'] !== 'beforeRemoving') {
+        fwrite(STDERR, "Expected IgorAliasSnapshotPass registered as 'beforeRemoving', got " . $cb->passes[0]['type'] . "\n");
         exit(1);
     }
-    if ($cb->passes[0]['priority'] >= 0) {
-        fwrite(STDERR, "Expected a negative priority so the pass runs last, got " . $cb->passes[0]['priority'] . "\n");
+    if (!$cb->passes[1]['pass'] instanceof \IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorDiscoveryPass || $cb->passes[1]['type'] !== 'afterRemoving') {
+        fwrite(STDERR, "Expected IgorDiscoveryPass registered as 'afterRemoving', got " . $cb->passes[1]['type'] . "\n");
         exit(1);
+    }
+    foreach ($cb->passes as $registered) {
+        if ($registered['priority'] >= 0) {
+            fwrite(STDERR, "Expected a negative priority so the pass runs last, got " . $registered['priority'] . "\n");
+            exit(1);
+        }
     }
 
     // 2. Verify process() captures inlined services (direct and wrapped) and skips excluded/synthetic
@@ -162,8 +178,22 @@ namespace {
     $cb->definitions['App\Service\ExcludedService'] = $excludedDef;
     $cb->definitions['App\Service\SyntheticService'] = $syntheticDef;
 
-    $pass = new \IgorPhp\IgorBundle\DependencyInjection\Compiler\IgorDiscoveryPass();
-    $pass->process($cb);
+    // Private interface aliases exist before the removing passes...
+    $resettableDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ResettableCache');
+    $cb->definitions['App\Service\ResettableCache'] = $resettableDef;
+    $cb->definitions['app.inlined_resettable'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedResettable');
+    $cb->aliases['App\Service\CacheInterface'] = 'App\Service\ResettableCache';
+    $cb->aliases['App\Service\InlinedInterface'] = 'app.inlined_resettable';
+    $cb->definitions['app.dead_service'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\DeadService');
+    $cb->aliases['App\Service\DeadInterface'] = 'app.dead_service';
+    $cb->passes[0]['pass']->process($cb);
+
+    // ...then RemovePrivateAliasesPass drops them, app.inlined_resettable gets inlined
+    // into ParentService and app.dead_service is pruned as unused
+    $cb->aliases = [];
+    unset($cb->definitions['app.inlined_resettable'], $cb->definitions['app.dead_service']);
+    $parentDef->arguments[] = new \Symfony\Component\DependencyInjection\Definition('App\Service\InlinedResettable');
+    $cb->passes[1]['pass']->process($cb);
 
     $mapFile = $cacheDir . '/igor_service_map.json';
     if (!file_exists($mapFile)) {
@@ -174,6 +204,18 @@ namespace {
 
     if (!isset($data['definitions']['App\Service\ParentService'])) {
         fwrite(STDERR, "ParentService was not found in service map\n");
+        exit(1);
+    }
+    if (($data['aliases']['App\Service\CacheInterface'] ?? null) !== 'App\Service\ResettableCache') {
+        fwrite(STDERR, "Private interface alias removed before the discovery pass must be restored from the snapshot\n");
+        exit(1);
+    }
+    if (($data['aliases']['App\Service\InlinedInterface'] ?? null) !== 'App\Service\InlinedResettable') {
+        fwrite(STDERR, "Alias to an inlined service must point to the service class\n");
+        exit(1);
+    }
+    if (isset($data['aliases']['App\Service\DeadInterface'])) {
+        fwrite(STDERR, "Alias to a pruned service must not be exported\n");
         exit(1);
     }
     if (isset($data['definitions']['App\Service\ExcludedService'])) {
@@ -283,6 +325,7 @@ func TestIgorDiscoveryPass_RealSymfonyCompilation(t *testing.T) {
 require __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';
 require __DIR__ . '/../../src/php/IgorPhpBundle.php';
 require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
+require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorAliasSnapshotPass.php';
 
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
@@ -315,6 +358,11 @@ $wrappedArg = new ServiceClosureArgument(new Reference('app.closure_helper'));
 $parent->setArguments([new Reference('app.inlined_helper'), $wrappedArg]);
 $container->setDefinition('app.parent', $parent);
 
+// 5. Private interface alias (as autowiring registers them), removed by RemovePrivateAliasesPass
+$container->setAlias('Countable', 'app.inlined_helper')->setPublic(false);
+// 6. Private interface alias to the dead service, removed along with it
+$container->setAlias('IteratorAggregate', 'app.unused_dead_service')->setPublic(false);
+
 // 4. Dead/unreferenced private service that Symfony will prune
 $unused = new Definition('SplStack');
 $unused->setPublic(false);
@@ -340,6 +388,18 @@ if (isset($data['definitions']['app.unused_dead_service'])) {
 }
 if (!isset($data['definitions']['app.parent'])) {
     fwrite(STDERR, "Parent service must be in service map\n");
+    exit(1);
+}
+if ($container->hasAlias('Countable')) {
+    fwrite(STDERR, "Private alias should have been removed by RemovePrivateAliasesPass\n");
+    exit(1);
+}
+if (($data['aliases']['Countable'] ?? null) !== 'ArrayObject') {
+    fwrite(STDERR, "Private interface alias must be kept in the service map and point to the inlined class\n");
+    exit(1);
+}
+if (isset($data['aliases']['IteratorAggregate'])) {
+    fwrite(STDERR, "Alias to a pruned service must not be exported\n");
     exit(1);
 }
 

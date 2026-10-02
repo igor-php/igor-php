@@ -9,6 +9,10 @@ use Symfony\Component\DependencyInjection\Reference;
 
 class IgorDiscoveryPass implements CompilerPassInterface
 {
+    public function __construct(private ?IgorAliasSnapshotPass $aliasSnapshot = null)
+    {
+    }
+
     public function process(ContainerBuilder $container): void
     {
         $serviceMap = [
@@ -21,6 +25,11 @@ class IgorDiscoveryPass implements CompilerPassInterface
             $this->collectInlinedDefinitions($definition, $container, $serviceMap, $definition->isShared());
         }
 
+        // Private aliases are already removed at this stage: restore them from the snapshot
+        if ($this->aliasSnapshot !== null) {
+            $liveClasses = array_column($serviceMap['definitions'], 'class');
+            $serviceMap['aliases'] = $this->aliasSnapshot->getAliases($container, $liveClasses);
+        }
         foreach ($container->getAliases() as $id => $alias) {
             $serviceMap['aliases'][$id] = (string) $alias;
         }
