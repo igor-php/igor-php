@@ -584,6 +584,68 @@ Igor will automatically send the audit to the LLM and save the report to `igor-r
 
 ---
 
+## 🩺 Runtime Leak Watch (Experimental)
+
+The static scan reads every line but cannot see mutations reached through magic methods or traits, nor leak shapes nobody wrote a rule for. The bundle ships an opt-in runtime companion for your **test suite and dev environment**: it snapshots every live shared service at the start of each request (right after Symfony has reset the resettable ones) and reports what differs from the previous snapshot.
+
+Enable it in the environments where you want it:
+
+```yaml
+# config/services.yaml
+when@test:
+    parameters:
+        igor.runtime_watch.enabled: true
+        igor.runtime_watch.phases: true   # optional: tells whether the change happened in the controller
+```
+
+Then use the trait in a functional test:
+
+```php
+use IgorPhp\IgorBundle\Runtime\Test\RuntimeLeakAssertionsTrait;
+
+class CartTest extends WebTestCase
+{
+    use RuntimeLeakAssertionsTrait;
+
+    public function testAddingToCartLeavesNothingBehind(): void
+    {
+        $client = $this->createLeakWatchedClient(); // keeps the kernel alive between requests
+        $client->request('GET', '/');               // warm-up: services now exist and have a "before"
+        $client->request('POST', '/cart/add');
+
+        $this->assertNoRuntimeLeaks();
+    }
+}
+```
+
+```text
+✗ Runtime leak after GET /stateful-service  (route: app_leakdemo_stateful)
+  in App\Tests\CartTest::testAddingToCartLeavesNothingBehind
+
+  App\Service\StatefulService
+    ->cache  GROWTH +1
+      array(1) → array(2)
+      + [req_1791017510_108] 'I was here!'
+      seen on 2/2 requests · changed in the controller
+```
+
+In a terminal the report is colored (red for growth, yellow for overwrite); set `NO_COLOR=1` to get plain text inside the failure message instead.
+
+- **What it watches**: instance properties (recursively, through nested objects), static properties, method-local `static` variables, variables captured by stored closures, and process-wide state (timezone, cwd, umask, `ini_set`, `$_ENV`, …).
+- **Growth vs. overwrite**: an array that keeps growing is a memory leak; a value replaced on every request is one request's data reaching the next.
+- **Where reports go**: the test assertion message, `var/log/igor-leaks.jsonl` (one line per leaking request), and your application logger. Request payloads are logged as keys and types only.
+- **What it never does**: instantiate a service, or initialize a lazy object (PHP 8.4 lazy objects, Symfony lazy services, Doctrine proxies).
+- **Silencing**: `#[WorkerSafe]` on a class or property, exactly as for the static scan. Objects from `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `ApiPlatform\` and `Monolog\` are not inspected (override with `igor.runtime_watch.ignore_namespaces`).
+
+> ⚠️ **Limits of the prototype**
+> - It needs a kernel that survives between requests: a FrankenPHP worker, or a test client with reboot disabled (the trait does this). In classic mode every request gets fresh services and there is nothing to compare.
+> - A service created *during* a request has no "before": its first snapshot is its baseline, and leaks on it show from the next request on. Hence the warm-up request above.
+> - It reports **what** changed, not the line that changed it, and reports contain the leaked values themselves. Keep it to dev and test.
+
+See it run against every experiment of the Leak Lab: [`examples/demo-leak/tests/`](examples/demo-leak/tests/).
+
+---
+
 ### Selective Ignoring (Comments & Attributes)
 
 #### 1. Line-by-Line Exclusions

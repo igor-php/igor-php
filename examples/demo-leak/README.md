@@ -45,6 +45,25 @@ Most lab services are public so they are easy to explore, but `src/Model/` and `
 | `App\Internal\OrphanStatefulHelper` | Never injected: removed by `RemoveUnusedDefinitionsPass` | Not audited (it never exists at runtime) |
 | `App\Internal\InlinedRequestCounter` | Injected only into `InlinedConsumerService`: inlined into that singleton | Audited as a shared service (`inlined.*` entry), its `$count` mutation is reported |
 
+## 🩺 Runtime Leak Watch
+
+The lab also demonstrates Igor's experimental runtime watcher: instead of reading the code, it snapshots the live services between requests and reports the state that survived. Its test suite replays the experiments above against a kernel that stays alive between requests, like a worker:
+
+```bash
+make test
+```
+
+- `tests/Functional/LeakLabRuntimeTest.php` requests each experiment and asserts the leak it leaves behind (growing cache, incomplete reset, static property, local static, captured closure, nested object mutation, timezone and process state).
+- `tests/Runtime/ServiceSnapshotterTest.php` shows what the snapshot walker sees and what it refuses to touch (lazy objects, other services, `#[WorkerSafe]` properties).
+
+To see what a report looks like, run a test that fails on purpose after browsing several experiments:
+
+```bash
+make leak-demo
+```
+
+In worker mode (`make start-worker`), the watcher is active too: browse a few experiments, then read `var/log/igor-leaks.jsonl`. Each line is the report of the previous request, written when the next one starts.
+
 ## 🧹 Cleanup
 ```bash
 docker compose down
