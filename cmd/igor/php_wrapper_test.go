@@ -25,6 +25,7 @@ func TestPhpWrapperSyntax(t *testing.T) {
 		"../../internal/auditor/find_class_files.php",
 		"../../src/php/IgorPhpBundle.php",
 		"../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php",
+		"../../src/php/DependencyInjection/Compiler/RuntimeWatchPass.php",
 	}
 	for _, f := range files {
 		cmd := exec.Command("php", "-l", f)
@@ -112,14 +113,19 @@ namespace Symfony\Component\HttpKernel\Bundle {
 namespace {
     require __DIR__ . '/../../src/php/IgorPhpBundle.php';
     require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
+    require __DIR__ . '/../../src/php/DependencyInjection/Compiler/RuntimeWatchPass.php';
 
     // 1. Verify bundle registers with PassConfig::TYPE_AFTER_REMOVING
     $cb = new \Symfony\Component\DependencyInjection\ContainerBuilder();
     $bundle = new \IgorPhp\IgorBundle\IgorPhpBundle();
     $bundle->build($cb);
 
-    if (count($cb->passes) !== 1) {
-        fwrite(STDERR, "Expected 1 compiler pass, got " . count($cb->passes) . "\n");
+    if (count($cb->passes) !== 2) {
+        fwrite(STDERR, "Expected 2 compiler passes, got " . count($cb->passes) . "\n");
+        exit(1);
+    }
+    if (!$cb->passes[1]['pass'] instanceof \IgorPhp\IgorBundle\DependencyInjection\Compiler\RuntimeWatchPass || $cb->passes[1]['type'] !== 'beforeOptimization') {
+        fwrite(STDERR, "Expected the runtime watch pass to be registered before optimization\n");
         exit(1);
     }
     if ($cb->passes[0]['type'] !== 'afterRemoving') {
