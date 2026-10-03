@@ -595,7 +595,7 @@ Enable it in the environments where you want it:
 when@test:
     parameters:
         igor.runtime_watch.enabled: true
-        igor.runtime_watch.phases: true   # optional: tells whether the change happened in the controller
+        igor.runtime_watch.phases: true   # optional: see "Phases" below
 ```
 
 Then add one trait to a functional test class, or to the base class your functional tests extend. Every test in it is checked right after it ran, with no call inside the tests:
@@ -636,14 +636,97 @@ In a terminal the report is colored (red for growth, yellow for overwrite); set 
 
 - **What it watches**: instance properties (recursively, through nested objects), static properties, method-local `static` variables, variables captured by stored closures, and process-wide state (timezone, cwd, umask, `ini_set`, `$_ENV`, …).
 - **Growth vs. overwrite**: an array that keeps growing is a memory leak; a value replaced on every request is one request's data reaching the next.
-- **Where reports go**: the test assertion message, `var/log/igor-leaks.jsonl` (one line per leaking request), and your application logger. Request payloads are logged as keys and types only.
+- **Where reports go**: the failing test, `var/log/igor-leaks.jsonl` and your application logger. See "Reports" below. Request payloads are reported as keys and types only.
 - **What it never does**: instantiate a service, or initialize a lazy object (PHP 8.4 lazy objects, Symfony lazy services, Doctrine proxies).
-- **Silencing**: `#[WorkerSafe]` on a class or property, exactly as for the static scan. Objects from `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `ApiPlatform\` and `Monolog\` are not inspected (override with `igor.runtime_watch.ignore_namespaces`).
+- **Silencing**: `#[WorkerSafe]` on a class or property, exactly as for the static scan, or the `ignore_namespaces` setting below.
 
 > ⚠️ **Limits of the prototype**
 > - It needs a kernel that survives between requests: a FrankenPHP worker, or a test client with reboot disabled (the trait does this). In classic mode every request gets fresh services and there is nothing to compare.
 > - A service created *during* a request has no "before": its first snapshot is its baseline, and leaks on it show from the next request on. Hence the warm-up request above, and a test that makes a single request can only catch leaks on services that already existed, plus process state.
 > - It reports **what** changed, not the line that changed it, and reports contain the leaked values themselves. Keep it to dev and test.
+
+### Reports
+
+A report is built for each request that leaves state behind. It holds every finding of that request, across all services, and a request that leaves nothing behind produces none. Each report goes to three places, and none of them can be switched off on its own:
+
+| Where | What you get |
+| :--- | :--- |
+| The failing test | The text report shown above. It is printed straight to the terminal, because PHPUnit escapes colors inside failure messages. With `NO_COLOR=1` it is part of the failure message instead. |
+| `var/log/igor-leaks.jsonl` | One JSON line per leaking request, see below. |
+| Your application logger | One `warning` per leaking request, not one per finding. The message is the whole plain-text report, on several lines, with every finding. The context key `igor_leak` holds the same report as an array. It uses the `igor` channel when MonologBundle is installed, and Symfony's default logger otherwise. If the application defines no `logger` service, this reporter does nothing. |
+
+A report is written when the *next* request starts, because the comparison needs the service reset that Symfony runs then. In dev, the entry for the last request you made therefore appears once you make another one. In tests, the traits close the last request for you.
+
+**The JSONL file** is created in `var/log/` by default (change it with `igor.runtime_watch.jsonl_path`) and is only ever appended to. One line looks like this, shown formatted here:
+
+```json
+{
+  "ts": "2026-10-03T20:44:43+00:00",
+  "request_number": 3,
+  "method": "GET",
+  "path": "/stateful-service",
+  "route": "app_leakdemo_stateful",
+  "label": null,
+  "payload_shape": { "query": { "tenant": "string" }, "body": [] },
+  "findings": [
+    {
+      "service": "App\\Service\\StatefulService",
+      "class": "App\\Service\\StatefulService",
+      "path": "->cache",
+      "kind": "growth",
+      "before": "array(1)",
+      "after": "array(2)",
+      "delta": 1,
+      "added": ["[req_1791060283_712] 'I was here!'"],
+      "phase": "controller",
+      "occurrences": 2,
+      "requests_observed": 2
+    }
+  ]
+}
+```
+
+| Field | Meaning |
+| :--- | :--- |
+| `ts` | When the report was written, in ISO 8601. |
+| `request_number` | Position of the leaking request among the requests handled since the kernel booted. |
+| `method`, `path`, `route` | The request that left the state behind. |
+| `label` | The test name when one of the test traits set it, otherwise `null`. |
+| `payload_shape` | Keys and value types of the query string and body. Values are never written. |
+| `findings[].service`, `class` | The container id of the service and its class. `@process` stands for process-wide state. |
+| `findings[].path` | Where the state lives: `->cache`, `->filters->disabledFilters`, `::$history` for a static property, … |
+| `findings[].kind` | `growth` (an array gained entries), `overwrite` (a value was replaced) or `initialized` (a lazy object was loaded). |
+| `findings[].before`, `after` | Short summaries of the value, as is. |
+| `findings[].delta`, `added` | For arrays: how many entries were added (negative if some were removed), and the first three added. |
+| `findings[].phase` | See "Phases" below. `null` when phases are off. |
+| `findings[].occurrences`, `requests_observed` | The path changed on `occurrences` of the `requests_observed` requests seen for this service. |
+
+Like the text report, the JSONL file contains the leaked values themselves (`before`, `after`, `added`). They are not redacted.
+
+### Phases
+
+By default a finding says what changed, not when. With `igor.runtime_watch.phases: true`, the watcher also takes a snapshot at `kernel.controller` and one at `kernel.response`, and uses them to label each finding with the phase of the request in which it first appeared:
+
+| `phase` | The change first appeared |
+| :--- | :--- |
+| `before controller` | Before the `kernel.controller` event: in `kernel.request` listeners such as routing or security. |
+| `controller` | Between `kernel.controller` and `kernel.response`: in argument resolution, the controller itself or view listeners. |
+| `after response` | Not before `kernel.response`: in terminate listeners, or any time before the next request starts. |
+
+The text report shows it as "changed in the controller", "changed before controller" or "changed after response". These extra snapshots never create a finding. They cost two more snapshots and comparisons per request, three instead of one, so turn them on while hunting a leak rather than permanently.
+
+### Settings
+
+Only `enabled` is required.
+
+| Parameter | Default | Effect |
+| :--- | :--- | :--- |
+| `igor.runtime_watch.enabled` | `false` | Registers the watcher. Without it nothing is registered and there is no cost. |
+| `igor.runtime_watch.phases` | `false` | Labels each finding with the phase it first appeared in. See "Phases". |
+| `igor.runtime_watch.ignore_namespaces` | `Symfony\`, `Doctrine\`, `Psr\`, `Twig\`, `ApiPlatform\`, `Monolog\`, `IgorPhp\IgorBundle\` | Services from these namespaces are not watched, and such objects found inside another service are recorded by class only. |
+| `igor.runtime_watch.max_depth` | `12` | How deep a snapshot goes into nested objects and arrays. Anything deeper is recorded as truncated, so changes below that point are not seen. |
+| `igor.runtime_watch.max_nodes` | `5000` | Maximum number of values copied per service, with the same effect when exceeded. |
+| `igor.runtime_watch.jsonl_path` | `%kernel.logs_dir%/igor-leaks.jsonl` | Where the JSONL reports are appended. |
 
 See it run against every experiment of the Leak Lab: [`examples/demo-leak/tests/`](examples/demo-leak/tests/).
 
