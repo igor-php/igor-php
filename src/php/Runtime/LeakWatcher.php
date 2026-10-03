@@ -18,6 +18,9 @@ class LeakWatcher
     public const PHASE_CONTROLLER = 'controller';
     public const PHASE_AFTER_RESPONSE = 'after response';
 
+    /** Label used when none was set on the instance; test hooks set it before the kernel exists */
+    public static ?string $defaultLabel = null;
+
     /** @var array<string, array{class: string, tree: mixed}>|null */
     private ?array $previous = null;
     /** @var array<string, mixed> request context of the cycle being observed */
@@ -91,6 +94,11 @@ class LeakWatcher
         }
         $this->closeCycle();
         $this->context = [];
+    }
+
+    public function getRequestCount(): int
+    {
+        return $this->requestNumber;
     }
 
     public function setLabel(?string $label): void
@@ -209,7 +217,7 @@ class LeakWatcher
                 'query' => $this->shape($request->query->all()),
                 'body' => $this->shape($request->request->all()),
             ],
-            'label' => $this->label,
+            'label' => $this->label ?? self::$defaultLabel,
         ];
     }
 
