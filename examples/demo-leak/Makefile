@@ -1,4 +1,4 @@
-.PHONY: install start start-worker start-classic stop cc status logs
+.PHONY: install start start-worker start-classic stop cc status logs test leak-demo
 
 install:
 	composer install --no-progress
@@ -29,3 +29,13 @@ status:
 
 logs:
 	docker compose logs -f
+
+# Runs the runtime leak watcher test suite in Docker (the repo root is mounted so ../../src/php resolves)
+test:
+	docker run --rm -v $(abspath ../..):/repo -w /repo/examples/demo-leak composer:2 \
+		sh -c "composer install --no-progress --no-interaction && php bin/phpunit"
+
+# Runs a test that fails on purpose, to show the report produced when requests leave state behind
+leak-demo:
+	-docker run --rm -v $(abspath ../..):/repo -w /repo/examples/demo-leak composer:2 \
+		sh -c "composer install --no-progress --no-interaction -q && php bin/phpunit tests/Demo/LeakReportDemo.php"
