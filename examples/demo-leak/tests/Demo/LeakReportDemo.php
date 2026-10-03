@@ -2,16 +2,17 @@
 
 namespace App\Tests\Demo;
 
-use IgorPhp\IgorBundle\Runtime\Test\RuntimeLeakAssertionsTrait;
+use IgorPhp\IgorBundle\Runtime\Test\AutoRuntimeLeakCheckTrait;
 use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
 
 /**
  * Fails on purpose, to show the report a test gets when a request leaves state behind.
+ * The test itself asserts nothing about leaks: the trait checks after every test.
  * The file name does not end in "Test.php", so the normal suite skips it. Run it with: make leak-demo
  */
 class LeakReportDemo extends WebTestCase
 {
-    use RuntimeLeakAssertionsTrait;
+    use AutoRuntimeLeakCheckTrait;
 
     private string $timezone;
 
@@ -28,7 +29,7 @@ class LeakReportDemo extends WebTestCase
 
     public function testABrowsingSessionThroughTheLab(): void
     {
-        $client = $this->createLeakWatchedClient();
+        $client = static::createClient();
         $client->request('GET', '/');
 
         $client->request('GET', '/stateful-service?tenant=42');
@@ -40,6 +41,6 @@ class LeakReportDemo extends WebTestCase
         $client->request('GET', '/local-static');
         $client->request('GET', '/poison-timezone');
 
-        $this->assertNoRuntimeLeaks();
+        self::assertResponseIsSuccessful();
     }
 }

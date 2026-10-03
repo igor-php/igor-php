@@ -23,9 +23,12 @@ services:
 
 # Runtime Leak Watch (experimental): snapshots live shared services between requests and reports
 # state that survived. Opt-in, and only meaningful when the kernel survives between requests.
-when@dev: &igor_runtime_watch
+when@dev:
     parameters:
         igor.runtime_watch.enabled: true
         igor.runtime_watch.phases: true
 
-when@test: *igor_runtime_watch
+when@test:
+    parameters:
+        igor.runtime_watch.enabled: true
+        igor.runtime_watch.phases: true
