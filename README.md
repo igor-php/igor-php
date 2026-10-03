@@ -598,29 +598,32 @@ when@test:
         igor.runtime_watch.phases: true   # optional: tells whether the change happened in the controller
 ```
 
-Then use the trait in a functional test:
+Then add one trait to a functional test class, or to the base class your functional tests extend. Every test in it is checked right after it ran, with no call inside the tests:
 
 ```php
-use IgorPhp\IgorBundle\Runtime\Test\RuntimeLeakAssertionsTrait;
+use IgorPhp\IgorBundle\Runtime\Test\AutoRuntimeLeakCheckTrait;
 
-class CartTest extends WebTestCase
+abstract class FunctionalTestCase extends WebTestCase
 {
-    use RuntimeLeakAssertionsTrait;
-
-    public function testAddingToCartLeavesNothingBehind(): void
-    {
-        $client = $this->createLeakWatchedClient(); // keeps the kernel alive between requests
-        $client->request('GET', '/');               // warm-up: services now exist and have a "before"
-        $client->request('POST', '/cart/add');
-
-        $this->assertNoRuntimeLeaks();
-    }
+    use AutoRuntimeLeakCheckTrait;
 }
+```
+
+The trait makes `createClient()` return a client whose kernel survives between requests, as in a worker. A test that leaks fails with the report below. Mark a known leak with `#[AllowRuntimeLeaks(reason: '...')]` on the test method or class.
+
+To check only chosen tests instead, use `RuntimeLeakAssertionsTrait` and call the assertions yourself:
+
+```php
+$client = $this->createLeakWatchedClient(); // keeps the kernel alive between requests
+$client->request('GET', '/');               // warm-up: services now exist and have a "before"
+$client->request('POST', '/cart/add');
+
+$this->assertNoRuntimeLeaks();
 ```
 
 ```text
 ✗ Runtime leak after GET /stateful-service  (route: app_leakdemo_stateful)
-  in App\Tests\CartTest::testAddingToCartLeavesNothingBehind
+  in App\Tests\CartTest::testAddingToCart
 
   App\Service\StatefulService
     ->cache  GROWTH +1
@@ -639,7 +642,7 @@ In a terminal the report is colored (red for growth, yellow for overwrite); set 
 
 > ⚠️ **Limits of the prototype**
 > - It needs a kernel that survives between requests: a FrankenPHP worker, or a test client with reboot disabled (the trait does this). In classic mode every request gets fresh services and there is nothing to compare.
-> - A service created *during* a request has no "before": its first snapshot is its baseline, and leaks on it show from the next request on. Hence the warm-up request above.
+> - A service created *during* a request has no "before": its first snapshot is its baseline, and leaks on it show from the next request on. Hence the warm-up request above, and a test that makes a single request can only catch leaks on services that already existed, plus process state.
 > - It reports **what** changed, not the line that changed it, and reports contain the leaked values themselves. Keep it to dev and test.
 
 See it run against every experiment of the Leak Lab: [`examples/demo-leak/tests/`](examples/demo-leak/tests/).

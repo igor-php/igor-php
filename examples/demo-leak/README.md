@@ -54,6 +54,7 @@ make test
 ```
 
 - `tests/Functional/LeakLabRuntimeTest.php` requests each experiment and asserts the leak it leaves behind (growing cache, incomplete reset, static property, local static, captured closure, nested object mutation, timezone and process state).
+- `tests/Functional/AutoLeakCheckTest.php` uses the automatic mode: one trait on the class, and every test is checked without calling any leak assertion.
 - `tests/Runtime/ServiceSnapshotterTest.php` shows what the snapshot walker sees and what it refuses to touch (lazy objects, other services, `#[WorkerSafe]` properties).
 
 To see what a report looks like, run a test that fails on purpose after browsing several experiments:
