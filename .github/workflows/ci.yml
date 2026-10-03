@@ -73,6 +73,11 @@ jobs:
       - name: Run Tests with Race Detector & Coverage
         run: go test -race -v -coverprofile coverage.out -covermode atomic ./...
 
+      - name: Run Leak Lab runtime watcher tests
+        if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.4'
+        working-directory: examples/demo-leak
+        run: php bin/phpunit
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
