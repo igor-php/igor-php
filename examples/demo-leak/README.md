@@ -4,10 +4,11 @@ This project demonstrates several ways PHP state can "leak" between requests whe
 
 ## 🧪 The Experiments
 
-Start the project using Docker:
+Start the project using Docker (only Docker is required: Composer runs inside the FrankenPHP image):
 ```bash
-docker compose up -d
+make start
 ```
+This builds the image, runs `composer install` in a container and starts both services.
 Then visit [http://localhost:8080](http://localhost:8080) to access the **Igor Leak Lab**.
 
 ### 🔍 What to look for?
