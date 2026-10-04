@@ -11,6 +11,7 @@ use App\Service\StaticLeakService;
 use App\Service\DestructorLeakService;
 use App\Service\ProcessStateLeakService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -26,6 +27,8 @@ class LeakDemoController extends AbstractController
         private LocalStaticService $localStaticService,
         private DestructorLeakService $destructorLeakService,
         private ProcessStateLeakService $processStateLeakService,
+        #[Autowire(env: 'IGOR_RUNTIME_MODE')]
+        private string $runtimeMode,
     ) {}
 
     #[Route('/', name: 'demo_index')]
@@ -172,6 +175,7 @@ class LeakDemoController extends AbstractController
         date_default_timezone_set('America/New_York');
         return new Response("
             <body style='font-family: sans-serif; padding: 20px; text-align: center; padding-top: 50px;'>
+                " . $this->renderModeBanner() . "
                 <h1>⚡ Poison injected!</h1>
                 <p>Timezone changed for this worker thread.</p>
                 <a href='/check-timezone' style='padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>⬅️ Go back and check</a>
@@ -184,6 +188,7 @@ class LeakDemoController extends AbstractController
     {
         echo "
             <body style='font-family: sans-serif; padding: 20px; text-align: center; padding-top: 50px;'>
+                " . $this->renderModeBanner() . "
                 <h1 style='color: #dc3545;'>💀 Worker Terminated</h1>
                 <p>Process PID " . getmypid() . " was killed.</p>
                 <a href='/' style='padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>⬅️ Restart & Back to Lab</a>
@@ -229,6 +234,7 @@ class LeakDemoController extends AbstractController
         
         return new Response("
             <body style='font-family: sans-serif; padding: 20px; text-align: center; padding-top: 50px;'>
+                " . $this->renderModeBanner() . "
                 <h1 style='color: #dc3545;'>⚡ Poison injected!</h1>
                 <p>The softdeleteable filter has been disabled on the shared EntityManager singleton in RAM.</p>
                 <a href='/doctrine-leak' style='padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>⬅️ Go back and check the leak!</a>
@@ -444,6 +450,20 @@ class LeakDemoController extends AbstractController
         return $this->renderLayout($html, true, 'src/Service/ProcessStateLeakService.php', $controllerCode);
     }
 
+    private function renderModeBanner(): string
+    {
+        [$label, $color] = match (strtolower($this->runtimeMode)) {
+            'worker' => ['WORKER', '#dc3545'],
+            'classic' => ['CLASSIC', '#28a745'],
+            default => [strtoupper($this->runtimeMode), '#6c757d'],
+        };
+
+        return "
+            <div style='background: $color; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 20px; font-family: sans-serif; text-align: left;'>
+                <b>⚙️ FrankenPHP mode: $label</b>
+            </div>";
+    }
+
     private function renderLayout(string $content, bool $showBack = false, ?string $codeFile = null, ?string $customCode = null): Response
     {
         $mem = number_format(memory_get_usage() / 1024 / 1024, 3);
@@ -480,6 +500,7 @@ class LeakDemoController extends AbstractController
         $html = "
             <html>
             <body style='font-family: sans-serif; padding: 20px; line-height: 1.6;'>
+                {$this->renderModeBanner()}
                 $content 
                 $codeBoxHtml
                 $back 

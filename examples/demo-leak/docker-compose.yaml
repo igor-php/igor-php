@@ -1,6 +1,6 @@
 services:
   php-worker:
-    image: dunglas/frankenphp
+    build: .
     ports:
       - "8080:80"
       - "443:443"
@@ -8,6 +8,7 @@ services:
     environment:
       - SERVER_NAME=:80
       - FRANKENPHP_CONFIG=worker ./public/index.php 1
+      - IGOR_RUNTIME_MODE=worker
       - APP_ENV=dev
       - APP_SECRET=igor_secret
     volumes:
@@ -17,12 +18,13 @@ services:
     tty: true
 
   php-classic:
-    image: dunglas/frankenphp
+    build: .
     ports:
       - "8081:80"
     environment:
       - SERVER_NAME=:80
       - FRANKENPHP_CONFIG=
+      - IGOR_RUNTIME_MODE=classic
       - APP_ENV=dev
       - APP_SECRET=igor_secret
     volumes:

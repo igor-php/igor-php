@@ -1,7 +1,10 @@
-.PHONY: install start start-worker start-classic stop cc status logs
+.PHONY: build install start start-worker start-classic stop cc status logs
 
-install:
-	composer install --no-progress
+build:
+	docker compose build
+
+install: build
+	docker compose run --rm --no-deps php-classic composer install --no-progress
 
 cc:
 	rm -rf var/cache/*
