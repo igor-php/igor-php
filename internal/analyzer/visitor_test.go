@@ -1688,3 +1688,77 @@ class ServiceD {
 
 
 
+
+func TestPHPVisitor_StaticMutationScopes(t *testing.T) {
+	code := `<?php
+namespace App;
+
+use App\Cache\Registry;
+use App\Cache\Store as Bag;
+
+class ParentHolder { protected static array $cache = []; }
+
+class Writer extends ParentHolder
+{
+    private static int $own = 0;
+
+    public function write(): void
+    {
+        Registry::$data[] = 'x';            // imported class
+        Registry::$hits++;                  // increment
+        \App\Cache\Registry::$data['k'] = 1; // fully-qualified
+        Bag::$items[] = 1;                  // aliased import
+        parent::$cache[] = 'y';             // inherited static
+        Writer::$own++;                     // current class by name
+        self::$own++;                       // control: already detected before
+    }
+
+    public function read(): array
+    {
+        $count = Registry::$hits;           // read only: not a mutation
+        return [Registry::$data, $count];
+    }
+
+    public function ignored(): void
+    {
+        // @igor-ignore
+        Registry::$data[] = 'z';
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	got := make(map[string]int)
+	for _, f := range v.Findings() {
+		got[f.Message]++
+		if f.Severity != "ERROR" {
+			t.Errorf("expected ERROR severity for %q, got %q", f.Message, f.Severity)
+		}
+		if f.ContextMethod != "write" {
+			t.Errorf("unexpected finding outside write(): %q in %s()", f.Message, f.ContextMethod)
+		}
+	}
+
+	want := map[string]int{
+		"Mutation of static state 'App\\Cache\\Registry::$data' in Writer::write()": 2,
+		"Mutation of static state 'App\\Cache\\Registry::$hits' in Writer::write()": 1,
+		"Mutation of static state 'App\\Cache\\Store::$items' in Writer::write()":   1,
+		"Mutation of state 'static::$cache' in Writer::write()":                     1,
+		"Mutation of state 'static::$own' in Writer::write()":                       2,
+	}
+	for msg, n := range want {
+		if got[msg] != n {
+			t.Errorf("expected %d x %q, got %d", n, msg, got[msg])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("unexpected findings: %v", got)
+	}
+}
