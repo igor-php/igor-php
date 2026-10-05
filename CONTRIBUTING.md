@@ -85,6 +85,15 @@ make test
 ```
 *Note: Ensure PHP is available on your path as integration tests call PHP scripts to test reflection and bundle discovery.*
 
+#### Example labs regression test
+`TestLabsRegression` (`cmd/igor/labs_regression_test.go`) runs Igor on both example labs (`examples/demo-leak/` and `examples/demo-leak-laravel/`) and compares every finding with a reviewed snapshot in `cmd/igor/testdata/labs/<lab>.golden`. A change to the engine can no longer drop a detected leak, or add a new finding, without failing the test.
+
+- The Symfony lab is audited through its real container: it needs PHP >= 8.4, `composer install` and `php bin/console cache:clear` in `examples/demo-leak/` (run `make install` there). Otherwise it is skipped, unless `IGOR_LABS_REQUIRED=1` is set, as in CI.
+- When a change in the findings is **intended** (a new rule, a fixed false positive, a new lab experiment), regenerate the snapshots and review the diff in your pull request:
+  ```bash
+  make update-labs        # or: make docker-update-labs
+  ```
+
 ### 3. Linting
 We use `golangci-lint` to maintain Go code quality:
 ```bash

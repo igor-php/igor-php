@@ -1,4 +1,4 @@
-.PHONY: build test lint ci clean run explain debug
+.PHONY: build test lint ci clean run explain debug update-labs
 
 # Build the main binary
 build:
@@ -21,6 +21,10 @@ debug: explain
 test:
 	go test ./... -v
 
+# Rewrite the example labs regression snapshots (cmd/igor/testdata/labs/*.golden) after an intended change
+update-labs:
+	go test ./cmd/igor -run TestLabsRegression -count=1 -update-labs
+
 # Run the linter locally
 # Note: If this fails due to a Go compiler version mismatch, use 'make docker-lint' or reinstall locally with:
 # go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
@@ -36,7 +40,7 @@ clean:
 
 # --- Docker Development Targets ---
 
-.PHONY: docker-build docker-test docker-lint docker-ci docker-explain docker-debug
+.PHONY: docker-build docker-test docker-lint docker-ci docker-explain docker-debug docker-update-labs
 
 # Helper to run commands in the container with Go and golangci-lint caches mounted
 DOCKER_RUN = docker run --rm \
@@ -62,6 +66,10 @@ docker-lint: docker-build
 # Run full CI validation (build, test, lint) within Docker
 docker-ci: docker-build
 	$(DOCKER_RUN) make ci
+
+# Rewrite the example labs regression snapshots within Docker
+docker-update-labs: docker-build
+	$(DOCKER_RUN) make update-labs
 
 # Run the binary within Docker on a target path (usage: make docker-run path=test/fixtures)
 docker-run: docker-build
