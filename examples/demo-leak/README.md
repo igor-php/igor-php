@@ -12,8 +12,8 @@ This builds the image, runs `composer install` in a container and starts both se
 Then visit [http://localhost:8080](http://localhost:8080) to access the **Igor Leak Lab**.
 
 ### 🔍 What to look for?
-In this laboratory, **NOTHING** is stored in a database, session, cookie, or cache file. 
-Everything you see is stored **exclusively in PHP's RAM**.
+In this laboratory, no experiment state is stored in a database, session, cookie, or cache file.
+The leak demonstrations use **PHP's RAM only**, except experiment 11, which writes a disk-backed log (`var/destructor_demo.log`) to show when constructors and destructors run.
 
 1.  **Stateful Service Leak**: Property mutation without ResetInterface.
 2.  **Incomplete Reset Leak**: Implementing ResetInterface but forgetting a property.

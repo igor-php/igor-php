@@ -3,8 +3,9 @@ services:
     build: .
     # Octane boots Laravel once, then serves every request from the same FrankenPHP worker
     command: php artisan octane:frankenphp --host=0.0.0.0 --port=80 --workers=1 --max-requests=100000
+    # Loopback only: the lab exposes routes that leak memory or kill the worker on purpose
     ports:
-      - "8090:80"
+      - "127.0.0.1:8090:80"
     environment:
       - IGOR_RUNTIME_MODE=worker
     volumes:
@@ -14,7 +15,7 @@ services:
   php-classic:
     build: .
     ports:
-      - "8091:80"
+      - "127.0.0.1:8091:80"
     environment:
       - SERVER_NAME=:80
       - FRANKENPHP_CONFIG=

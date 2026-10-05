@@ -1,10 +1,11 @@
 services:
   php-worker:
     build: .
+    # Loopback only: the lab exposes routes that leak memory or kill the worker on purpose
     ports:
-      - "8080:80"
-      - "443:443"
-      - "443:443/udp"
+      - "127.0.0.1:8080:80"
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:443:443/udp"
     environment:
       - SERVER_NAME=:80
       - FRANKENPHP_CONFIG=worker ./public/index.php 1
@@ -20,7 +21,7 @@ services:
   php-classic:
     build: .
     ports:
-      - "8081:80"
+      - "127.0.0.1:8081:80"
     environment:
       - SERVER_NAME=:80
       - FRANKENPHP_CONFIG=

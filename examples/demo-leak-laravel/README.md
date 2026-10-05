@@ -18,8 +18,8 @@ This builds the image, runs `composer install` in a container and starts both se
 The ports differ from the Symfony lab (8080/8081), so both labs can run side by side.
 
 ### 🔍 What to look for?
-In this laboratory, **NOTHING** is stored in a database, session, cookie, or cache file (`SESSION_DRIVER=array`, `CACHE_STORE=array`).
-Everything you see is stored **exclusively in PHP's RAM**.
+In this laboratory, no experiment state is stored in a database, session, cookie, or cache file (`SESSION_DRIVER=array`, `CACHE_STORE=array`).
+The leak demonstrations use **PHP's RAM only**, except experiment 11, which writes a disk-backed log (`storage/destructor_demo.log`) to show when constructors and destructors run.
 
 1.  **Stateful Service Leak**: Property mutation in a warmed singleton.
 2.  **Incomplete Reset Leak**: An Octane `RequestReceived` listener resets the service but forgets a property.

@@ -21,9 +21,10 @@ debug: explain
 test:
 	go test ./... -v
 
-# Rewrite the example labs regression snapshots (cmd/igor/testdata/labs/*.golden) after an intended change
+# Rewrite the example labs regression snapshots (cmd/igor/testdata/labs/*.golden) after an intended change.
+# IGOR_LABS_REQUIRED fails instead of skipping a lab, so no snapshot can be left stale.
 update-labs:
-	go test ./cmd/igor -run TestLabsRegression -count=1 -update-labs
+	IGOR_LABS_REQUIRED=1 go test ./cmd/igor -run TestLabsRegression -count=1 -update-labs
 
 # Run the linter locally
 # Note: If this fails due to a Go compiler version mismatch, use 'make docker-lint' or reinstall locally with:
