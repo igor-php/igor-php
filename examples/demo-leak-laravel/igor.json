@@ -1,0 +1,4 @@
+{
+  "exclude": ["vendor", "storage", "bootstrap/cache"],
+  "safe_namespaces": ["Illuminate\\", "Laravel\\"]
+}

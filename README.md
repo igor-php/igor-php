@@ -344,6 +344,8 @@ Want to understand why Igor is vital for your Worker environment? Check these re
 We've built an **interactive laboratory** using Symfony and FrankenPHP. You can run it locally with Docker and see the memory leaks with your own eyes.
 
 [**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
+
+Running Laravel? A twin lab built on **Laravel Octane** and FrankenPHP lives in [`examples/demo-leak-laravel/`](examples/demo-leak-laravel/README.md).
 ---
 
 ### Deep Audit Mode (Symfony)

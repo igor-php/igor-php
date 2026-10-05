@@ -1,0 +1,8 @@
+/.env.local
+/vendor/
+/public/storage
+/storage/*.key
+/storage/destructor_demo.log
+/frankenphp
+/caddy
+*.log
