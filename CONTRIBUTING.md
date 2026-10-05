@@ -63,6 +63,7 @@ Understanding where everything lives will help you make targeted changes:
 - `src/php/`: The Symfony Bundle (`IgorPhpBundle`) that compiles container definitions.
 - `test/fixtures/`: PHP code fixtures used in integration and visitor tests.
 - `examples/demo-leak/`: The "Igor Leak Lab", a Docker-based Symfony playground used to demonstrate state pollution and memory leaks in FrankenPHP.
+- `examples/demo-leak-laravel/`: The Laravel twin of the Leak Lab, running on Laravel Octane with FrankenPHP workers.
 
 ---
 
