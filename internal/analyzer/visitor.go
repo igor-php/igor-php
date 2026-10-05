@@ -120,8 +120,11 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.handleMutation(n)
 	case "unset_statement":
 		v.handleUnset(n)
-	case "exit_statement", "exit":
-		v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
+	case "exit_statement":
+		// Not "exit" too: it is the anonymous keyword token inside exit_statement
+		v.addExitFinding(n)
+	case "expression_statement":
+		v.handleBareExit(n)
 	case "function_call_expression":
 		v.handleFunctionCall(n)
 	case "member_call_expression":
@@ -477,6 +480,25 @@ var dangerousFunctions = map[string]dangerousFuncRule{
 	},
 }
 
+func (v *PHPVisitor) addExitFinding(n *sitter.Node) {
+	v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
+}
+
+// handleBareExit reports a bare `die;`, which tree-sitter-php parses as a plain name expression.
+func (v *PHPVisitor) handleBareExit(n *sitter.Node) {
+	if n.NamedChildCount() != 1 {
+		return
+	}
+	child := n.NamedChild(0)
+	if child.Kind() != "name" {
+		return
+	}
+	switch strings.ToLower(v.getContent(child)) {
+	case "die", "exit":
+		v.addExitFinding(child)
+	}
+}
+
 func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 	nameNode := n.ChildByFieldName("function")
 	if nameNode == nil {
@@ -491,6 +513,12 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 	isFullyQualified := strings.HasPrefix(rawName, "\\")
 	name := strings.ToLower(rawName)
 	name = strings.TrimPrefix(name, "\\")
+
+	// tree-sitter-php parses die(...) (and exit(...) as a PHP 8.4 function) as a call
+	if name == "die" || name == "exit" {
+		v.addExitFinding(n)
+		return
+	}
 
 	rule, exists := dangerousFunctions[name]
 	if !exists {
