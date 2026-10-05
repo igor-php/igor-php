@@ -4,7 +4,6 @@ src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::destr
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
-src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::heavyLoad | ERROR | Mutation detected on an injected dependency ($this->statefulService). Risk of State Leak in a worker.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::poisonTimezone | WARNING | Function 'date_default_timezone_set' modifies the global PHP process state.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::processStateLeak | WARNING | Function 'chdir' modifies the global PHP process working directory.
