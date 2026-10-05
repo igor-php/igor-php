@@ -1688,3 +1688,53 @@ class ServiceD {
 
 
 
+
+func TestPHPVisitor_ExitAndDie(t *testing.T) {
+	const exitMsg = "Usage of exit/die is forbidden in Worker mode."
+
+	cases := []struct {
+		name string
+		body string
+		want int
+	}{
+		{"exit()", "exit();", 1},
+		{"bare exit", "exit;", 1},
+		{"exit with code", "exit(1);", 1},
+		{"uppercase EXIT", "EXIT;", 1},
+		{"die()", "die();", 1},
+		{"die with message", "die('bye');", 1},
+		{"bare die", "die;", 1},
+		{"or die", "$f = fopen('x', 'r') or die('no file');", 1},
+		{"method named exit", "$this->exit();", 0},
+		{"static method named die", "Process::die();", 0},
+		{"string mentioning die", "$s = 'die';", 0},
+		{"function with a die prefix", "dies();", 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := []byte("<?php\nclass ExitDemo {\n    public function run() {\n        " + tc.body + "\n    }\n}")
+
+			p := sitter.NewParser()
+			_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+			tree := p.Parse(content, nil)
+			defer tree.Close()
+
+			v := NewVisitor(content, &mockEngine{})
+			v.Walk(tree.RootNode())
+
+			got := 0
+			for _, f := range v.Findings() {
+				if f.Message == exitMsg {
+					got++
+					if f.Severity != "ERROR" {
+						t.Errorf("expected ERROR severity, got %q", f.Severity)
+					}
+				}
+			}
+			if got != tc.want {
+				t.Errorf("%s: expected %d exit/die finding(s), got %d", tc.body, tc.want, got)
+			}
+		})
+	}
+}

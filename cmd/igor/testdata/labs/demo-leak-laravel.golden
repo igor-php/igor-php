@@ -4,7 +4,6 @@ app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoContr
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
-app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::heavyLoad | ERROR | Mutation detected on an injected dependency ($this->statefulService). Risk of State Leak in a worker.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::incomplete | ERROR | Mutation detected on an injected dependency ($this->incompleteResetService). Risk of State Leak in a worker.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::lazySingleton | ERROR | Mutation detected on an injected dependency ($this->lazySingletonService). Risk of State Leak in a worker.
