@@ -939,14 +939,32 @@ func (v *PHPVisitor) isRightSideShared(rightContent string) bool {
 
 func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 	scope := n.ChildByFieldName("scope")
-	if scope != nil {
-		s := strings.ToLower(v.getContent(scope))
-		if s == "self" || s == "static" {
-			nameNode := n.ChildByFieldName("name")
-			if nameNode != nil {
-				v.logMutation(n, v.getContent(nameNode), true)
-			}
+	nameNode := n.ChildByFieldName("name")
+	if scope == nil || nameNode == nil {
+		return
+	}
+	prop := v.getContent(nameNode)
+
+	switch s := v.getContent(scope); strings.ToLower(s) {
+	case "self", "static", "parent":
+		// parent::$x is a static of the current class hierarchy, like self::$x
+		v.logMutation(n, prop, true)
+	default:
+		// ClassName::$x: static state persists across requests whichever class writes it
+		target := v.resolveFQCN(s)
+		current := v.curClass
+		if v.namespace != "" {
+			current = v.namespace + "\\" + v.curClass
 		}
+		if v.curClass != "" && target == current {
+			v.logMutation(n, prop, true)
+			return
+		}
+		msg := fmt.Sprintf("Mutation of static state '%s::%s' in %s::%s()", target, prop, v.curClass, v.curMethod)
+		if v.curClass == "" {
+			msg = fmt.Sprintf("Mutation of static state '%s::%s'", target, prop)
+		}
+		v.addFinding(n, msg, "Static properties persist across requests in Worker mode, whichever class writes them.", "ERROR")
 	}
 }
 
