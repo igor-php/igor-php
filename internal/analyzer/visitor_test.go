@@ -1718,6 +1718,7 @@ func TestPHPVisitor_StaticMutationScopes(t *testing.T) {
 		"ERROR Mutation of static state 'App\\Helper\\Registry::$items' in FunctionImportWriter::write()":                      1,
 		"ERROR Mutation of state 'static::$own' in Writer::write()":                                                            3,
 		"WARNING Property 'static::$cache' of ChildWithOwnCache is mutated but not reset in reset().":                          1,
+		"WARNING Property 'static::$cache' of InheritedCacheUser is mutated but not reset in reset().":                         1,
 		"WARNING Property 'static::App\\Cache\\Registry::$hits' of ForgetfulRegistryUser is mutated but not reset in reset().": 1,
 	}
 	for msg, n := range want {

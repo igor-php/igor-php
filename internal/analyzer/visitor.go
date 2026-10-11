@@ -1086,14 +1086,9 @@ func (v *PHPVisitor) performResetCheck() {
 		if v.workerSafeProps[prop] {
 			continue
 		}
-		propName := prop
-		foreign := false
-		if strings.HasPrefix(prop, "static::") {
-			propName = strings.TrimPrefix(strings.TrimPrefix(prop, "static::"), "$")
-			// Another class's static (static::Class::$x) is never declared here, but still persists
-			foreign = strings.Contains(propName, "::")
-		}
-		if !foreign && !v.declaredProps[propName] {
+		// A static write always targets real static state, even one inherited or from a trait,
+		// so only instance properties must be declared in this class to be checked
+		if !strings.HasPrefix(prop, "static::") && !v.declaredProps[prop] {
 			continue
 		}
 		if !v.resetted[prop] {

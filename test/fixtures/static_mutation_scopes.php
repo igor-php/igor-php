@@ -63,6 +63,33 @@ class ResettableRegistryUser implements ResetInterface
     }
 }
 
+// DETECTED (WARNING): the inherited $cache is filled through parent:: but never reset
+class InheritedCacheUser extends ParentHolder implements ResetInterface
+{
+    public function add(string $v): void
+    {
+        parent::$cache[] = $v;
+    }
+
+    public function reset(): void
+    {
+    }
+}
+
+// IGNORED: the inherited $cache is filled and reset
+class InheritedCacheResetter extends ParentHolder implements ResetInterface
+{
+    public function add(string $v): void
+    {
+        static::$cache[] = $v;
+    }
+
+    public function reset(): void
+    {
+        parent::$cache = [];
+    }
+}
+
 // DETECTED (WARNING): the child redeclares $cache, so parent::$cache does not reset it
 class ChildWithOwnCache extends ParentHolder implements ResetInterface
 {
