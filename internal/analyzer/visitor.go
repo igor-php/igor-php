@@ -776,15 +776,11 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 		return
 	}
 
-	// Generic container-dump bypass: the class is registered as a transient (shared: false)
-	// service, so its instance state never outlives a request. Its static properties belong
-	// to the class and do, so static writes are still checked.
-	transient := v.nonSharedServices[strings.TrimPrefix(fullName, "\\")] ||
-		(v.engine != nil && v.engine.IsExplicitlyNonShared(fullName))
-
 	switch n.Kind() {
 	case "member_access_expression":
-		if !transient {
+		// A transient (shared: false) service's instance state never outlives a request. Its
+		// static properties belong to the class and do, so static writes are still checked.
+		if !v.isTransientClass(fullName) {
 			v.handleMemberAccess(n)
 		}
 	case "subscript_expression":
@@ -801,6 +797,12 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 			}
 		}
 	}
+}
+
+// isTransientClass reports whether the container dump registers the class as a non-shared service.
+func (v *PHPVisitor) isTransientClass(fullName string) bool {
+	return v.nonSharedServices[strings.TrimPrefix(fullName, "\\")] ||
+		(v.engine != nil && v.engine.IsExplicitlyNonShared(fullName))
 }
 
 func (v *PHPVisitor) handleMemberAccess(n *sitter.Node) {
