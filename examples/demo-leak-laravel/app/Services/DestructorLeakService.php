@@ -8,9 +8,11 @@ class DestructorLeakService
 
     public function __construct()
     {
-        // Use a persistent file on disk to trace life-cycle events across requests
-        $this->logPath = __DIR__ . '/../../storage/destructor_demo.log';
-        
+        // Use a persistent file on disk to trace life-cycle events across requests.
+        // One log per runtime mode: both lab containers share the same storage/ directory.
+        $mode = preg_replace('/[^a-z]/', '', strtolower((string) config('igor.runtime_mode'))) ?: 'unknown';
+        $this->logPath = __DIR__ . '/../../storage/destructor_demo_' . $mode . '.log';
+
         $this->log("🟢 Constructor called");
     }
 
@@ -38,7 +40,6 @@ class DestructorLeakService
     {
         $time = date('H:i:s');
         $pid = getmypid();
-        $mode = php_sapi_name() === 'cli' ? 'WORKER' : 'CLASSIC/FPM';
         // Append life-cycle event to file
         file_put_contents(
             $this->logPath,

@@ -358,7 +358,7 @@ class LeakDemoController extends Controller
                     <a href='/destructor-leak?action=clear' style='display: inline-block; padding: 10px 20px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 10px;'>🗑️ Clear Log File</a>
                  </div>
                  
-                 <h3>📄 Life-cycle Event Log File (storage/destructor_demo.log):</h3>
+                 <h3>📄 Life-cycle Event Log File (storage/destructor_demo_&lt;mode&gt;.log):</h3>
                  <pre style='background: #1a202c; color: #f7fafc; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 0.95em; overflow-x: auto;'>".htmlspecialchars($logContent, ENT_QUOTES, 'UTF-8')."</pre>";
 
         $controllerCode = "<?php\n" .

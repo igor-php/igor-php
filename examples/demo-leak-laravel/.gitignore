@@ -2,7 +2,7 @@
 /vendor/
 /public/storage
 /storage/*.key
-/storage/destructor_demo.log
+/storage/destructor_demo_*.log
 /frankenphp
 /caddy
 *.log

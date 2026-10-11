@@ -8,7 +8,7 @@ install: build
 
 cc:
 	rm -f bootstrap/cache/*.php
-	rm -f storage/logs/*.log storage/destructor_demo.log
+	rm -f storage/logs/*.log storage/destructor_demo_*.log
 
 start: install
 	docker compose up -d
