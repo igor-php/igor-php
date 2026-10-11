@@ -349,8 +349,8 @@ class LeakDemoController extends Controller
                  <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 20px;'>
                     <b>🔍 The Experiment:</b><br>
                     1. Click <b>\"Clear Log File\"</b> below to start fresh.<br>
-                    2. In <b>Classic mode (port 8081)</b>, refresh the page. Notice how every single refresh appends BOTH <code>🟢 Constructor called</code> AND <code>🔴 Destructor called</code> because PHP destroys the service at the end of every request.<br>
-                    3. In <b>Worker mode (port 8080)</b>, refresh the page. Only <code>🟢 Constructor called</code> will appear (the very first time the worker starts), but <code>🔴 Destructor called</code> is **NEVER** called!
+                    2. In <b>Classic mode (port 8091)</b>, refresh the page. Notice how every single refresh appends BOTH <code>🟢 Constructor called</code> AND <code>🔴 Destructor called</code> because PHP destroys the service at the end of every request.<br>
+                    3. In <b>Worker mode (port 8090)</b>, refresh the page. Only <code>🟢 Constructor called</code> will appear (the very first time the worker starts), but <code>🔴 Destructor called</code> is **NEVER** called!
                  </div>
 
                  <div style='margin-bottom: 20px;'>
@@ -407,8 +407,8 @@ class LeakDemoController extends Controller
                  <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #e83e8c; margin-bottom: 20px;'>
                     <b>🔍 The Experiment:</b><br>
                     Functions like <code>chdir()</code>, <code>umask()</code>, <code>mb_internal_encoding()</code>, or <code>gc_disable()</code> mutate process-wide C/PHP state.<br>
-                    In <b>Classic Mode (port 8081)</b>, every request runs in a fresh process, so mutations disappear immediately on the next request.<br>
-                    In <b>Worker Mode (port 8080)</b>, the worker process stays alive! Any mutation persists across subsequent requests, altering path lookups, file permissions, string encoding, or disabling the garbage collector entirely until OOM!
+                    In <b>Classic Mode (port 8091)</b>, every request runs in a fresh process, so mutations disappear immediately on the next request.<br>
+                    In <b>Worker Mode (port 8090)</b>, the worker process stays alive! Any mutation persists across subsequent requests, altering path lookups, file permissions, string encoding, or disabling the garbage collector entirely until OOM!
                  </div>
 
                  <div style='margin-bottom: 20px;'>
