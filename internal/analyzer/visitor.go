@@ -977,14 +977,72 @@ func (v *PHPVisitor) isRightSideShared(rightContent string) bool {
 
 func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 	scope := n.ChildByFieldName("scope")
-	if scope != nil {
-		s := strings.ToLower(v.getContent(scope))
-		if s == "self" || s == "static" {
-			nameNode := n.ChildByFieldName("name")
-			if nameNode != nil {
-				v.logMutation(n, v.getContent(nameNode), true)
-			}
+	nameNode := n.ChildByFieldName("name")
+	if scope == nil || nameNode == nil {
+		return
+	}
+	prop := v.getContent(nameNode)
+
+	switch s := v.getContent(scope); strings.ToLower(s) {
+	case "self", "static":
+		v.logMutation(n, prop, true)
+	case "parent":
+		// parent::$x is the current class's static unless the class redeclares it
+		if v.declaredProps[strings.TrimPrefix(prop, "$")] {
+			v.logForeignStaticMutation(n, "parent", prop, false)
+			return
 		}
+		v.logMutation(n, prop, true)
+	default:
+		// ClassName::$x: static state persists across requests whichever class writes it
+		target := s
+		k := scope.Kind()
+		dynamic := k != "name" && k != "qualified_name"
+		if !dynamic {
+			target = v.resolveFQCN(s)
+		} // else a dynamic scope ($class::$x): keep the expression as written
+		current := v.curClass
+		if v.namespace != "" {
+			current = v.namespace + "\\" + v.curClass
+		}
+		// PHP class names are case-insensitive
+		if v.curClass != "" && strings.EqualFold(target, current) {
+			v.logMutation(n, prop, true)
+			return
+		}
+		v.logForeignStaticMutation(n, target, prop, dynamic)
+	}
+}
+
+// logForeignStaticMutation tracks a write to another class's static property. Like a write to
+// the class's own statics, it counts as a reset inside reset() and must be reset in resettable classes.
+func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop string, dynamic bool) {
+	key := "static::" + target + "::" + prop
+	if v.curMethod == "reset" {
+		// A cleanup counts even on an excluded line; $class::$x may target another class
+		if !dynamic {
+			v.resetted[key] = true
+		}
+		return
+	}
+	// Explicit exclusions apply before the write is tracked for the reset check
+	if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
+		return
+	}
+	switch {
+	case v.isReset && !dynamic:
+		v.mutated[key] = mutationInfo{
+			line:       int(n.StartPosition().Row) + 1,
+			code:       v.lines[n.StartPosition().Row],
+			snippet:    v.getContent(n),
+			astDetails: n.ToSexp(),
+		}
+	default:
+		msg := fmt.Sprintf("Mutation of static state '%s::%s' in %s::%s()", target, prop, v.curClass, v.curMethod)
+		if v.curClass == "" {
+			msg = fmt.Sprintf("Mutation of static state '%s::%s'", target, prop)
+		}
+		v.addFinding(n, msg, "Static properties persist across requests in Worker mode, whichever class writes them.", "ERROR")
 	}
 }
 
@@ -1006,6 +1064,10 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 	case v.curMethod == "reset":
 		v.resetted[key] = true
 	case v.isReset:
+		// Explicit exclusions apply before the write is tracked for the reset check
+		if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
+			return
+		}
 		v.mutated[key] = mutationInfo{
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
@@ -1028,11 +1090,9 @@ func (v *PHPVisitor) performResetCheck() {
 		if v.workerSafeProps[prop] {
 			continue
 		}
-		propName := prop
-		if strings.HasPrefix(prop, "static::") {
-			propName = strings.TrimPrefix(prop, "static::")
-		}
-		if !v.declaredProps[propName] {
+		// A static write always targets real static state, even one inherited or from a trait,
+		// so only instance properties must be declared in this class to be checked
+		if !strings.HasPrefix(prop, "static::") && !v.declaredProps[prop] {
 			continue
 		}
 		if !v.resetted[prop] {
@@ -1052,6 +1112,15 @@ func (v *PHPVisitor) performResetCheck() {
 	}
 }
 
+// isIgnoredLine reports whether the node's line or the line above it carries @igor-ignore.
+func (v *PHPVisitor) isIgnoredLine(n *sitter.Node) bool {
+	row := int(n.StartPosition().Row)
+	if strings.Contains(v.lines[row], "@igor-ignore") {
+		return true
+	}
+	return row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore")
+}
+
 func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 	if v.isWorkerSafeClass || v.isWorkerSafeMethod {
 		return
@@ -1065,17 +1134,11 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 		return
 	}
 
+	if v.isIgnoredLine(n) {
+		return
+	}
+
 	row := int(n.StartPosition().Row)
-	lineContent := v.lines[row]
-
-	// Check if the current line or the previous line contains @igor-ignore
-	if strings.Contains(lineContent, "@igor-ignore") {
-		return
-	}
-	if row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore") {
-		return
-	}
-
 	v.findings = append(v.findings, symbol.Finding{
 		Message:       msg,
 		Line:          row + 1,
@@ -1554,27 +1617,14 @@ func (v *PHPVisitor) resolveFQCN(typeName string) string {
 	}
 
 	// 1. Search among the "use" imports of the current file
-	for _, line := range v.lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "use ") && strings.HasSuffix(line, ";") {
-			importPart := strings.TrimSuffix(strings.TrimPrefix(line, "use "), ";")
-			importPart = strings.TrimSpace(importPart)
-			if strings.Contains(importPart, " as ") {
-				parts := strings.Split(importPart, " as ")
-				if len(parts) == 2 {
-					fqcn := strings.TrimSpace(parts[0])
-					alias := strings.TrimSpace(parts[1])
-					if alias == typeName {
-						return fqcn
-					}
-				}
-			} else {
-				parts := strings.Split(importPart, "\\")
-				lastPart := parts[len(parts)-1]
-				if lastPart == typeName {
-					return importPart
-				}
-			}
+	if fqcn, ok := v.lookupImport(typeName); ok {
+		return fqcn
+	}
+
+	// 1b. Qualified name (Alias\Foo): an import can only match its first segment
+	if first, rest, ok := strings.Cut(typeName, "\\"); ok {
+		if fqcn, ok := v.lookupImport(first); ok {
+			return fqcn + "\\" + rest
 		}
 	}
 
@@ -1583,6 +1633,38 @@ func (v *PHPVisitor) resolveFQCN(typeName string) string {
 		return v.namespace + "\\" + typeName
 	}
 	return typeName
+}
+
+// lookupImport resolves a class name or alias through the "use" imports of the current file.
+func (v *PHPVisitor) lookupImport(typeName string) (string, bool) {
+	for _, line := range v.lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "use ") && strings.HasSuffix(line, ";") {
+			importPart := strings.TrimSuffix(strings.TrimPrefix(line, "use "), ";")
+			importPart = strings.TrimSpace(importPart)
+			// Function and constant imports never name a class
+			if strings.HasPrefix(importPart, "function ") || strings.HasPrefix(importPart, "const ") {
+				continue
+			}
+			if strings.Contains(importPart, " as ") {
+				parts := strings.Split(importPart, " as ")
+				if len(parts) == 2 {
+					fqcn := strings.TrimSpace(parts[0])
+					alias := strings.TrimSpace(parts[1])
+					if alias == typeName {
+						return fqcn, true
+					}
+				}
+			} else {
+				parts := strings.Split(importPart, "\\")
+				lastPart := parts[len(parts)-1]
+				if lastPart == typeName {
+					return importPart, true
+				}
+			}
+		}
+	}
+	return "", false
 }
 
 // getFinallyCleanedProperties scans a finally_clause AST node to extract properties of $this that are cleaned up.

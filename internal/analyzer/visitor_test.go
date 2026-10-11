@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1686,8 +1688,48 @@ class ServiceD {
 	}
 }
 
+func TestPHPVisitor_StaticMutationScopes(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "static_mutation_scopes.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
 
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
 
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	got := make(map[string]int)
+	for _, f := range v.Findings() {
+		got[f.Severity+" "+f.Message]++
+	}
+
+	want := map[string]int{
+		"ERROR Mutation of static state 'App\\Cache\\Registry::$data' in Writer::write()":                                      2,
+		"ERROR Mutation of static state 'App\\Cache\\Registry::$hits' in Writer::write()":                                      1,
+		"ERROR Mutation of static state 'App\\Cache\\Store::$items' in Writer::write()":                                        1,
+		"ERROR Mutation of static state 'App\\Shared\\Registry::$items' in Writer::write()":                                    1,
+		"ERROR Mutation of state 'static::$cache' in Writer::write()":                                                          1,
+		"ERROR Mutation of static state '$class::$data' in DynamicWriter::write()":                                             1,
+		"ERROR Mutation of static state '$class::$data' in ResettableDynamicWriter::add()":                                     1,
+		"ERROR Mutation of static state 'App\\Helper\\Registry::$items' in FunctionImportWriter::write()":                      1,
+		"ERROR Mutation of state 'static::$own' in Writer::write()":                                                            3,
+		"WARNING Property 'static::$cache' of ChildWithOwnCache is mutated but not reset in reset().":                          1,
+		"WARNING Property 'static::$cache' of InheritedCacheUser is mutated but not reset in reset().":                         1,
+		"WARNING Property 'static::App\\Cache\\Registry::$hits' of ForgetfulRegistryUser is mutated but not reset in reset().": 1,
+	}
+	for msg, n := range want {
+		if got[msg] != n {
+			t.Errorf("expected %d x %q, got %d", n, msg, got[msg])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("unexpected findings: %v", got)
+	}
+}
 
 func TestPHPVisitor_ExitAndDie(t *testing.T) {
 	const exitMsg = "Usage of exit/die is forbidden in Worker mode."
