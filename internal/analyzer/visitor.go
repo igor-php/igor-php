@@ -957,7 +957,10 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 		v.logMutation(n, prop, true)
 	default:
 		// ClassName::$x: static state persists across requests whichever class writes it
-		target := v.resolveFQCN(s)
+		target := s
+		if k := scope.Kind(); k == "name" || k == "qualified_name" {
+			target = v.resolveFQCN(s)
+		} // else a dynamic scope ($class::$x): keep the expression as written
 		current := v.curClass
 		if v.namespace != "" {
 			current = v.namespace + "\\" + v.curClass

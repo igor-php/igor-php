@@ -90,3 +90,12 @@ class ForgetfulRegistryUser implements ResetInterface
     {
     }
 }
+
+// DETECTED: a dynamic scope is reported as written, not resolved against the namespace
+class DynamicWriter
+{
+    public function write(string $class): void
+    {
+        $class::$data[] = 1;
+    }
+}
