@@ -951,14 +951,16 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 	case "parent":
 		// parent::$x is the current class's static unless the class redeclares it
 		if v.declaredProps[strings.TrimPrefix(prop, "$")] {
-			v.logForeignStaticMutation(n, "parent", prop)
+			v.logForeignStaticMutation(n, "parent", prop, false)
 			return
 		}
 		v.logMutation(n, prop, true)
 	default:
 		// ClassName::$x: static state persists across requests whichever class writes it
 		target := s
-		if k := scope.Kind(); k == "name" || k == "qualified_name" {
+		k := scope.Kind()
+		dynamic := k != "name" && k != "qualified_name"
+		if !dynamic {
 			target = v.resolveFQCN(s)
 		} // else a dynamic scope ($class::$x): keep the expression as written
 		current := v.curClass
@@ -970,18 +972,26 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 			v.logMutation(n, prop, true)
 			return
 		}
-		v.logForeignStaticMutation(n, target, prop)
+		v.logForeignStaticMutation(n, target, prop, dynamic)
 	}
 }
 
 // logForeignStaticMutation tracks a write to another class's static property. Like a write to
 // the class's own statics, it counts as a reset inside reset() and must be reset in resettable classes.
-func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop string) {
+func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop string, dynamic bool) {
+	// Explicit exclusions apply before the write is tracked for the reset check
+	if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
+		return
+	}
 	key := "static::" + target + "::" + prop
 	switch {
 	case v.curMethod == "reset":
+		if dynamic {
+			// $class::$x in reset() may target another class than the write it would cover
+			return
+		}
 		v.resetted[key] = true
-	case v.isReset:
+	case v.isReset && !dynamic:
 		v.mutated[key] = mutationInfo{
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
@@ -1064,6 +1074,15 @@ func (v *PHPVisitor) performResetCheck() {
 	}
 }
 
+// isIgnoredLine reports whether the node's line or the line above it carries @igor-ignore.
+func (v *PHPVisitor) isIgnoredLine(n *sitter.Node) bool {
+	row := int(n.StartPosition().Row)
+	if strings.Contains(v.lines[row], "@igor-ignore") {
+		return true
+	}
+	return row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore")
+}
+
 func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 	if v.isWorkerSafeClass || v.isWorkerSafeMethod {
 		return
@@ -1077,17 +1096,11 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 		return
 	}
 
+	if v.isIgnoredLine(n) {
+		return
+	}
+
 	row := int(n.StartPosition().Row)
-	lineContent := v.lines[row]
-
-	// Check if the current line or the previous line contains @igor-ignore
-	if strings.Contains(lineContent, "@igor-ignore") {
-		return
-	}
-	if row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore") {
-		return
-	}
-
 	v.findings = append(v.findings, symbol.Finding{
 		Message:       msg,
 		Line:          row + 1,
@@ -1591,6 +1604,10 @@ func (v *PHPVisitor) lookupImport(typeName string) (string, bool) {
 		if strings.HasPrefix(line, "use ") && strings.HasSuffix(line, ";") {
 			importPart := strings.TrimSuffix(strings.TrimPrefix(line, "use "), ";")
 			importPart = strings.TrimSpace(importPart)
+			// Function and constant imports never name a class
+			if strings.HasPrefix(importPart, "function ") || strings.HasPrefix(importPart, "const ") {
+				continue
+			}
 			if strings.Contains(importPart, " as ") {
 				parts := strings.Split(importPart, " as ")
 				if len(parts) == 2 {

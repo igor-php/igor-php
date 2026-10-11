@@ -5,6 +5,7 @@ use App\Cache\Registry;
 use App\Cache\Store as Bag;
 use App\Shared as Data;
 use Symfony\Contracts\Service\ResetInterface;
+use function Vendor\helper as Helper;
 
 class ParentHolder { protected static array $cache = []; }
 
@@ -97,5 +98,43 @@ class DynamicWriter
     public function write(string $class): void
     {
         $class::$data[] = 1;
+    }
+}
+
+// IGNORED: @igor-ignore also applies to writes tracked for the reset check
+class ResettableIgnoredWriter implements ResetInterface
+{
+    public function add(): void
+    {
+        // @igor-ignore
+        Registry::$hits++;
+    }
+
+    public function reset(): void
+    {
+    }
+}
+
+// DETECTED: a dynamic scope is never matched against a reset, even in a resettable class
+class ResettableDynamicWriter implements ResetInterface
+{
+    public function add(string $class): void
+    {
+        $class::$data[] = 1;
+    }
+
+    public function reset(): void
+    {
+        $class = Registry::class;
+        $class::$data = [];
+    }
+}
+
+// DETECTED: a function import is not a namespace alias
+class FunctionImportWriter
+{
+    public function write(): void
+    {
+        Helper\Registry::$items[] = 1;
     }
 }

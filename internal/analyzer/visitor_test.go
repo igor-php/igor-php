@@ -1714,6 +1714,8 @@ func TestPHPVisitor_StaticMutationScopes(t *testing.T) {
 		"ERROR Mutation of static state 'App\\Shared\\Registry::$items' in Writer::write()":                                    1,
 		"ERROR Mutation of state 'static::$cache' in Writer::write()":                                                          1,
 		"ERROR Mutation of static state '$class::$data' in DynamicWriter::write()":                                             1,
+		"ERROR Mutation of static state '$class::$data' in ResettableDynamicWriter::add()":                                     1,
+		"ERROR Mutation of static state 'App\\Helper\\Registry::$items' in FunctionImportWriter::write()":                      1,
 		"ERROR Mutation of state 'static::$own' in Writer::write()":                                                            3,
 		"WARNING Property 'static::$cache' of ChildWithOwnCache is mutated but not reset in reset().":                          1,
 		"WARNING Property 'static::App\\Cache\\Registry::$hits' of ForgetfulRegistryUser is mutated but not reset in reset().": 1,
