@@ -946,8 +946,14 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 	prop := v.getContent(nameNode)
 
 	switch s := v.getContent(scope); strings.ToLower(s) {
-	case "self", "static", "parent":
-		// parent::$x is a static of the current class hierarchy, like self::$x
+	case "self", "static":
+		v.logMutation(n, prop, true)
+	case "parent":
+		// parent::$x is the current class's static unless the class redeclares it
+		if v.declaredProps[strings.TrimPrefix(prop, "$")] {
+			v.logForeignStaticMutation(n, "parent", prop)
+			return
+		}
 		v.logMutation(n, prop, true)
 	default:
 		// ClassName::$x: static state persists across requests whichever class writes it
@@ -956,10 +962,30 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 		if v.namespace != "" {
 			current = v.namespace + "\\" + v.curClass
 		}
-		if v.curClass != "" && target == current {
+		// PHP class names are case-insensitive
+		if v.curClass != "" && strings.EqualFold(target, current) {
 			v.logMutation(n, prop, true)
 			return
 		}
+		v.logForeignStaticMutation(n, target, prop)
+	}
+}
+
+// logForeignStaticMutation tracks a write to another class's static property. Like a write to
+// the class's own statics, it counts as a reset inside reset() and must be reset in resettable classes.
+func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop string) {
+	key := "static::" + target + "::" + prop
+	switch {
+	case v.curMethod == "reset":
+		v.resetted[key] = true
+	case v.isReset:
+		v.mutated[key] = mutationInfo{
+			line:       int(n.StartPosition().Row) + 1,
+			code:       v.lines[n.StartPosition().Row],
+			snippet:    v.getContent(n),
+			astDetails: n.ToSexp(),
+		}
+	default:
 		msg := fmt.Sprintf("Mutation of static state '%s::%s' in %s::%s()", target, prop, v.curClass, v.curMethod)
 		if v.curClass == "" {
 			msg = fmt.Sprintf("Mutation of static state '%s::%s'", target, prop)
@@ -1009,10 +1035,13 @@ func (v *PHPVisitor) performResetCheck() {
 			continue
 		}
 		propName := prop
+		foreign := false
 		if strings.HasPrefix(prop, "static::") {
-			propName = strings.TrimPrefix(prop, "static::")
+			propName = strings.TrimPrefix(strings.TrimPrefix(prop, "static::"), "$")
+			// Another class's static (static::Class::$x) is never declared here, but still persists
+			foreign = strings.Contains(propName, "::")
 		}
-		if !v.declaredProps[propName] {
+		if !foreign && !v.declaredProps[propName] {
 			continue
 		}
 		if !v.resetted[prop] {
@@ -1534,6 +1563,26 @@ func (v *PHPVisitor) resolveFQCN(typeName string) string {
 	}
 
 	// 1. Search among the "use" imports of the current file
+	if fqcn, ok := v.lookupImport(typeName); ok {
+		return fqcn
+	}
+
+	// 1b. Qualified name (Alias\Foo): an import can only match its first segment
+	if first, rest, ok := strings.Cut(typeName, "\\"); ok {
+		if fqcn, ok := v.lookupImport(first); ok {
+			return fqcn + "\\" + rest
+		}
+	}
+
+	// 2. Fallback to the current namespace
+	if v.namespace != "" {
+		return v.namespace + "\\" + typeName
+	}
+	return typeName
+}
+
+// lookupImport resolves a class name or alias through the "use" imports of the current file.
+func (v *PHPVisitor) lookupImport(typeName string) (string, bool) {
 	for _, line := range v.lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "use ") && strings.HasSuffix(line, ";") {
@@ -1545,24 +1594,19 @@ func (v *PHPVisitor) resolveFQCN(typeName string) string {
 					fqcn := strings.TrimSpace(parts[0])
 					alias := strings.TrimSpace(parts[1])
 					if alias == typeName {
-						return fqcn
+						return fqcn, true
 					}
 				}
 			} else {
 				parts := strings.Split(importPart, "\\")
 				lastPart := parts[len(parts)-1]
 				if lastPart == typeName {
-					return importPart
+					return importPart, true
 				}
 			}
 		}
 	}
-
-	// 2. Fallback to the current namespace
-	if v.namespace != "" {
-		return v.namespace + "\\" + typeName
-	}
-	return typeName
+	return "", false
 }
 
 // getFinallyCleanedProperties scans a finally_clause AST node to extract properties of $this that are cleaned up.
