@@ -12,20 +12,20 @@ RUN apk add --no-cache \
     bash \
     make \
     curl \
-    php83 \
-    php83-cli \
-    php83-mbstring \
-    php83-xml \
-    php83-phar \
-    php83-openssl \
-    php83-dom \
-    php83-tokenizer \
-    php83-xmlwriter \
-    php83-simplexml \
+    php84 \
+    php84-cli \
+    php84-mbstring \
+    php84-xml \
+    php84-phar \
+    php84-openssl \
+    php84-dom \
+    php84-tokenizer \
+    php84-xmlwriter \
+    php84-simplexml \
     composer
 
-# Ensure 'php' executable points to php83
-RUN ln -sf /usr/bin/php83 /usr/bin/php
+# Ensure 'php' executable points to php84
+RUN ln -sf /usr/bin/php84 /usr/bin/php
 
 # Install golangci-lint by compiling from source with the container's Go version
 RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5

@@ -30,6 +30,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - **Symfony Service Finder**: `internal/auditor/symfony.go` and `internal/auditor/find_class_files.php` (calls Symfony commands to dump container configuration).
 - **Symfony Discovery Bundle**: `src/php/IgorPhpBundle.php` and `src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php`.
 - **Local Lab Playground**: `examples/demo-leak/` (the Docker-based Symfony playground for simulating leaks in persistent memory).
+- **Laravel Lab Playground**: `examples/demo-leak-laravel/` (the same lab on Laravel Octane + FrankenPHP).
 
 ---
 

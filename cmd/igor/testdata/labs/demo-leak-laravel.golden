@@ -1,0 +1,40 @@
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::closureLeak | ERROR | Mutation detected on an injected dependency ($this->closureLeakService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::closureLeak | ERROR | Potential Memory Leak: Injection of a closure capturing local state into a shared service.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::destructorLeak | ERROR | Mutation detected on an injected dependency ($this->destructorLeakService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::exitDemo | ERROR | Usage of exit/die is forbidden in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::heavyLoad | ERROR | Mutation detected on an injected dependency ($this->statefulService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::incomplete | ERROR | Mutation detected on an injected dependency ($this->incompleteResetService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::lazySingleton | ERROR | Mutation detected on an injected dependency ($this->lazySingletonService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::poisonFilters | ERROR | Mutation detected on a local reference to a shared service ($entityManager). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::poisonTimezone | WARNING | Function 'date_default_timezone_set' modifies the global PHP process state.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'chdir' modifies the global PHP process working directory.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'umask' modifies the global PHP process file creation mask.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::stateful | ERROR | Mutation detected on an injected dependency ($this->statefulService). Risk of State Leak in a worker.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
+app/Services/ClosureLeakService.php | App\Services\ClosureLeakService::addListener | ERROR | Mutation of state 'listeners' in ClosureLeakService::addListener()
+app/Services/DestructorLeakService.php | App\Services\DestructorLeakService::__destruct | ERROR | Usage of __destruct() magic method is dangerous in Worker mode.
+app/Services/FakeEntityManager.php | App\Services\FakeFilters::disable | ERROR | Mutation of state 'disabledFilters' in FakeFilters::disable()
+app/Services/IncompleteResetService.php | App\Services\IncompleteResetService::addData | ERROR | Mutation of state 'clean' in IncompleteResetService::addData()
+app/Services/IncompleteResetService.php | App\Services\IncompleteResetService::addData | ERROR | Mutation of state 'forgotten' in IncompleteResetService::addData()
+app/Services/LazySingletonService.php | App\Services\LazySingletonService::addData | ERROR | Mutation of state 'cache' in LazySingletonService::addData()
+app/Services/LocalStaticService.php | App\Services\LocalStaticService::incrementAndGet | ERROR | Usage of local static variable is dangerous in Worker mode.
+app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonCwd | WARNING | Function 'chdir' modifies the global PHP process working directory.
+app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonEncoding | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
+app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonGc | WARNING | Function 'gc_disable' modifies the global PHP garbage collector.
+app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonUmask | WARNING | Function 'umask' modifies the global PHP process file creation mask.
+app/Services/StatefulService.php | App\Services\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData()
+app/Services/StaticLeakService.php | App\Services\StaticLeakService::touch | ERROR | Mutation of state 'static::$hist' in StaticLeakService::touch()
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_SERVER is discouraged in Worker mode.
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_SERVER is discouraged in Worker mode.
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_SERVER is discouraged in Worker mode.
+public/frankenphp-worker.php |  | WARNING | Usage of PHP Superglobal $_SERVER is discouraged in Worker mode.

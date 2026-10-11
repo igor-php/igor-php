@@ -65,12 +65,18 @@ jobs:
         with:
           php-version: ${{ matrix.php-version }}
 
-      # The demo lab requires Symfony 8 (PHP >= 8.4): installing it enables the real container compilation test
+      # The demo lab requires Symfony 8 (PHP >= 8.4): installing it enables the real container compilation test,
+      # and warming its cache builds the Igor service map used by the lab regression test (TestLabsRegression)
       - name: Install demo-leak dependencies
         if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.4'
-        run: composer install --no-interaction --no-progress --no-scripts -d examples/demo-leak
+        run: |
+          composer install --no-interaction --no-progress --no-scripts -d examples/demo-leak
+          php examples/demo-leak/bin/console cache:clear
 
       - name: Run Tests with Race Detector & Coverage
+        env:
+          # On the job that installs the labs, a lab that cannot be audited fails instead of being skipped
+          IGOR_LABS_REQUIRED: ${{ (matrix.os == 'ubuntu-latest' && matrix.php-version == '8.4') && '1' || '' }}
         run: go test -race -v -coverprofile coverage.out -covermode atomic ./...
 
       - name: Upload coverage to Codecov

@@ -8,6 +8,8 @@ import (
 	"github.com/igor-php/igor-php/internal/analyzer"
 	"github.com/igor-php/igor-php/internal/auditor"
 	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/reporter"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 var Version = "dev"
@@ -23,47 +25,12 @@ func main() {
 		return
 	}
 
-	// 1. Initialize Components
-	aud := auditor.NewAuditor(cfg)
-	if cfg.StdinContent != nil && cfg.TargetFile != "" {
-		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
-	}
 	rep := setupReporter(cfg)
-
-	// 1b. Load generic container dump (non-shared/transient classes to skip)
-	var containerAliases analyzer.AliasesMap
-	aud.NonSharedServices, containerAliases = loadContainerDump(rootPath, cfg)
-
-	// 2. Detect Symfony project
-	symfony, err := detectSymfonyProject(rootPath, cfg)
+	results, baseline, err := runAudit(&cfg, rootPath, rep)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
 		os.Exit(1)
 	}
-	aud.Symfony = symfony
-	if aud.Symfony != nil {
-		aud.LoadSymfonyAliases()
-	}
-	if len(containerAliases) > 0 {
-		aud.LoadInterfaceAliases(containerAliases)
-	}
-
-	// 3. Load Baseline
-	baseline := loadAuditBaseline(rootPath, &cfg)
-
-	// 4. Collect Files to Audit
-	auditList := collectFiles(rootPath, cfg, aud)
-
-	// 5. Silence header for machine-readable formats
-	if cfg.OutputFormat != "llm" && cfg.OutputFormat != "json" {
-		rep.PrintHeader(len(auditList))
-	}
-
-	// 6. Run Audit
-	results := executeAudit(auditList, aud, cfg, baseline, rootPath)
-
-	// 6b. Rank findings by call-site reachability from application code
-	aud.MarkReachability(results)
 
 	// 7a. Handle Baseline Checking
 	if cfg.CheckBaseline {
@@ -121,4 +88,50 @@ func main() {
 	if !rep.PrintSummary(results, rootPath) {
 		os.Exit(1)
 	}
+}
+
+// runAudit detects the project, collects and audits its files, then ranks the
+// findings by reachability. It is the whole CLI pipeline before reporting.
+func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]symbol.AuditStatus, config.Baseline, error) {
+	// 1. Initialize Components
+	aud := auditor.NewAuditor(*cfg)
+	if cfg.StdinContent != nil && cfg.TargetFile != "" {
+		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
+	}
+
+	// 1b. Load generic container dump (non-shared/transient classes to skip)
+	var containerAliases analyzer.AliasesMap
+	aud.NonSharedServices, containerAliases = loadContainerDump(rootPath, *cfg)
+
+	// 2. Detect Symfony project
+	symfony, err := detectSymfonyProject(rootPath, *cfg)
+	if err != nil {
+		return nil, config.Baseline{}, err
+	}
+	aud.Symfony = symfony
+	if aud.Symfony != nil {
+		aud.LoadSymfonyAliases()
+	}
+	if len(containerAliases) > 0 {
+		aud.LoadInterfaceAliases(containerAliases)
+	}
+
+	// 3. Load Baseline
+	baseline := loadAuditBaseline(rootPath, cfg)
+
+	// 4. Collect Files to Audit
+	auditList := collectFiles(rootPath, *cfg, aud)
+
+	// 5. Silence header for machine-readable formats
+	if cfg.OutputFormat != "llm" && cfg.OutputFormat != "json" {
+		rep.PrintHeader(len(auditList))
+	}
+
+	// 6. Run Audit
+	results := executeAudit(auditList, aud, *cfg, baseline, rootPath)
+
+	// 6b. Rank findings by call-site reachability from application code
+	aud.MarkReachability(results)
+
+	return results, baseline, nil
 }
