@@ -123,7 +123,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	case "exit_statement":
 		// Not "exit" too: it is the anonymous keyword token inside exit_statement
 		v.addExitFinding(n)
-	case "expression_statement":
+	case "name":
 		v.handleBareExit(n)
 	case "function_call_expression":
 		v.handleFunctionCall(n)
@@ -484,18 +484,28 @@ func (v *PHPVisitor) addExitFinding(n *sitter.Node) {
 	v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
 }
 
-// handleBareExit reports a bare `die;`, which tree-sitter-php parses as a plain name expression.
+// bareExitParents are the expression contexts where tree-sitter-php parses a bare `die;`
+// (or `exit;` inside an expression, e.g. `fopen($f) or exit;`) as a plain name.
+var bareExitParents = map[string]bool{
+	"expression_statement":     true,
+	"binary_expression":        true,
+	"conditional_expression":   true,
+	"assignment_expression":    true,
+	"parenthesized_expression": true,
+	"return_statement":         true,
+	"argument":                 true,
+	"arrow_function":           true,
+}
+
+// handleBareExit reports a bare `die`/`exit` used as an expression, which tree-sitter-php parses as a name.
 func (v *PHPVisitor) handleBareExit(n *sitter.Node) {
-	if n.NamedChildCount() != 1 {
+	parent := n.Parent()
+	if parent == nil || !bareExitParents[parent.Kind()] {
 		return
 	}
-	child := n.NamedChild(0)
-	if child.Kind() != "name" {
-		return
-	}
-	switch strings.ToLower(v.getContent(child)) {
+	switch strings.ToLower(v.getContent(n)) {
 	case "die", "exit":
-		v.addExitFinding(child)
+		v.addExitFinding(n)
 	}
 }
 
