@@ -979,18 +979,19 @@ func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
 // logForeignStaticMutation tracks a write to another class's static property. Like a write to
 // the class's own statics, it counts as a reset inside reset() and must be reset in resettable classes.
 func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop string, dynamic bool) {
+	key := "static::" + target + "::" + prop
+	if v.curMethod == "reset" {
+		// A cleanup counts even on an excluded line; $class::$x may target another class
+		if !dynamic {
+			v.resetted[key] = true
+		}
+		return
+	}
 	// Explicit exclusions apply before the write is tracked for the reset check
 	if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
 		return
 	}
-	key := "static::" + target + "::" + prop
 	switch {
-	case v.curMethod == "reset":
-		if dynamic {
-			// $class::$x in reset() may target another class than the write it would cover
-			return
-		}
-		v.resetted[key] = true
 	case v.isReset && !dynamic:
 		v.mutated[key] = mutationInfo{
 			line:       int(n.StartPosition().Row) + 1,

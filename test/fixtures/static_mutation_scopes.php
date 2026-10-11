@@ -115,6 +115,22 @@ class ResettableIgnoredWriter implements ResetInterface
     }
 }
 
+// IGNORED: a cleanup on an excluded line in reset() still counts as a reset
+class ResettableIgnoredCleanup implements ResetInterface
+{
+    public function add(): void
+    {
+        Registry::$hits++;
+    }
+
+    #[WorkerSafe]
+    public function reset(): void
+    {
+        // @igor-ignore
+        Registry::$hits = 0;
+    }
+}
+
 // DETECTED: a dynamic scope is never matched against a reset, even in a resettable class
 class ResettableDynamicWriter implements ResetInterface
 {
