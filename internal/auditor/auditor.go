@@ -68,6 +68,18 @@ func (a *Auditor) LoadInterfaceAliases(raw analyzer.AliasesMap) {
 	}
 }
 
+// UseFramework plugs the detected framework bridge into the auditor.
+func (a *Auditor) UseFramework(b *SymfonyBridge) {
+	a.Symfony = b
+	if b == nil {
+		return
+	}
+	if b.Framework == FrameworkLaravel {
+		a.Config.SafeNamespaces = append(a.Config.SafeNamespaces, LaravelSafeNamespaces...)
+	}
+	a.LoadSymfonyAliases()
+}
+
 // LoadSymfonyAliases converts the Symfony container alias map into the unified
 // interface alias map used by reachability ranking.
 func (a *Auditor) LoadSymfonyAliases() {

@@ -44,9 +44,14 @@ var leakLabs = []leakLab{
 		},
 	},
 	{
-		// No Laravel bridge yet: a plain directory scan, which only needs the sources
-		name:          "demo-leak-laravel",
-		prerequisites: func(string) string { return "" },
+		// Deep Audit: igor runs `php artisan igor:dump`, which boots the Laravel 13 application
+		name: "demo-leak-laravel",
+		prerequisites: func(root string) string {
+			if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
+				return "dependencies are not installed (composer install)"
+			}
+			return requirePHPVersion(80400)
+		},
 	},
 }
 

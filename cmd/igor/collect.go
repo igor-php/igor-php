@@ -23,7 +23,7 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	// Guard the Container too: a non-nil bridge can still carry a nil Container if
 	// LoadContainer failed, and collectSymfonyServices iterates Container.Definitions.
 	if aud.Symfony != nil && aud.Symfony.Container != nil {
-		fmt.Fprintln(os.Stderr, "🎯 Symfony detected: Mapping services and dependencies...")
+		fmt.Fprintf(os.Stderr, "🎯 %s detected: Mapping services and dependencies...\n", aud.Symfony.Framework)
 		auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 		// Also collect parent classes and traits resolved by reflection that are not yet processed
 		for class, path := range aud.Symfony.ClassToFile {
@@ -93,7 +93,8 @@ func shouldSkipServiceMeta(id string, def symbol.SymfonyService, aud *auditor.Au
 	if strings.HasPrefix(id, ".errored.") {
 		return true, "container error"
 	}
-	if !def.Shared {
+	// An entrypoint (a Laravel controller) is rebuilt for every request, but its code still runs in the worker
+	if !def.Shared && !def.HasTag(symbol.EntrypointTag) {
 		return true, "non-shared (prototype)"
 	}
 	if def.Class == "" {
@@ -275,7 +276,7 @@ func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Con
 	}
 
 	if cfg.Verbose {
-		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
+		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered %s shared service\n", cleanTarget, aud.Symfony.Framework)
 	}
 	return nil
 }

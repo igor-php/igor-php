@@ -102,7 +102,7 @@ During its static analysis of shared/singleton services, Igor recursively scans 
 ## 📋 Prerequisites
 
 - **Go**: Required to compile or install the binary.
-- **PHP 8.1+**: Required for the **Deep Audit** mode. Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
+- **PHP 8.1+**: Required for the **Deep Audit** mode (Symfony or Laravel). Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
 
 ---
 
@@ -141,6 +141,16 @@ public function registerBundles(): iterable
     }
 }
 ```
+
+### Laravel Octane (Automatic)
+On a Laravel project, Composer's package discovery registers `IgorPhp\Laravel\IgorServiceProvider` for you. It adds an `igor:dump` Artisan command, which Igor runs on every audit to export your container (`bootstrap/cache/igor_service_map.json`). Igor then audits only what **persists in an Octane worker**:
+
+- **Persistent**: the singletons resolved while the worker boots, by a service provider or listed in `octane.warm`. Their dependencies are audited too, since the singleton keeps them.
+- **Per request (skipped)**: `bind()` and `scoped()` bindings, the bindings in `octane.flush`, and the singletons first resolved during a request, which live in the request's sandbox.
+- **Resettable**: a persistent service that implements `Symfony\Contracts\Service\ResetInterface`, or that has a `reset()` method called by one of your Octane listeners. Igor then checks that `reset()` clears every property the service fills.
+- **Controllers**: rebuilt for every request, so their own properties are not checked, but their code (`exit()`, superglobals, process functions…) is still audited.
+
+The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan.
 
 ### Via Go
 ```bash
@@ -346,6 +356,7 @@ We've built an **interactive laboratory** using Symfony and FrankenPHP. You can 
 [**Explore the Igor Leak Lab →**](examples/demo-leak/README.md)
 
 Running Laravel? A twin lab built on **Laravel Octane** and FrankenPHP lives in [`examples/demo-leak-laravel/`](examples/demo-leak-laravel/README.md).
+
 ---
 
 ### Deep Audit Mode (Symfony)

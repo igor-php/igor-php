@@ -103,15 +103,12 @@ func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]sym
 	var containerAliases analyzer.AliasesMap
 	aud.NonSharedServices, containerAliases = loadContainerDump(rootPath, *cfg)
 
-	// 2. Detect Symfony project
-	symfony, err := detectSymfonyProject(rootPath, *cfg)
+	// 2. Detect the framework (Symfony, then Laravel)
+	bridge, err := detectFrameworkProject(rootPath, *cfg)
 	if err != nil {
 		return nil, config.Baseline{}, err
 	}
-	aud.Symfony = symfony
-	if aud.Symfony != nil {
-		aud.LoadSymfonyAliases()
-	}
+	aud.UseFramework(bridge)
 	if len(containerAliases) > 0 {
 		aud.LoadInterfaceAliases(containerAliases)
 	}

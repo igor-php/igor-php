@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,7 +106,7 @@ func TestDetectSymfonyProject_NoAgent(t *testing.T) {
 		ConsolePath: "nonexistent/console",
 		NoAgent:     true,
 	}
-	sb, err := detectSymfonyProject(tempDir, cfgNoAgent)
+	sb, err := detectFrameworkProject(tempDir, cfgNoAgent)
 	if err != nil {
 		t.Errorf("Unexpected error with NoAgent = true: %v", err)
 	}
@@ -118,9 +119,25 @@ func TestDetectSymfonyProject_NoAgent(t *testing.T) {
 		ConsolePath: "nonexistent/console",
 		NoAgent:     false,
 	}
-	_, err = detectSymfonyProject(tempDir, cfgWithAgent)
+	_, err = detectFrameworkProject(tempDir, cfgWithAgent)
 	if err == nil {
 		t.Error("Expected error when Symfony console doesn't exist and NoAgent = false")
+	}
+}
+
+func TestDetectFrameworkProject_LaravelDumpFailsFallsBack(t *testing.T) {
+	if _, err := exec.LookPath("php"); err != nil {
+		t.Skip("php is not available")
+	}
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "artisan"), []byte("<?php exit(1);"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The Laravel map is optional: a failing igor:dump only disables the Deep Audit
+	bridge, err := detectFrameworkProject(tempDir, config.DefaultConfig())
+	if err != nil || bridge != nil {
+		t.Errorf("expected a fallback to the directory scan (nil, nil), got %v, %v", bridge, err)
 	}
 }
 

@@ -34,6 +34,10 @@ type SymfonyContainer struct {
 	Aliases     map[string]interface{}    `json:"aliases"`
 }
 
+// EntrypointTag marks a non-shared service whose code still runs in the worker for every request,
+// such as a Laravel controller: it is audited, but its own state is not expected to persist.
+const EntrypointTag = "igor.entrypoint"
+
 // SymfonyService represents a single service definition in Symfony.
 type SymfonyService struct {
 	Class      string `json:"class"`

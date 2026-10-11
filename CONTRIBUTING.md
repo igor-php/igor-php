@@ -61,6 +61,7 @@ Understanding where everything lives will help you make targeted changes:
 - `internal/auditor/`: Logic for invoking the PHP bridge and auditing services.
 - `pkg/reporter/`: Formatter for reports (console, JSON, LLM-friendly review).
 - `src/php/`: The Symfony Bundle (`IgorPhpBundle`) that compiles container definitions.
+- `src/laravel/`: The Laravel service provider and its `igor:dump` command, which export the services that persist in Octane workers.
 - `test/fixtures/`: PHP code fixtures used in integration and visitor tests.
 - `examples/demo-leak/`: The "Igor Leak Lab", a Docker-based Symfony playground used to demonstrate state pollution and memory leaks in FrankenPHP.
 - `examples/demo-leak-laravel/`: The Laravel twin of the Leak Lab, running on Laravel Octane with FrankenPHP workers.

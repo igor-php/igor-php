@@ -17,7 +17,8 @@
     },
     "autoload": {
         "psr-4": {
-            "App\\": "app/"
+            "App\\": "app/",
+            "IgorPhp\\Laravel\\": "../../src/laravel/"
         }
     },
     "scripts": {
