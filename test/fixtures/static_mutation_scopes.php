@@ -76,6 +76,26 @@ class InheritedCacheUser extends ParentHolder implements ResetInterface
     }
 }
 
+// IGNORED: excluded writes to an inherited static are not tracked for the reset check
+class InheritedCacheIgnoredUser extends ParentHolder implements ResetInterface
+{
+    public function add(string $v): void
+    {
+        // @igor-ignore
+        parent::$cache[] = $v;
+    }
+
+    #[WorkerSafe]
+    public function warm(string $v): void
+    {
+        self::$cache[] = $v;
+    }
+
+    public function reset(): void
+    {
+    }
+}
+
 // IGNORED: the inherited $cache is filled and reset
 class InheritedCacheResetter extends ParentHolder implements ResetInterface
 {

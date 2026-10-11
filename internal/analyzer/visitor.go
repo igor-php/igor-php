@@ -1064,6 +1064,10 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 	case v.curMethod == "reset":
 		v.resetted[key] = true
 	case v.isReset:
+		// Explicit exclusions apply before the write is tracked for the reset check
+		if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
+			return
+		}
 		v.mutated[key] = mutationInfo{
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
