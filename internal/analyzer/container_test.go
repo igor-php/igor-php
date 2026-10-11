@@ -205,6 +205,31 @@ final class Uri
 	}
 }
 
+// TestNonSharedServiceBypassKeepsStaticWrites: a non-shared class (such as a Laravel
+// controller) lives for one request, but its static properties belong to the class and
+// outlive every request, so writing them is still reported.
+func TestNonSharedServiceBypassKeepsStaticWrites(t *testing.T) {
+	code := `<?php
+namespace App\Http\Controllers;
+
+final class ReportController
+{
+    private static array $cache = [];
+    private array $rows = [];
+    public function index(string $k): void
+    {
+        $this->rows[] = $k;
+        self::$cache[$k] = true;
+        \App\Registry::$last = $k;
+    }
+}`
+
+	nonShared := NonSharedServiceMap{"App\\Http\\Controllers\\ReportController": true}
+	if got := countErrors(t, code, nonShared); got != 2 {
+		t.Errorf("expected the 2 static writes to be reported and the instance write skipped, got %d findings", got)
+	}
+}
+
 // TestNonSharedServiceBypassStillFlagsSharedClass ensures the bypass is scoped:
 // a class that is NOT in the non-shared map keeps being audited normally.
 func TestNonSharedServiceBypassStillFlagsSharedClass(t *testing.T) {

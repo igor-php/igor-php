@@ -21,11 +21,14 @@ class DumpServiceMapCommand extends Command
             $this->warn($warning);
         }
 
+        // igor must not audit a stale map: fail when the fresh one cannot be written
+        $json = json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
+        if ($json === false || (!is_dir($dir) && !@mkdir($dir, 0777, true) && !is_dir($dir)) || @file_put_contents($path, $json) === false) {
+            $this->error(sprintf('Could not write the Igor service map to %s.', $path));
+
+            return self::FAILURE;
         }
-        file_put_contents($path, json_encode($map, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
         $this->info(sprintf('Igor service map written to %s (%d definitions).', $path, count($map['definitions'])));
 

@@ -47,6 +47,7 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 			})
 			processedFiles[path] = true
 		}
+		auditList = append(auditList, collectEntrypointFiles(rootPath, cfg, aud, processedFiles)...)
 	}
 
 	// --- STEP 2: Scan remaining local project files ---
@@ -62,6 +63,31 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 		auditList = append(auditList, collectForcedVendorFiles(rootPath, cfg, processedFiles)...)
 	}
 	return auditList
+}
+
+// collectEntrypointFiles adds the files the framework runs for every request without a class
+// to map them (Laravel closure routes): no object state persists there, but the other rules apply.
+func collectEntrypointFiles(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
+	var list []symbol.AuditStatus
+	for _, path := range aud.Symfony.Container.EntrypointFiles {
+		if processed[path] {
+			continue
+		}
+		if skip, _ := shouldSkipServicePath("", path, cfg, aud, rootPath); skip {
+			continue
+		}
+		id := path
+		if rel, err := filepath.Rel(rootPath, path); err == nil {
+			id = filepath.ToSlash(rel)
+		}
+		list = append(list, symbol.AuditStatus{
+			ServiceID: "Entrypoint/" + id,
+			FilePath:  path,
+			Status:    "⏳ PENDING",
+		})
+		processed[path] = true
+	}
+	return list
 }
 
 func collectLocalFiles(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {

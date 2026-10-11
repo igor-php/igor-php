@@ -25,9 +25,20 @@ final class ServiceMapBuilder
     /** Framework classes whose dependencies are left to Octane, which resets the framework state itself. */
     private const FRAMEWORK_NAMESPACES = ['Illuminate\\', 'Laravel\\'];
 
+    /** Octane events fired around every request: a listener on any other event does not reset state between requests. */
+    private const REQUEST_EVENTS = [
+        'Laravel\\Octane\\Events\\RequestReceived',
+        'Laravel\\Octane\\Events\\RequestHandled',
+        'Laravel\\Octane\\Events\\RequestTerminated',
+        'Laravel\\Octane\\Contracts\\OperationTerminated',
+    ];
+
     private array $definitions = [];
 
     private array $warnings = [];
+
+    /** @var array<string, true> Files of the closure routes, which run in the worker without any class */
+    private array $entrypointFiles = [];
 
     /** @var array<string, string>|null Source code of the Octane listeners, by class */
     private ?array $listenerSources = null;
@@ -39,6 +50,7 @@ final class ServiceMapBuilder
     public function build(): array
     {
         $this->definitions = [];
+        $this->entrypointFiles = [];
         $this->warm();
 
         [$instances, $scoped, $aliases] = (function () {
@@ -72,7 +84,12 @@ final class ServiceMapBuilder
             }
         }
 
-        return ['definitions' => $this->definitions, 'aliases' => $aliases];
+        return [
+            'definitions' => $this->definitions,
+            'aliases' => $aliases,
+            'entrypoint_files' => array_keys($this->entrypointFiles),
+            'warnings' => $this->warnings,
+        ];
     }
 
     /** @return string[] */
@@ -139,6 +156,20 @@ final class ServiceMapBuilder
         return class_exists($abstract) && !(new \ReflectionClass($abstract))->isAbstract() ? $abstract : null;
     }
 
+    /** Builds a binding whose class only its factory knows, like the service that retained it did. */
+    private function resolvedClass(string $abstract): ?string
+    {
+        try {
+            $instance = $this->app->make($abstract);
+        } catch (\Throwable $e) {
+            $this->warnings[] = sprintf('Could not resolve %s to audit it: %s', $abstract, $e->getMessage());
+
+            return null;
+        }
+
+        return is_object($instance) ? get_class($instance) : null;
+    }
+
     private function addControllers(): void
     {
         if (!$this->app->bound('router')) {
@@ -146,6 +177,15 @@ final class ServiceMapBuilder
         }
 
         foreach ($this->app['router']->getRoutes() as $route) {
+            $uses = $route->getAction('uses');
+            if ($uses instanceof Closure) {
+                $file = (new \ReflectionFunction($uses))->getFileName();
+                if ($file !== false) {
+                    $this->entrypointFiles[$file] = true;
+                }
+                continue;
+            }
+
             $action = $route->getAction('controller');
             if (!is_string($action)) {
                 continue;
@@ -193,7 +233,7 @@ final class ServiceMapBuilder
         if (!isset($this->definitions[$id])) {
             $binding = $this->app->getBindings()[$abstract] ?? null;
             $class = $binding !== null
-                ? $this->concreteClass($abstract, $binding['concrete'] ?? null)
+                ? ($this->concreteClass($abstract, $binding['concrete'] ?? null) ?? $this->resolvedClass($abstract))
                 : (class_exists($type) ? $type : null);
             $this->addDefinition($id, $class, true);
             if (isset($this->definitions[$id])) {
@@ -206,7 +246,8 @@ final class ServiceMapBuilder
 
     /**
      * A persistent service is resettable when it implements Symfony's ResetInterface, or when an
-     * Octane listener resets it: it has a reset() method and a listener's code references its class.
+     * Octane listener resets it between requests: it has a reset() method and the code of a listener
+     * of a request event references its class.
      */
     private function isResettable(string $class): bool
     {
@@ -234,7 +275,10 @@ final class ServiceMapBuilder
         }
 
         $this->listenerSources = [];
-        foreach ($this->config('octane.listeners', []) as $listeners) {
+        foreach ($this->config('octane.listeners', []) as $event => $listeners) {
+            if (!in_array(ltrim((string) $event, '\\'), self::REQUEST_EVENTS, true)) {
+                continue;
+            }
             foreach ((array) $listeners as $listener) {
                 if (!is_string($listener) || $this->isFrameworkClass($listener) || !class_exists($listener)) {
                     continue;

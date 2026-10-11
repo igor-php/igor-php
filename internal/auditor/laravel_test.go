@@ -40,7 +40,9 @@ const laravelServiceMap = `{
 		"App\\Mailer": {"class": "App\\Mailer", "public": true, "shared": true, "resettable": false, "arguments": [], "tags": []},
 		"App\\Uri": {"class": "App\\Uri", "public": true, "shared": false, "resettable": false, "arguments": [], "tags": []}
 	},
-	"aliases": {"mailer": "App\\Mailer"}
+	"aliases": {"mailer": "App\\Mailer"},
+	"entrypoint_files": ["routes/web.php"],
+	"warnings": ["Could not warm cache: connection refused"]
 }`
 
 func TestDetectLaravel_NotLaravel(t *testing.T) {
@@ -52,9 +54,11 @@ func TestDetectLaravel_NotLaravel(t *testing.T) {
 
 func TestDetectLaravel_LoadsServiceMap(t *testing.T) {
 	root := t.TempDir()
-	fakeArtisan(t, root, `if (($argv[1] ?? '') !== 'igor:dump') { exit(1); }
-@mkdir(__DIR__ . '/bootstrap/cache', 0777, true);
-file_put_contents(__DIR__ . '/bootstrap/cache/igor_service_map.json', <<<'JSON'
+	// The map is written where igor asks for it: the app may use a custom bootstrap directory
+	fakeArtisan(t, root, `if (($argv[1] ?? '') !== 'igor:dump' || !str_starts_with($argv[2] ?? '', '--path=')) { exit(1); }
+$path = substr($argv[2], strlen('--path='));
+@mkdir(dirname($path), 0777, true);
+file_put_contents($path, <<<'JSON'
 `+laravelServiceMap+`
 JSON);
 `)
@@ -71,6 +75,12 @@ JSON);
 	}
 	if b.IsSharedService("App\\Uri") {
 		t.Error("App\\Uri is built per request and must not be audited as shared")
+	}
+	if got := b.Container.EntrypointFiles; len(got) != 1 || got[0] != "routes/web.php" {
+		t.Errorf("expected the closure route files to be loaded, got %v", got)
+	}
+	if got := b.Container.Warnings; len(got) != 1 {
+		t.Errorf("expected the exporter warnings to be loaded, got %v", got)
 	}
 	if got := b.ClassToFile["App\\Mailer"]; !strings.HasSuffix(filepath.ToSlash(got), "src/Mailer.php") {
 		t.Errorf("expected App\\Mailer to be located in src/Mailer.php, got %q", got)

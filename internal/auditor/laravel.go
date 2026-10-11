@@ -39,14 +39,15 @@ func DetectLaravel(rootPath string, cfg config.Config) (*SymfonyBridge, error) {
 
 // loadLaravelServiceMap exports a fresh service map with artisan, then locates the class files.
 func (b *SymfonyBridge) loadLaravelServiceMap() error {
-	cmd := exec.Command("php", filepath.Join(b.Root, b.ConsolePath), "igor:dump", "--no-ansi", "--no-interaction")
+	// Pass the path explicitly: the app may use a custom bootstrap directory
+	path := filepath.Join(b.Root, "bootstrap", "cache", "igor_service_map.json")
+	cmd := exec.Command("php", filepath.Join(b.Root, b.ConsolePath), "igor:dump", "--path="+path, "--no-ansi", "--no-interaction")
 	cmd.Dir = b.Root
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("`php artisan igor:dump` failed: %v\n%s\n👉 make sure IgorPhp\\Laravel\\IgorServiceProvider is registered (package discovery does it when igor-php is installed with Composer)",
 			err, strings.TrimSpace(string(output)))
 	}
 
-	path := filepath.Join(b.Root, "bootstrap", "cache", "igor_service_map.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("could not read the Laravel service map: %v", err)
@@ -57,6 +58,10 @@ func (b *SymfonyBridge) loadLaravelServiceMap() error {
 	}
 	b.Container = &container
 	fmt.Fprintf(os.Stderr, "⚡ Igor Agent detected: Using service map from %s\n", path)
+	// A service the exporter could not resolve may be missing from the audit: say why
+	for _, warning := range container.Warnings {
+		fmt.Fprintf(os.Stderr, "⚠️  igor:dump: %s\n", warning)
+	}
 
 	return b.locateFilesViaReflection(string(data))
 }
