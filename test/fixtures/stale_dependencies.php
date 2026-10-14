@@ -68,8 +68,8 @@ class PerRequestService
     public function __construct(private Request $request) {}
 }
 
-// Detected: a trait used by persistent services, and a type spelled in another case
-trait KeepsRequest
+// Detected: a type spelled in another case
+class KeepsRequest
 {
     public function __construct(private \illuminate\http\REQUEST $request) {}
 }
@@ -78,5 +78,11 @@ trait KeepsRequest
 class SafeConstructor
 {
     #[WorkerSafe]
+    public function __construct(private Request $request) {}
+}
+
+// Ignored: a trait, whose properties persist only if a persistent class uses it
+trait RequestAware
+{
     public function __construct(private Request $request) {}
 }
