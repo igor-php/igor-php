@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
+  # Every pull request, including stacked ones whose base is another pull request's branch
   pull_request:
-    branches: [ main ]
 
 jobs:
   lint:
@@ -73,7 +73,8 @@ jobs:
           composer install --no-interaction --no-progress --no-scripts -d examples/demo-leak
           php examples/demo-leak/bin/console cache:clear
 
-      # The Laravel lab requires Laravel 13 (PHP >= 8.4): igor exports its service map with `php artisan igor:dump`
+      # The Laravel lab is locked on Laravel 13 (PHP >= 8.4): igor exports its service map with `php artisan igor:dump`.
+      # Laravel 12 is covered by the laravel-compat job
       - name: Install demo-leak-laravel dependencies
         if: matrix.os == 'ubuntu-latest' && matrix.php-version == '8.4'
         run: composer install --no-interaction --no-progress --no-scripts -d examples/demo-leak-laravel
@@ -89,3 +90,85 @@ jobs:
         with:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # The bundle supports every maintained Symfony version: install the Symfony lab on each one,
+  # compile its real container and expect the same findings as the Symfony 8 snapshot
+  symfony-compat:
+    name: Symfony compatibility (Symfony ${{ matrix.symfony }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { symfony: '6.4', php: '8.1' }
+          - { symfony: '6.4', php: '8.4' }
+          - { symfony: '7.4', php: '8.2' }
+          - { symfony: '7.4', php: '8.4' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+
+      - name: Install demo-leak on Symfony ${{ matrix.symfony }}
+        working-directory: examples/demo-leak
+        run: |
+          composer require --no-update --no-interaction "php:>=${{ matrix.php }}" \
+            "symfony/console:${{ matrix.symfony }}.*" "symfony/dotenv:${{ matrix.symfony }}.*" \
+            "symfony/framework-bundle:${{ matrix.symfony }}.*" "symfony/runtime:${{ matrix.symfony }}.*" \
+            "symfony/yaml:${{ matrix.symfony }}.*"
+          composer update -W --no-interaction --no-progress --no-scripts
+          composer show symfony/framework-bundle | grep -E '^versions'
+          php bin/console cache:clear
+
+      - name: Run the lab tests
+        env:
+          IGOR_LABS_REQUIRED: '1'
+        run: |
+          go test -v -run 'TestIgorDiscoveryPass_RealSymfonyCompilation' ./cmd/igor
+          go test -v -run 'TestLabsRegression/^demo-leak$' ./cmd/igor
+
+  # The Laravel bridge reads container internals that can change between majors: install the
+  # Laravel lab on each supported Laravel version, export its service map with `php artisan
+  # igor:dump` and expect the same findings as the Laravel 13 snapshot
+  laravel-compat:
+    name: Laravel compatibility (Laravel ${{ matrix.laravel }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { laravel: '12', php: '8.2' }
+          - { laravel: '12', php: '8.4' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+
+      - name: Install demo-leak-laravel on Laravel ${{ matrix.laravel }}
+        working-directory: examples/demo-leak-laravel
+        run: |
+          composer require --no-update --no-interaction "php:>=${{ matrix.php }}" "laravel/framework:^${{ matrix.laravel }}.0"
+          composer update -W --no-interaction --no-progress --no-scripts
+          composer show laravel/framework | grep -E '^versions'
+          composer show laravel/octane | grep -E '^versions'
+
+      - name: Run the lab tests
+        env:
+          IGOR_LABS_REQUIRED: '1'
+        run: go test -v -run 'TestLabsRegression/^demo-leak-laravel$' ./cmd/igor
