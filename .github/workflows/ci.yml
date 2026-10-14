@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [ main ]
+  # Every pull request, including stacked ones whose base is another pull request's branch
   pull_request:
-    branches: [ main ]
 
 jobs:
   lint:
