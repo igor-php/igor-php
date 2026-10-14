@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -312,14 +311,9 @@ namespace {
 func TestIgorDiscoveryPass_RealSymfonyCompilation(t *testing.T) {
 	requirePHP(t)
 
-	// Report the test as skipped (not passed) when the demo's Composer dependencies are not installed
-	autoload := filepath.Join("..", "..", "examples", "demo-leak", "vendor", "autoload.php")
-	if _, err := os.Stat(autoload); err != nil {
-		t.Skip("skipping: examples/demo-leak dependencies not installed (run `composer install -d examples/demo-leak`)")
-	}
-	if err := exec.Command("php", "-r", "exit(PHP_VERSION_ID >= 80400 ? 0 : 1);").Run(); err != nil {
-		t.Skip("skipping: examples/demo-leak requires PHP >= 8.4 (Symfony 8)")
-	}
+	// Report the test as skipped (not passed) when the demo's Composer dependencies are not installed,
+	// or as failed when IGOR_LABS_REQUIRED is set
+	requireLab(t, leakLabs[0], filepath.Join("..", "..", "examples", "demo-leak"))
 
 	phpScript := `
 require __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';
