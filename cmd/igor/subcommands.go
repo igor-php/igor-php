@@ -278,10 +278,9 @@ func handleExplainSubcommand(args []string, configPath string) error {
 
 	aud := auditor.NewAuditor(cfg)
 
-	// Detect Symfony
-	symfony, err := auditor.DetectSymfony(rootPath, cfg)
-	if err == nil {
-		aud.Symfony = symfony
+	// Detect the framework (Symfony, then Laravel)
+	if bridge, err := detectFrameworkProject(rootPath, cfg); err == nil {
+		aud.UseFramework(bridge)
 	}
 
 	fmt.Fprintf(os.Stderr, "🔍 Analyzing Igor's Semantics - Explain Matrix for: %s\n", rootPath)

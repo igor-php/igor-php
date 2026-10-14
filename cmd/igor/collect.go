@@ -23,7 +23,7 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 	// Guard the Container too: a non-nil bridge can still carry a nil Container if
 	// LoadContainer failed, and collectSymfonyServices iterates Container.Definitions.
 	if aud.Symfony != nil && aud.Symfony.Container != nil {
-		fmt.Fprintln(os.Stderr, "🎯 Symfony detected: Mapping services and dependencies...")
+		fmt.Fprintf(os.Stderr, "🎯 %s detected: Mapping services and dependencies...\n", aud.Symfony.Framework)
 		auditList = append(auditList, collectSymfonyServices(rootPath, cfg, aud, processedFiles)...)
 		// Also collect parent classes and traits resolved by reflection that are not yet processed
 		for class, path := range aud.Symfony.ClassToFile {
@@ -47,6 +47,7 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 			})
 			processedFiles[path] = true
 		}
+		auditList = append(auditList, collectEntrypointFiles(rootPath, cfg, aud, processedFiles)...)
 	}
 
 	// --- STEP 2: Scan remaining local project files ---
@@ -62,6 +63,31 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 		auditList = append(auditList, collectForcedVendorFiles(rootPath, cfg, processedFiles)...)
 	}
 	return auditList
+}
+
+// collectEntrypointFiles adds the files the framework runs for every request without a class
+// to map them (Laravel closure routes): no object state persists there, but the other rules apply.
+func collectEntrypointFiles(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
+	var list []symbol.AuditStatus
+	for _, path := range aud.Symfony.Container.EntrypointFiles {
+		if processed[path] {
+			continue
+		}
+		if skip, _ := shouldSkipServicePath("", path, cfg, aud, rootPath); skip {
+			continue
+		}
+		id := path
+		if rel, err := filepath.Rel(rootPath, path); err == nil {
+			id = filepath.ToSlash(rel)
+		}
+		list = append(list, symbol.AuditStatus{
+			ServiceID: "Entrypoint/" + id,
+			FilePath:  path,
+			Status:    "⏳ PENDING",
+		})
+		processed[path] = true
+	}
+	return list
 }
 
 func collectLocalFiles(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
@@ -93,7 +119,8 @@ func shouldSkipServiceMeta(id string, def symbol.SymfonyService, aud *auditor.Au
 	if strings.HasPrefix(id, ".errored.") {
 		return true, "container error"
 	}
-	if !def.Shared {
+	// An entrypoint (a Laravel controller) is rebuilt for every request, but its code still runs in the worker
+	if !def.Shared && !def.HasTag(symbol.EntrypointTag) {
 		return true, "non-shared (prototype)"
 	}
 	if def.Class == "" {
@@ -275,7 +302,7 @@ func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Con
 	}
 
 	if cfg.Verbose {
-		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered Symfony shared service\n", cleanTarget)
+		fmt.Fprintf(os.Stderr, "  ⏭️  Skipped file '%s': not a registered %s shared service\n", cleanTarget, aud.Symfony.Framework)
 	}
 	return nil
 }

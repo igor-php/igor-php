@@ -63,14 +63,14 @@ Run Igor on this project:
 igor-php examples/demo-leak-laravel
 ```
 
-Igor has no Laravel bridge yet: without a Symfony `bin/console`, it falls back to a standard directory scan. This lab is the reference to build and test Laravel support. What the scan reports today:
+Igor detects `artisan` and runs `php artisan igor:dump` (registered by `IgorPhp\Laravel\IgorServiceProvider` in [`bootstrap/providers.php`](bootstrap/providers.php)) to learn which services persist in the Octane worker. It then audits those services, their dependencies and the controllers:
 
-| # | Experiment | Igor today |
+| # | Experiment | Igor |
 |---|---|---|
 | 1, 3, 4, 6, 7, 8, 9, 10, 11, 12 | Generic leaks | ✅ Detected |
-| 2 | Incomplete reset via an Octane listener | ⚠️ Both properties reported: Igor does not know the Octane listener resets `$clean` |
-| 13 | Stale `Request` captured by a warmed singleton | ❌ Not detected (needs a Laravel-specific rule) |
-| 14 | Lazy (non-warmed) singleton | ❌ False positive: it is reset by the Octane sandbox |
+| 2 | Incomplete reset via an Octane listener | ✅ Only `$forgotten` reported: Igor knows the listener calls `reset()` |
+| 13 | Stale `Request` captured by a warmed singleton | ❌ Not detected yet (needs a Laravel-specific rule) |
+| 14 | Lazy (non-warmed) singleton | ✅ Not reported: it lives in the request's sandbox |
 
 Hints still mention Symfony (`Use Symfony response…`); they should become framework-aware.
 

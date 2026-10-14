@@ -628,3 +628,30 @@ func TestCollectFiles_SingleFile_SymfonyServiceAmongSeveralClasses(t *testing.T)
 		})
 	}
 }
+
+// Laravel closure routes have no class to map: their files are audited as entrypoints,
+// so the rules that do not depend on an object's lifetime (exit, superglobals) still apply.
+func TestCollectFiles_EntrypointFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	routes := filepath.Join(tmpDir, "routes", "web.php")
+	if err := os.MkdirAll(filepath.Dir(routes), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(routes, []byte("<?php Route::get('/stop', function () { exit(); });"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{NoAgent: true}
+	aud := auditor.NewAuditor(cfg)
+	bridge := auditor.NewSymfonyBridge(tmpDir, "artisan", cfg)
+	bridge.Container = &symbol.SymfonyContainer{EntrypointFiles: []string{routes}}
+	aud.Symfony = bridge
+
+	auditList := collectFiles(tmpDir, cfg, aud)
+	if len(auditList) != 1 || auditList[0].FilePath != routes {
+		t.Fatalf("expected the closure route file to be audited, got %+v", auditList)
+	}
+	if auditList[0].ServiceID != "Entrypoint/routes/web.php" || auditList[0].IsShared {
+		t.Errorf("expected a non-shared entrypoint, got %+v", auditList[0])
+	}
+}

@@ -17,8 +17,16 @@ import (
 //go:embed find_class_files.php
 var phpHelperScript []byte
 
-// SymfonyBridge handles all interactions with the Symfony Framework.
+// Frameworks whose service container igor reads.
+const (
+	FrameworkSymfony = "Symfony"
+	FrameworkLaravel = "Laravel"
+)
+
+// SymfonyBridge handles all interactions with the application's service container. Despite its
+// name it also serves Laravel, whose map (php artisan igor:dump) uses the Symfony bundle's format.
 type SymfonyBridge struct {
+	Framework   string
 	Root        string
 	ConsolePath string
 	Config      config.Config
@@ -29,6 +37,7 @@ type SymfonyBridge struct {
 // NewSymfonyBridge creates a new bridge for a given project root.
 func NewSymfonyBridge(root string, consolePath string, cfg config.Config) *SymfonyBridge {
 	return &SymfonyBridge{
+		Framework:   FrameworkSymfony,
 		Root:        root,
 		ConsolePath: consolePath,
 		Config:      cfg,

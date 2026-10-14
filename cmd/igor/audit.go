@@ -122,7 +122,7 @@ func runParallelAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor) <-ch
 	return resultsChan
 }
 
-func detectSymfonyProject(rootPath string, cfg config.Config) (*auditor.SymfonyBridge, error) {
+func detectFrameworkProject(rootPath string, cfg config.Config) (*auditor.SymfonyBridge, error) {
 	sb, err := auditor.DetectSymfony(rootPath, cfg)
 	if err != nil {
 		if cfg.NoAgent {
@@ -133,5 +133,16 @@ func detectSymfonyProject(rootPath string, cfg config.Config) (*auditor.SymfonyB
 			return nil, err
 		}
 	}
-	return sb, nil
+	if sb != nil || cfg.NoAgent {
+		return sb, nil
+	}
+
+	// Not a Symfony project: try Laravel. Its map is optional, so a failure only disables the Deep Audit.
+	lb, err := auditor.DetectLaravel(rootPath, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: Laravel Deep Audit disabled: %v\n", err)
+		fmt.Fprintln(os.Stderr, "   Falling back to standard directory scan.")
+		return nil, nil
+	}
+	return lb, nil
 }

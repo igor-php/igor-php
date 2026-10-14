@@ -32,7 +32,16 @@ type Result struct {
 type SymfonyContainer struct {
 	Definitions map[string]SymfonyService `json:"definitions"`
 	Aliases     map[string]interface{}    `json:"aliases"`
+	// EntrypointFiles are files run in the worker for every request without a class to map them,
+	// such as the files declaring Laravel closure routes.
+	EntrypointFiles []string `json:"entrypoint_files,omitempty"`
+	// Warnings reported by the exporter, such as services it could not resolve.
+	Warnings []string `json:"warnings,omitempty"`
 }
+
+// EntrypointTag marks a non-shared service whose code still runs in the worker for every request,
+// such as a Laravel controller: it is audited, but its own state is not expected to persist.
+const EntrypointTag = "igor.entrypoint"
 
 // SymfonyService represents a single service definition in Symfony.
 type SymfonyService struct {

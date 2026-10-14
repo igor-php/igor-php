@@ -1,7 +1,7 @@
 {
     "name": "igor-php/igor-php",
     "description": "The faithful assistant for your FrankenPHP Workers.",
-    "keywords": ["frankenphp", "linter", "static-analysis", "symfony", "worker"],
+    "keywords": ["frankenphp", "linter", "static-analysis", "symfony", "laravel", "octane", "worker"],
     "type": "library",
     "license": "MIT",
     "authors": [
@@ -18,7 +18,15 @@
     ],
     "autoload": {
         "psr-4": {
-            "IgorPhp\\IgorBundle\\": "src/php/"
+            "IgorPhp\\IgorBundle\\": "src/php/",
+            "IgorPhp\\Laravel\\": "src/laravel/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "IgorPhp\\Laravel\\IgorServiceProvider"
+            ]
         }
     }
 }
