@@ -9,7 +9,7 @@ You are in charge of the tests of igor-php.
 
 ## How to work
 
-1. Read the change to cover (`git diff origin/main...HEAD` and the uncommitted diff).
+1. Read the change to cover (`git diff origin/main...HEAD` and the staged and unstaged edits, `git diff HEAD`).
 2. List the cases that are not covered yet: detection, non-detection (safe twin), edge cases
    (inheritance, traits, readonly, reset(), closures, static::/self::/parent::, vendor code).
 3. Add the fixtures in `test/fixtures/` and the assertions in the matching `_test.go` file,

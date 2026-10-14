@@ -24,7 +24,7 @@ You only edit Markdown files (`*.md`); never change Go, PHP, JSON or YAML files.
 
 ## How to work
 
-1. Find what changed: `git diff origin/main...HEAD --stat` plus the uncommitted diff. When asked
+1. Find what changed: `git diff origin/main...HEAD --stat` plus the staged and unstaged edits (`git diff HEAD --stat`). When asked
    for a full audit, check every row of the table above instead.
 2. For each changed source, read the code and the matching documentation section, and list
    the gaps: missing rule, flag or option, wrong default value, renamed file path, outdated
