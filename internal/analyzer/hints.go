@@ -11,7 +11,7 @@ var laravelHints = map[string]string{
 	"set_error_handler":          "Custom error handlers persist across requests in Worker mode and bypass framework error handling. Report errors through Laravel's exception handler (withExceptions() in bootstrap/app.php) instead.",
 	"set_exception_handler":      "Custom exception handlers persist across requests in Worker mode and bypass framework error handling. Register reporting and rendering callbacks with withExceptions() in bootstrap/app.php instead.",
 	"register_shutdown_function": "Shutdown functions are deferred until worker process termination or accumulate across requests in Worker mode. Use a terminable middleware or an app()->terminating() callback instead.",
-	"header":                     "Direct header output bypasses the Laravel response lifecycle and leaks into SAPI stream in Worker mode. Set headers on the response (response()->header()) or in a middleware instead.",
+	"header":                     "Direct header output bypasses the Laravel response lifecycle and leaks into SAPI stream in Worker mode. Set headers on the response you return ($response->header($name, $value)) or in a middleware instead.",
 	"http_response_code":         "Direct response code changes bypass the Laravel response lifecycle and persist across requests in Worker mode. Return a response with its status (response($content, $status)) or call abort() instead.",
 	"session_start":              laravelSessionHint,
 	"session_destroy":            laravelSessionHint,

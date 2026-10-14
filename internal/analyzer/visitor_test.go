@@ -1845,7 +1845,7 @@ class Hinted {
 			"Usage of exit/die is forbidden in Worker mode.":                                               "Use Symfony response or exceptions instead.",
 		}},
 		{FrameworkLaravel, map[string]string{
-			"Function 'header' directly mutates SAPI HTTP output headers.":                                 "response()->header()",
+			"Function 'header' directly mutates SAPI HTTP output headers.":                                 "$response->header($name, $value)",
 			"Function 'session_start' directly manipulates native PHP session state.":                      "Use the session() helper or $request->session() instead.",
 			"Usage of PHP Superglobal $_GET is discouraged in Worker mode.":                                "Use the Laravel Request object",
 			"Mutation detected on an injected dependency ($this->logger). Risk of State Leak in a worker.": "Octane RequestReceived listener",
