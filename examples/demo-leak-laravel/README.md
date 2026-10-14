@@ -69,7 +69,7 @@ Igor detects `artisan` and runs `php artisan igor:dump` (registered by `IgorPhp\
 |---|---|---|
 | 1, 3, 4, 6, 7, 8, 9, 10, 11, 12 | Generic leaks | ✅ Detected |
 | 2 | Incomplete reset via an Octane listener | ✅ Only `$forgotten` reported: Igor knows the listener calls `reset()` |
-| 13 | Stale `Request` captured by a warmed singleton | ❌ Not detected yet (needs a Laravel-specific rule) |
+| 13 | Stale `Request` captured by a warmed singleton | ✅ Detected: the singleton keeps the `Request` of the first request |
 | 14 | Lazy (non-warmed) singleton | ✅ Not reported: it lives in the request's sandbox |
 
 Hints still mention Symfony (`Use Symfony response…`); they should become framework-aware.
