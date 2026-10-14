@@ -25,9 +25,10 @@ Worktrees share the Docker caches (`make docker-*` mounts the parent directory),
 | `igor-bridge-dev` | Symfony / Laravel bridges (`internal/auditor/`, `src/php/`, `src/laravel/`) | yes |
 | `igor-tester` | Writes the missing tests and runs `make docker-ci`, reports failures | tests only |
 | `igor-reviewer` | Reviews the diff against `main`: false positives/negatives, conventions | no |
+| `igor-docs` | Keeps README, CONTRIBUTING, AGENTS.md and the labs READMEs in sync with the code | Markdown only |
 
-Typical flow: a dev agent implements → `igor-tester` covers and validates → `igor-reviewer`
-reviews before the PR is opened.
+Typical flow: a dev agent implements → `igor-tester` covers and validates → `igor-docs`
+updates the documentation → `igor-reviewer` reviews before the PR is opened.
 
 ### Conventions to keep in mind
 
