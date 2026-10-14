@@ -47,16 +47,20 @@ Then run the deep audit with `--output json` and keep the raw output. A finding 
 ## 3. Triage the findings
 
 Keep a finding only if ALL of these are true:
-- the service persists in the worker (resolved at boot, a singleton, or listed in
-  `octane.warm`), not a `bind()`/`scoped()` binding nor in `octane.flush`;
+- the state survives the request: for instance properties, the service persists in the
+  worker (resolved at boot, a singleton, or listed in `octane.warm`), not a
+  `bind()`/`scoped()` binding nor in `octane.flush`. Static properties, local `static`
+  variables and process-wide settings (`ini_set`, `setlocale`, `date_default_timezone_set`...)
+  always survive, even in a non-shared or scoped class: never discard them on this criterion;
 - the mutation can happen during a request or a queued job, not only in `register()`/`boot()`
   of a provider, a console command or Blade compilation;
 - no Octane listener (`prepareApplicationForNextOperation`, `prepareApplicationForNextRequest`,
   `flush*` calls) resets it. Careful: `GiveNewApplicationInstanceTo*` listeners only swap the
   container, they do not reset state.
 
-Discard and count: configuration API (`extend`, `macro`, `set*`, `use*`), `flush*`/`reset*`
-methods themselves, bounded memoized caches keyed by code, testing helpers
+Discard and count: configuration API (`extend`, `macro`, `set*`, `use*`) called only at boot
+(service providers, `bootstrap/app.php`); the same calls made during a request (middleware,
+controller, job) stay candidates. Also discard the `flush*`/`reset*` methods themselves, bounded memoized caches keyed by code, testing helpers
 (`ParallelTesting`, fakes). Write down the noisy patterns for igor.
 
 Look harder at: facades used in middlewares/controllers (`View::share`, `URL::defaults`,

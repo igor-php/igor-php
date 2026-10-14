@@ -36,10 +36,13 @@ Keep `Psr\` only. Then run the deep audit with `--output json` and keep the raw 
 ## 3. Triage the findings
 
 Keep a finding only if ALL of these are true:
-- the service is shared (check the service map / `debug:container`);
+- the state survives the request: for instance properties, the service is shared (check
+  the service map / `debug:container`). Static properties, local `static` variables and
+  process-wide settings (`ini_set`, `setlocale`, `date_default_timezone_set`...) always
+  survive, even in a non-shared service: never discard them on this criterion;
 - the mutation can happen during an HTTP request or a message handling, not only at
   compile time, boot or in a console command;
-- the service is not reset by `services_resetter` (`kernel.reset` tag / `ResetInterface`),
+- the state is not reset by `services_resetter` (`kernel.reset` tag / `ResetInterface`),
   or its `reset()` is incomplete.
 
 Discard and count: configuration API called at boot (`set*`, `add*`, `register*` in
