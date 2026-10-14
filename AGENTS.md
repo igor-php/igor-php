@@ -20,6 +20,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - **Go**: 1.18+ (The main static analysis engine and CLI tool).
 - **PHP**: 8.1+ (Used for the container discovery bundle and deep audit/reflection to resolve service classes).
 - **Framework Integration**: Symfony 6.4/7.0/8.0+ support via a lightweight custom PHP bundle (`IgorPhpBundle`), which runs with zero third-party dependencies.
+- **Laravel Integration**: Laravel 12/13 with Octane 2 via `IgorServiceProvider` (`php artisan igor:dump`), also dependency-free. CI audits both example labs on every supported Symfony and Laravel version.
 
 ---
 
