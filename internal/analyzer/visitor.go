@@ -53,6 +53,7 @@ type PHPVisitor struct {
 	nonSharedServices  NonSharedServiceMap
 	localSharedVars    map[string]bool
 	namespaceScopes    []namespaceScope
+	framework          string
 }
 
 type namespaceScope struct {
@@ -484,7 +485,7 @@ var dangerousFunctions = map[string]dangerousFuncRule{
 }
 
 func (v *PHPVisitor) addExitFinding(n *sitter.Node) {
-	v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", "Use Symfony response or exceptions instead.", "ERROR")
+	v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", v.hint("exit", "Use Symfony response or exceptions instead."), "ERROR")
 }
 
 // bareExitParents are the expression contexts where tree-sitter-php parses a bare `die;`
@@ -548,7 +549,7 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 		return
 	}
 
-	v.addFinding(n, rule.msg, rule.hint, "WARNING")
+	v.addFinding(n, rule.msg, v.hint(name, rule.hint), "WARNING")
 }
 
 func (v *PHPVisitor) getShadowedFunctions(pos uint) map[string]bool {
@@ -753,7 +754,7 @@ func countArguments(n *sitter.Node) int {
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
 	name := v.getContent(n)
 	if isSuperglobal(name) {
-		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), "Use the Symfony Request object ($request->query, $request->request, etc.) instead.", "WARNING")
+		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), v.hint("superglobal", "Use the Symfony Request object ($request->query, $request->request, etc.) instead."), "WARNING")
 	}
 }
 
@@ -1320,7 +1321,7 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 		} else {
 			msg = fmt.Sprintf("Mutation detected on an injected dependency ($this->%s). Risk of State Leak in a worker.", propName)
 		}
-		v.addFinding(n, msg, "Avoid modifying injected dependencies at runtime, or use a ResetInterface.", "ERROR")
+		v.addFinding(n, msg, v.hint("dependency_mutation", "Avoid modifying injected dependencies at runtime, or use a ResetInterface."), "ERROR")
 	}
 }
 

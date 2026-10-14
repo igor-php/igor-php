@@ -72,7 +72,7 @@ Igor detects `artisan` and runs `php artisan igor:dump` (registered by `IgorPhp\
 | 13 | Stale `Request` captured by a warmed singleton | ✅ Detected: the singleton keeps the `Request` of the first request |
 | 14 | Lazy (non-warmed) singleton | ✅ Not reported: it lives in the request's sandbox |
 
-Hints still mention Symfony (`Use Symfony response…`); they should become framework-aware.
+Hints use Laravel wording when Igor detects a Laravel application (`abort()`, `session()`, Octane listeners…).
 
 ## 🧹 Cleanup
 ```bash
