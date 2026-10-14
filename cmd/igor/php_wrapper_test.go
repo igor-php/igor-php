@@ -312,8 +312,10 @@ func TestIgorDiscoveryPass_RealSymfonyCompilation(t *testing.T) {
 	requirePHP(t)
 
 	// Report the test as skipped (not passed) when the demo's Composer dependencies are not installed,
-	// or as failed when IGOR_LABS_REQUIRED is set
-	requireLab(t, leakLabs[0], filepath.Join("..", "..", "examples", "demo-leak"))
+	// or as failed when IGOR_LABS_REQUIRED is set. It compiles its own container: the lab's
+	// cached service map is not needed.
+	lab := leakLab{name: "demo-leak", prerequisites: requireLabDependencies}
+	requireLab(t, lab, filepath.Join("..", "..", "examples", "demo-leak"))
 
 	phpScript := `
 require __DIR__ . '/../../examples/demo-leak/vendor/autoload.php';

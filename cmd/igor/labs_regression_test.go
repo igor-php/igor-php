@@ -33,24 +33,19 @@ var leakLabs = []leakLab{
 		// Deep Audit: needs the IgorPhpBundle service map, built by `php bin/console cache:clear`
 		name: "demo-leak",
 		prerequisites: func(root string) string {
-			if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
-				return "dependencies are not installed (composer install)"
+			if reason := requireLabDependencies(root); reason != "" {
+				return reason
 			}
 			if _, err := os.Stat(filepath.Join(root, "var", "cache", "dev", "igor_service_map.json")); err != nil {
 				return "the Igor service map is missing (php bin/console cache:clear)"
 			}
-			return requireLabPlatform(root)
+			return ""
 		},
 	},
 	{
 		// Deep Audit: igor runs `php artisan igor:dump`, which boots the Laravel application
-		name: "demo-leak-laravel",
-		prerequisites: func(root string) string {
-			if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
-				return "dependencies are not installed (composer install)"
-			}
-			return requireLabPlatform(root)
-		},
+		name:          "demo-leak-laravel",
+		prerequisites: requireLabDependencies,
 	},
 }
 
@@ -174,10 +169,13 @@ func requireLab(t *testing.T, lab leakLab, root string) {
 	}
 }
 
-// requireLabPlatform returns why the local PHP cannot run a lab, or "" when it can. It runs the
-// platform check Composer generated for the lab's dependencies, so a lab installed for another
-// PHP version (or another framework version) is skipped instead of crashing.
-func requireLabPlatform(root string) string {
+// requireLabDependencies returns why a lab's Composer dependencies cannot run here, or "" when they
+// can. It runs the platform check Composer generated for them, so a lab installed for another PHP
+// version (or another framework version) is skipped instead of crashing.
+func requireLabDependencies(root string) string {
+	if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
+		return "dependencies are not installed (composer install)"
+	}
 	check := filepath.Join(root, "vendor", "composer", "platform_check.php")
 	if _, err := os.Stat(check); err != nil {
 		return "" // the platform check is disabled: trust the installed dependencies
