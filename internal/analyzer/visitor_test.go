@@ -1784,3 +1784,40 @@ func TestPHPVisitor_ExitAndDie(t *testing.T) {
 		})
 	}
 }
+
+func TestPHPVisitor_StaleDependencies(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "stale_dependencies.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.SetNonSharedServices(NonSharedServiceMap{"App\\Services\\PerRequestService": true})
+	v.Walk(tree.RootNode())
+
+	got := make(map[string]int)
+	for _, f := range v.Findings() {
+		got[fmt.Sprintf("%s %d %s", f.Severity, f.Line, f.Message)]++
+	}
+
+	want := map[string]int{
+		"ERROR 13 Property 'request' of PromotedRequest keeps the HTTP request (Illuminate\\Http\\Request) across requests.":                            1,
+		"ERROR 19 Property 'current' of TypedProperties keeps the HTTP request (Symfony\\Component\\HttpFoundation\\Request) across requests.":          1,
+		"ERROR 20 Property 'config' of TypedProperties keeps the configuration repository (Illuminate\\Contracts\\Config\\Repository) across requests.": 1,
+		"ERROR 21 Property 'app' of TypedProperties keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests.":  1,
+		"ERROR 74 Property 'request' of KeepsRequest keeps the HTTP request (Illuminate\\Http\\Request) across requests.":                               1,
+	}
+	for msg, n := range want {
+		if got[msg] != n {
+			t.Errorf("expected %d x %q, got %d", n, msg, got[msg])
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("unexpected findings: %v", got)
+	}
+}

@@ -240,6 +240,11 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 
 	v.scanReadonlyProps(n)
 	v.scanPropertyTypes(n)
+	// Not traits: whether their properties persist depends on the classes using them,
+	// which can be controllers or other per-request services
+	if n.Kind() == "class_declaration" {
+		v.checkStaleDependencies(n, fullName)
+	}
 }
 
 // recordClassParent extracts the single `extends` target from a class_declaration's
