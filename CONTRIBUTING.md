@@ -27,14 +27,14 @@ Before opening a new issue, please search the existing issues to see if it has a
 
 ## Development Setup
 
-Igor PHP is a hybrid tool: the static analysis engine is written in **Go**, and the Symfony configuration discovery/deep auditing is written in **PHP**.
+Igor PHP is a hybrid tool: the static analysis engine is written in **Go**, and the Symfony and Laravel container discovery/deep auditing is written in **PHP**.
 
 ### Prerequisites
 
 You can develop and run tests either **natively** on your machine or inside **Docker** (recommended if you do not want to install Go or PHP locally).
 
 #### Option A: Native Development (Best IDE support)
-- **Go**: 1.18 or higher.
+- **Go**: 1.26 or higher (see `go.mod`), with a C toolchain since the tree-sitter parser uses CGO.
 - **PHP**: 8.1 or higher (required for deep audit and reflection).
 - **Composer**: To manage PHP dependencies.
 
@@ -78,6 +78,12 @@ To compile the Go executable:
 make build
 ```
 This builds the `igor` binary under `bin/igor`.
+
+To build and run it on a target path, or to print the `explain` diagnostic matrix:
+```bash
+make run path=test/fixtures
+make explain path=test/fixtures filter=SuperService   # alias: make debug
+```
 
 ### 2. Run Tests
 We have a comprehensive test suite including Go unit tests, AST visitor tests, and integration tests using real PHP fixtures.
@@ -133,6 +139,10 @@ If you choose **Option B (Docker)** during setup, you can build, test, and lint 
 * **Run the linter binary on a target path inside Docker:**
   ```bash
   make docker-run path=test/fixtures
+  ```
+* **Print the `explain` diagnostic matrix inside Docker:**
+  ```bash
+  make docker-explain path=test/fixtures filter=SuperService   # alias: make docker-debug
   ```
 
 *Note: The Docker environment mounts caching volumes (`igor-go-cache`, `igor-go-mod`, `igor-golangci-cache`) under the hood so subsequent container runs are extremely fast.*

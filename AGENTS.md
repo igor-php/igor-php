@@ -1,6 +1,6 @@
 # igor-php 🧟‍♂️⚡
 
-`igor-php` is an ultra-fast static linter written in **Go** that prepares **Symfony** applications for the persistent memory model of **FrankenPHP Workers** by checking shared services and detecting state pollution or memory leaks.
+`igor-php` is an ultra-fast static linter written in **Go** that prepares **Symfony** and **Laravel Octane** applications for the persistent memory model of **FrankenPHP Workers** by checking shared services and detecting state pollution or memory leaks.
 
 ---
 
@@ -17,9 +17,9 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 
 ## 🛠 Stack & Architecture
 
-- **Go**: 1.18+ (The main static analysis engine and CLI tool).
+- **Go**: 1.26+ (see `go.mod`; the main static analysis engine and CLI tool, built with CGO for tree-sitter).
 - **PHP**: 8.1+ (Used for the container discovery bundle and deep audit/reflection to resolve service classes).
-- **Framework Integration**: Symfony 6.4/7.0/8.0+ support via a lightweight custom PHP bundle (`IgorPhpBundle`), which runs with zero third-party dependencies.
+- **Framework Integration**: Symfony 6.4/7.0/8.0+ support via a lightweight custom PHP bundle (`IgorPhpBundle`), which runs with zero third-party dependencies. Laravel Octane support via `IgorPhp\Laravel\IgorServiceProvider` (auto-registered by Composer package discovery) and its `igor:dump` Artisan command.
 
 ---
 
@@ -42,6 +42,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - **PHP Fixtures**: Static code fixtures used in integration and visitor tests are located in `test/fixtures/`.
 - **Formatting & Linting**: Run `make lint` to execute `golangci-lint` (or **`make docker-lint`** inside Docker, which is **highly preferred**).
 - **Full local CI loop**: `make ci` (or **`make docker-ci`** inside Docker, which is **highly preferred**) executes `build`, `test`, and `lint` in sequence.
+- **Labs Regression Snapshots**: `TestLabsRegression` (`cmd/igor/labs_regression_test.go`) compares the findings on both example labs with `cmd/igor/testdata/labs/*.golden`. After an intended change in the findings, regenerate them with `make update-labs` (or **`make docker-update-labs`**) and review the diff.
 
 ---
 

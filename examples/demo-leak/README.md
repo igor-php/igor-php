@@ -8,8 +8,14 @@ Start the project using Docker (only Docker is required: Composer runs inside th
 ```bash
 make start
 ```
-This builds the image, runs `composer install` in a container and starts both services.
-Then visit [http://localhost:8080](http://localhost:8080) to access the **Igor Leak Lab**.
+This builds the image, runs `composer install` in a container and starts both services:
+
+| Service | URL | Runtime |
+|---|---|---|
+| `php-worker` | [http://localhost:8080](http://localhost:8080) | FrankenPHP worker mode: Symfony boots once and serves every request |
+| `php-classic` | [http://localhost:8081](http://localhost:8081) | Classic FrankenPHP: Symfony boots on every request |
+
+Visit [http://localhost:8080](http://localhost:8080) to access the **Igor Leak Lab** in worker mode, and compare with the classic mode on port 8081. `make start-worker` and `make start-classic` start only one of them.
 
 ### 🔍 What to look for?
 In this laboratory, no experiment state is stored in a database, session, cookie, or cache file.
@@ -48,5 +54,5 @@ Most lab services are public so they are easy to explore, but `src/Model/` and `
 
 ## 🧹 Cleanup
 ```bash
-docker compose down
+make stop
 ```

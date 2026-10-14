@@ -22,7 +22,7 @@
 
 ⭐️ **If you find Igor useful, please consider leaving a star! It encourages us to keep maintaining and improving the project.**
 
-`igor-php` is an ultra-fast static linter written in **Go** that prepares your **Symfony** application for the persistent memory model of **FrankenPHP**.
+`igor-php` is an ultra-fast static linter written in **Go** that prepares your **Symfony** or **Laravel Octane** application for the persistent memory model of **FrankenPHP**.
 
 Like the legendary assistant, `igor` checks every connection and part of your application to ensure it won't "blow up" when the lightning strikes (Worker Mode).
 
@@ -31,7 +31,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 ## ✨ Highlights
 
 - **⚡ Lightning Fast**: Scans hundreds of files in milliseconds using Go's native multi-threading.
-- **🔍 Deep Audit**: Automatically detects Symfony projects and audits **every shared service** defined in the container, including those in `vendor/` and external bundles.
+- **🔍 Deep Audit**: Automatically detects Symfony and Laravel projects and audits **every shared service** defined in the container (or, on Laravel, every service that persists in an Octane worker), including those in `vendor/` and external bundles.
 - **🎯 Surgical Precision**: Detects complex state mutations (`$this->prop[]`, `static::$prop`, increments) without false positives.
 - **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset. Automatically ignores **`readonly` properties and classes** (PHP 8.1+) as they are immutable by design.
 - **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
@@ -39,7 +39,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
 - **🎯 Reachability Ranking**: Cross-references every flagged mutator against your own call graph. Findings actually reachable from your application code are tagged `[HIGH]` and surface first; findings with no call site found are tagged `[INFO]`.
 - **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment, or target entire classes, methods, and properties using modern **PHP 8 Attributes** (`#[WorkerSafe]`).
-- Bridge-Agnostic Bridge**: Not on Symfony? Feed Igor your container's service graph via `--container-dump <file.json>` so it skips transient (non-shared) value objects and per-request helpers — the same precision the Symfony bridge gives, for **any** framework (Laravel, Laminas, …).
+- **🌉 Framework-Agnostic Bridge**: Not on Symfony or Laravel? Feed Igor your container's service graph via `--container-dump <file.json>` so it skips transient (non-shared) value objects and per-request helpers — the same precision the Symfony bridge gives, for **any** framework (Laminas, …).
 
 ---
 
@@ -74,7 +74,7 @@ During its static analysis of shared/singleton services, Igor recursively scans 
 | **Resettable Bypass** | *(Bypass)* | Igor automatically resolves Symfony autowire aliases and abstract interface/implementation chains to see if the dependency is marked as resettable, and **ignores mutation warnings** on it. | 🟢 Safe (Auto) | `$this->translator->setLanguage($lang);`<br>*(if translator is resettable)* |
 | **Closure State Leak** | `DetectClosureStateLeak` | Passing anonymous functions that capture local variables (`use ($var)`) to shared service dependencies. | 🔴 Critical | `$this->dispatcher->addListener('response', function () use ($optin) {});` |
 | **Finally Cleanup** | *(Bypass)* | Igor natively detects when a mutated state is guaranteed to be cleaned up inside a `finally` block (using `array_pop`, `unset`, or direct assignments), and **automatically bypasses the error**. | 🟢 Safe (Auto) | `try { $this->stack[] = $item; } finally { array_pop($this->stack); }` |
-| **State Mutation** | `StateMutation` | Direct assignment or mutation of class properties or static variables at runtime. | 🔴 Critical | `$this->count++;`<br>`self::$cache[] = $val;` |
+| **State Mutation** | `StateMutation` | Direct assignment or mutation of class properties or static variables at runtime, including writes to another class's static properties (`OtherClass::$prop`, `parent::$prop`). | 🔴 Critical | `$this->count++;`<br>`self::$cache[] = $val;`<br>`Registry::$items[] = $val;` |
 | **Reset Interface** | `IncompleteReset` | Class implements `ResetInterface` but some of its mutated properties are not cleared inside `reset()`. | 🟡 Warning | `public function reset() {`<br>`  // forgot to clear $count`<br>`}` |
 | **Process State Mutation** | `ProcessStateMutation` | Functions modifying global PHP configuration or runtime behavior that persist across requests. | 🟡 Warning | `date_default_timezone_set('UTC');`<br>`ini_set('memory_limit', '256M');` |
 | **Local Static Variable** | `LocalStaticVariable` | Declaring local static variables inside methods, which persist across the PHP process lifecycle. | 🔴 Critical | `static $counter = 0;` |
@@ -95,13 +95,13 @@ During its static analysis of shared/singleton services, Igor recursively scans 
 > If your service manages temporary state using a stack or push/pop pattern (like Symfony's `AuthorizationChecker`), Igor is smart enough to scan `finally` clauses. If it detects that a mutated property is guaranteed to be restored or cleaned up inside the `finally` block (using `array_pop()`, `array_shift()`, `unset()`, or direct resets), the mutation is marked as safe and the warning is automatically bypassed.
 
 > 🧠 **Infrastructure Taint Breakers**:
-> Igor's taint-tracking is incredibly powerful, but mutating query-scoped objects or transient builders (like Doctrine Queries, QueryBuilders, Symfony's `ConstraintViolationBuilder` from `$this->context->buildViolation(...)`, or PSR-6 cache items via `$this->cache->getItem(...)`) is completely safe. Igor has built-in **Taint Breakers** for these standard design patterns: any chained calls or assignments coming from methods starting with `find`, `create`, `build`, or calling `getItem`/`getItems` are recognized as transient/ephemeral. This automatically halts taint propagation and eliminates noise on your repositories, cache services, and validator classes.
+> Igor's taint-tracking is incredibly powerful, but mutating query-scoped objects or transient builders (like Doctrine Queries, QueryBuilders, Symfony's `ConstraintViolationBuilder` from `$this->context->buildViolation(...)`, or PSR-6 cache items via `$this->cache->getItem(...)`) is completely safe. Igor has built-in **Taint Breakers** for these standard design patterns: any chained calls or assignments coming from methods starting with `find`, `create`, `build`, or calling `getItem`/`getItems`/`expr` are recognized as transient/ephemeral. This automatically halts taint propagation and eliminates noise on your repositories, cache services, and validator classes.
 
 ---
 
 ## 📋 Prerequisites
 
-- **Go**: Required to compile or install the binary.
+- **Go 1.26+** and a C toolchain (the tree-sitter parser uses CGO): only required to compile or install the binary from source. The Composer package downloads a prebuilt binary.
 - **PHP 8.1+**: Required for the **Deep Audit** mode (Symfony or Laravel). Igor uses PHP Reflection to precisely locate service files within your project and `vendor/` directory. Without PHP, Igor will fall back to a standard directory scan.
 
 ---
@@ -147,15 +147,16 @@ On a Laravel project, Composer's package discovery registers `IgorPhp\Laravel\Ig
 
 - **Persistent**: the singletons resolved while the worker boots, by a service provider or listed in `octane.warm`. Their dependencies are audited too, since the singleton keeps them.
 - **Per request (skipped)**: `bind()` and `scoped()` bindings, the bindings in `octane.flush`, and the singletons first resolved during a request, which live in the request's sandbox.
-- **Resettable**: a persistent service that implements `Symfony\Contracts\Service\ResetInterface`, or that has a `reset()` method called by one of your Octane listeners. Igor then checks that `reset()` clears every property the service fills.
-- **Controllers**: rebuilt for every request, so their own properties are not checked, but their code (`exit()`, superglobals, process functions…) is still audited.
+- **Resettable**: a persistent service that implements `Symfony\Contracts\Service\ResetInterface`, or that has a `reset()` method and is referenced by one of your Octane listeners on a request event (`RequestReceived`, `RequestHandled`, `RequestTerminated`, `OperationTerminated`). Igor then checks that `reset()` clears every property the service fills.
+- **Controllers**: rebuilt for every request, so their own properties are not checked, but their code (`exit()`, superglobals, process functions…) is still audited. The files declaring closure routes are audited the same way.
 
-The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan.
+The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan. `--no-agent` skips the Laravel detection entirely.
 
 ### Via Go
 ```bash
-go install github.com/igor-php/igor-php@latest
+go install github.com/igor-php/igor-php/cmd/igor@latest
 ```
+This installs the binary as `igor`.
 
 ---
 
@@ -195,6 +196,9 @@ igor-php --no-agent .
 
 # Audit a single file
 igor-php src/Service/MyService.php
+
+# Display the installed version
+igor-php --version
 ```
 
 ### 🔌 Editor & IDE Integration
@@ -216,7 +220,7 @@ igor-php --stdin-filepath src/Service/MyService.php --include-ignored --output j
 - Baseline management flags (`--generate-baseline`, `--check-baseline`, `--prune-baseline`) cannot be combined with a single-file target or `--stdin-filepath`.
 
 ### 🧠 Semantic Explanation Matrix (Diagnostic Mode)
-If you want to understand the exact sémantique and diagnostic criteria that led Igor to flag or approve a service, you can run the `explain` command:
+If you want to understand the exact semantics and diagnostic criteria that led Igor to flag or approve a service, you can run the `explain` command:
 
 ```bash
 # Display diagnostic matrix for all services
@@ -327,7 +331,7 @@ By convention, keep `igor-container.json` at the project root, side-by-side with
 
 ## 🌉 Community Bridges
 
-Igor's core stays framework-agnostic — the Symfony bundle and the generic `--container-dump` contract are all the engine needs. Anyone can ship a thin **bridge** that produces that signal for their own framework. Community-maintained bridges:
+Igor's core stays framework-agnostic — the Symfony bundle, the Laravel service provider and the generic `--container-dump` contract are all the engine needs. Anyone can ship a thin **bridge** that produces that signal for their own framework. Community-maintained bridges:
 
 | Framework | Bridge | Notes |
 |-----------|--------|-------|
@@ -362,7 +366,7 @@ Running Laravel? A twin lab built on **Laravel Octane** and FrankenPHP lives in 
 ### Deep Audit Mode (Symfony)
 When a Symfony project is detected, Igor combines three layers of discovery to ensure maximum reliability:
 
-1.  **Level 1: Project Code (Recursive Scan)**: Igor scans all PHP files in your project directory (excluding `vendor`, `var`, `tests`, etc.). This ensures that even if Symfony "inlines" or "hides" a service for optimization, Igor will still find and audit it.
+1.  **Level 1: Container Services**: Igor audits the files of the shared services registered in the container, plus the parent classes and traits resolved by PHP Reflection. It does **not** blindly scan the whole project directory, to avoid false positives on transient files; that recursive scan is only the fallback when no container can be loaded. Services that Symfony "inlines" for optimization are exported by the Igor Agent (Level 3) as `inlined.*` entries.
 2.  **Level 2: Smart Filtering (Composer)**: Igor automatically parses your `composer.json`, `composer.lock`, and `installed.json` to identify all development packages (both direct in `require-dev` and transitive dependencies like `fakerphp/faker`). It automatically excludes any service originating from these packages to reduce noise and focus only on production-ready code.
 3.  **Level 3: Igor Agent (Embedded Bundle)**: By enabling the optional PHP bundle, Igor becomes "infallible". The bundle hooks into the Symfony compilation process to export the exact map of all active shared services.
 
@@ -378,7 +382,7 @@ The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear you
 
 > ⚠️ **Important**: You must run `php bin/console cache:clear` whenever you add or modify services in your Symfony project to ensure the Igor Agent map is up-to-date.
 
-- **What it does**: It iterates through the `ContainerBuilder`, identifies all **Shared Services**, and extracts their class names and IDs.
+- **What it does**: It iterates through the `ContainerBuilder` (including inlined definitions) and extracts, for each service, its class, its `public`/`shared` flags, whether it is resettable (tagged `kernel.reset` or implementing `ResetInterface`) and its injected service dependencies, plus the container aliases (including private ones).
 - **The Cache**: It writes this information into a small JSON file: `var/cache/<env>/igor_service_map.json`.
 - **The Benefit**: The Go binary reads this file instead of executing the heavy `debug:container` command. This makes the audit launch near-instant and ensures 100% accuracy, even for services added by complex compiler passes or decorators.
 
@@ -389,12 +393,18 @@ The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear you
         "app.mail_service": {
             "class": "App\\Service\\MailService",
             "public": true,
-            "shared": true
+            "shared": true,
+            "resettable": false,
+            "arguments": [
+                { "type": "service", "id": "logger" }
+            ]
         },
         "logger": {
             "class": "Monolog\\Logger",
             "public": true,
-            "shared": true
+            "shared": true,
+            "resettable": true,
+            "arguments": []
         }
     },
     "aliases": {
@@ -523,11 +533,14 @@ You can also set this permanently in `igor.json`:
 }
 ```
 
+```text
 💡 RECOMMENDATIONS:
   [PROJECT] Since this is your code, you should refactor these services to be stateless
-  or implement ResetInterface to clear the state between requests.
+            or implement ResetInterface to clear the state between requests.
   [VENDOR]  This is third-party code. If you can't fix it, consider setting a 'max_requests' limit
-  in your Worker configuration to mitigate memory leaks.
+            in your Worker configuration (e.g. FrankenPHP) to mitigate memory leaks.
+            Determine if the issue is a simple leak or a critical data exchange between requests.
+```
 
 ---
 
