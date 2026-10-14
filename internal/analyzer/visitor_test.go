@@ -1821,3 +1821,66 @@ func TestPHPVisitor_StaleDependencies(t *testing.T) {
 		t.Errorf("unexpected findings: %v", got)
 	}
 }
+
+func TestPHPVisitor_FrameworkAwareHints(t *testing.T) {
+	code := `<?php
+class Hinted {
+    public function __construct(private Logger $logger) {}
+    public function run() {
+        header('X-Foo: bar');
+        session_start();
+        $id = $_GET['id'];
+        $this->logger->setLevel(1);
+        exit();
+    }
+}`
+	for _, tc := range []struct {
+		framework string
+		want      map[string]string
+	}{
+		{"", map[string]string{
+			"Function 'header' directly mutates SAPI HTTP output headers.":                                 "Use Symfony Response object headers instead.",
+			"Function 'session_start' directly manipulates native PHP session state.":                      "Inject Symfony's Request::getSession() instead.",
+			"Usage of PHP Superglobal $_GET is discouraged in Worker mode.":                                "Use the Symfony Request object",
+			"Mutation detected on an injected dependency ($this->logger). Risk of State Leak in a worker.": "or use a ResetInterface.",
+			"Usage of exit/die is forbidden in Worker mode.":                                               "Use Symfony response or exceptions instead.",
+		}},
+		{FrameworkLaravel, map[string]string{
+			"Function 'header' directly mutates SAPI HTTP output headers.":                                 "$response->header($name, $value)",
+			"Function 'session_start' directly manipulates native PHP session state.":                      "Use the session() helper or $request->session() instead.",
+			"Usage of PHP Superglobal $_GET is discouraged in Worker mode.":                                "Use the Laravel Request object",
+			"Mutation detected on an injected dependency ($this->logger). Risk of State Leak in a worker.": "Octane RequestReceived listener",
+			"Usage of exit/die is forbidden in Worker mode.":                                               "abort()",
+		}},
+	} {
+		t.Run("framework="+tc.framework, func(t *testing.T) {
+			content := []byte(code)
+			p := sitter.NewParser()
+			_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+			tree := p.Parse(content, nil)
+			defer tree.Close()
+
+			v := NewVisitor(content, &mockEngine{})
+			v.SetFramework(tc.framework)
+			v.Walk(tree.RootNode())
+
+			hints := make(map[string]string)
+			for _, f := range v.Findings() {
+				hints[f.Message] = f.Remediation
+			}
+			for msg, want := range tc.want {
+				got, ok := hints[msg]
+				if !ok {
+					t.Errorf("missing finding %q, got %v", msg, hints)
+					continue
+				}
+				if !strings.Contains(got, want) {
+					t.Errorf("hint of %q = %q, want it to contain %q", msg, got, want)
+				}
+				if tc.framework == FrameworkLaravel && strings.Contains(got, "Symfony") {
+					t.Errorf("Laravel hint of %q still mentions Symfony: %q", msg, got)
+				}
+			}
+		})
+	}
+}

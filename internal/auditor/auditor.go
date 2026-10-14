@@ -316,6 +316,9 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 	})
 	v.SetDependencies(dependencies)
 	v.SetNonSharedServices(a.NonSharedServices)
+	if a.Symfony != nil {
+		v.SetFramework(a.Symfony.Framework)
+	}
 	v.Walk(tree.RootNode())
 
 	return v.Findings(), nil
