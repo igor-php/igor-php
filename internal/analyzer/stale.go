@@ -42,7 +42,7 @@ var (
 	}
 )
 
-// checkStaleDependencies flags the properties of a persistent service (or of a trait it uses) typed with a per-request object
+// checkStaleDependencies flags the properties of a persistent service typed with a per-request object
 // (the request, or the container and config of Octane's per-request application clone).
 func (v *PHPVisitor) checkStaleDependencies(classNode *sitter.Node, fullName string) {
 	if v.isTransientClass(fullName) {

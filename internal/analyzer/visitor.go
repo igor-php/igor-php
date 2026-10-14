@@ -240,7 +240,9 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 
 	v.scanReadonlyProps(n)
 	v.scanPropertyTypes(n)
-	if n.Kind() == "class_declaration" || n.Kind() == "trait_declaration" {
+	// Not traits: whether their properties persist depends on the classes using them,
+	// which can be controllers or other per-request services
+	if n.Kind() == "class_declaration" {
 		v.checkStaleDependencies(n, fullName)
 	}
 }
