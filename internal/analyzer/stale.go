@@ -42,7 +42,7 @@ var (
 	}
 )
 
-// checkStaleDependencies flags the properties of a persistent service typed with a per-request object
+// checkStaleDependencies flags the properties of a persistent service (or of a trait it uses) typed with a per-request object
 // (the request, or the container and config of Octane's per-request application clone).
 func (v *PHPVisitor) checkStaleDependencies(classNode *sitter.Node, fullName string) {
 	if v.isTransientClass(fullName) {
@@ -53,21 +53,21 @@ func (v *PHPVisitor) checkStaleDependencies(classNode *sitter.Node, fullName str
 		return
 	}
 
-	method := v.curMethod
-	defer func() { v.curMethod = method }()
+	method, workerSafeMethod := v.curMethod, v.isWorkerSafeMethod
+	defer func() { v.curMethod, v.isWorkerSafeMethod = method, workerSafeMethod }()
 
 	for i := uint(0); i < body.ChildCount(); i++ {
 		member := body.Child(i)
 		switch member.Kind() {
 		case "property_declaration":
-			v.curMethod = ""
+			v.curMethod, v.isWorkerSafeMethod = "", false
 			v.checkStaleProperty(member, member, "property_element")
 		case "method_declaration":
 			nameNode := member.ChildByFieldName("name")
 			if nameNode == nil || strings.ToLower(v.getContent(nameNode)) != "__construct" {
 				continue
 			}
-			v.curMethod = v.getContent(nameNode)
+			v.curMethod, v.isWorkerSafeMethod = v.getContent(nameNode), v.hasAttribute(member, "WorkerSafe")
 			v.checkStalePromotions(member)
 		}
 	}
@@ -124,9 +124,12 @@ func (v *PHPVisitor) staleType(typeStr string) (staleDependency, string, bool) {
 		if name == "" || strings.EqualFold(name, "null") {
 			continue
 		}
+		// Class names are case-insensitive in PHP
 		fqcn := v.resolveFQCN(name)
-		if dep, ok := staleDependencies[fqcn]; ok {
-			return dep, fqcn, true
+		for class, dep := range staleDependencies {
+			if strings.EqualFold(class, fqcn) {
+				return dep, class, true
+			}
 		}
 	}
 	return staleDependency{}, "", false

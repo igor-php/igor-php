@@ -67,3 +67,16 @@ class PerRequestService
 {
     public function __construct(private Request $request) {}
 }
+
+// Detected: a trait used by persistent services, and a type spelled in another case
+trait KeepsRequest
+{
+    public function __construct(private \illuminate\http\REQUEST $request) {}
+}
+
+// Ignored: a constructor marked as safe
+class SafeConstructor
+{
+    #[WorkerSafe]
+    public function __construct(private Request $request) {}
+}

@@ -240,7 +240,7 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 
 	v.scanReadonlyProps(n)
 	v.scanPropertyTypes(n)
-	if n.Kind() == "class_declaration" {
+	if n.Kind() == "class_declaration" || n.Kind() == "trait_declaration" {
 		v.checkStaleDependencies(n, fullName)
 	}
 }

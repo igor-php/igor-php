@@ -1810,6 +1810,7 @@ func TestPHPVisitor_StaleDependencies(t *testing.T) {
 		"ERROR 19 Property 'current' of TypedProperties keeps the HTTP request (Symfony\\Component\\HttpFoundation\\Request) across requests.":          1,
 		"ERROR 20 Property 'config' of TypedProperties keeps the configuration repository (Illuminate\\Contracts\\Config\\Repository) across requests.": 1,
 		"ERROR 21 Property 'app' of TypedProperties keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests.":  1,
+		"ERROR 74 Property 'request' of KeepsRequest keeps the HTTP request (Illuminate\\Http\\Request) across requests.":                               1,
 	}
 	for msg, n := range want {
 		if got[msg] != n {
