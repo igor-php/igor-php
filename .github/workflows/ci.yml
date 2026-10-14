@@ -89,3 +89,47 @@ jobs:
         with:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # The bundle supports every maintained Symfony version: install the Symfony lab on each one,
+  # compile its real container and expect the same findings as the Symfony 8 snapshot
+  symfony-compat:
+    name: Symfony compatibility (Symfony ${{ matrix.symfony }}, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { symfony: '6.4', php: '8.1' }
+          - { symfony: '6.4', php: '8.4' }
+          - { symfony: '7.4', php: '8.2' }
+          - { symfony: '7.4', php: '8.4' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+
+      - name: Install demo-leak on Symfony ${{ matrix.symfony }}
+        working-directory: examples/demo-leak
+        run: |
+          composer require --no-update --no-interaction "php:>=${{ matrix.php }}" \
+            "symfony/console:${{ matrix.symfony }}.*" "symfony/dotenv:${{ matrix.symfony }}.*" \
+            "symfony/framework-bundle:${{ matrix.symfony }}.*" "symfony/runtime:${{ matrix.symfony }}.*" \
+            "symfony/yaml:${{ matrix.symfony }}.*"
+          composer update -W --no-interaction --no-progress --no-scripts
+          composer show symfony/framework-bundle | grep -E '^versions'
+          php bin/console cache:clear
+
+      - name: Run the lab tests
+        env:
+          IGOR_LABS_REQUIRED: '1'
+        run: |
+          go test -v -run 'TestIgorDiscoveryPass_RealSymfonyCompilation' ./cmd/igor
+          go test -v -run 'TestLabsRegression/^demo-leak$' ./cmd/igor

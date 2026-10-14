@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -34,24 +33,19 @@ var leakLabs = []leakLab{
 		// Deep Audit: needs the IgorPhpBundle service map, built by `php bin/console cache:clear`
 		name: "demo-leak",
 		prerequisites: func(root string) string {
-			if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
-				return "dependencies are not installed (composer install)"
+			if reason := requireLabDependencies(root); reason != "" {
+				return reason
 			}
 			if _, err := os.Stat(filepath.Join(root, "var", "cache", "dev", "igor_service_map.json")); err != nil {
 				return "the Igor service map is missing (php bin/console cache:clear)"
 			}
-			return requirePHPVersion(80400)
+			return ""
 		},
 	},
 	{
-		// Deep Audit: igor runs `php artisan igor:dump`, which boots the Laravel 13 application
-		name: "demo-leak-laravel",
-		prerequisites: func(root string) string {
-			if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
-				return "dependencies are not installed (composer install)"
-			}
-			return requirePHPVersion(80400)
-		},
+		// Deep Audit: igor runs `php artisan igor:dump`, which boots the Laravel application
+		name:          "demo-leak-laravel",
+		prerequisites: requireLabDependencies,
 	},
 }
 
@@ -65,12 +59,7 @@ func TestLabsRegression(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if reason := lab.prerequisites(root); reason != "" {
-				if os.Getenv(labsRequiredEnv) != "" {
-					t.Fatalf("%s: %s", lab.name, reason)
-				}
-				t.Skipf("%s: %s (set %s=1 to make this a failure)", lab.name, reason, labsRequiredEnv)
-			}
+			requireLab(t, lab, root)
 
 			got := auditLab(t, root)
 			goldenPath := filepath.Join("testdata", "labs", lab.name+".golden")
@@ -168,15 +157,39 @@ func diffLines(want, got string) string {
 	return strings.Join(out, "\n")
 }
 
-// requirePHPVersion returns why the local PHP cannot run the lab, or "" when it can.
-func requirePHPVersion(minID int) string {
-	out, err := exec.Command("php", "-r", "echo PHP_VERSION_ID;").Output()
-	if err != nil {
-		return "`php` is not available"
+// requireLab skips the test when the lab cannot be audited here, or fails it when
+// IGOR_LABS_REQUIRED is set (as in CI, where a skipped lab would hide a regression).
+func requireLab(t *testing.T, lab leakLab, root string) {
+	t.Helper()
+	if reason := lab.prerequisites(root); reason != "" {
+		if os.Getenv(labsRequiredEnv) != "" {
+			t.Fatalf("%s: %s", lab.name, reason)
+		}
+		t.Skipf("%s: %s (set %s=1 to make this a failure)", lab.name, reason, labsRequiredEnv)
 	}
-	id, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil || id < minID {
-		return fmt.Sprintf("PHP %s is too old (needs PHP_VERSION_ID >= %d)", strings.TrimSpace(string(out)), minID)
+}
+
+// requireLabDependencies returns why a lab's Composer dependencies cannot run here, or "" when they
+// can. It runs the platform check Composer generated for them, so a lab installed for another PHP
+// version (or another framework version) is skipped instead of crashing.
+func requireLabDependencies(root string) string {
+	if _, err := os.Stat(filepath.Join(root, "vendor", "autoload.php")); err != nil {
+		return "dependencies are not installed (composer install)"
+	}
+	check := filepath.Join(root, "vendor", "composer", "platform_check.php")
+	if _, err := os.Stat(check); err != nil {
+		return "" // the platform check is disabled: trust the installed dependencies
+	}
+	if out, err := exec.Command("php", check).CombinedOutput(); err != nil {
+		// Keep only Composer's explanation: "Your Composer dependencies require a PHP version ..."
+		msg := string(out)
+		if i := strings.Index(msg, "platform: "); i >= 0 {
+			msg = msg[i+len("platform: "):]
+		}
+		if i := strings.Index(msg, " in /"); i >= 0 {
+			msg = msg[:i]
+		}
+		return "the installed dependencies do not support this PHP: " + strings.TrimSpace(msg)
 	}
 	return ""
 }
