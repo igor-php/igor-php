@@ -691,6 +691,28 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 >             - '../src/Kernel.php'
 > ```
 
+### 📥 Folded findings: code that never runs during a request
+
+Some services are audited but never run while the worker serves a request. In the CLI output, their findings are folded into one line instead of being listed:
+
+```
+ℹ️  71 findings in code that does not run during a request (console, kernel boot, routing loader) — use --show-all to list them
+```
+
+| Reason | What is folded |
+|---|---|
+| `console` | Services tagged `console.command` |
+| `profiler` | Services tagged `data_collector` |
+| `cache warmer` / `cache clearer` | Services tagged `kernel.cache_warmer` / `kernel.cache_clearer` |
+| `routing loader` / `translation loader` | Services tagged `routing.loader` / `translation.loader` |
+| `debug` | Decorators (`container.decorator`) whose id starts with `debug.` or whose class starts with `Traceable` |
+| `kernel boot` | The Symfony `Kernel` (and `MicroKernelTrait`) methods that build or load the container. `boot()` (which resets the services between requests), `handle()`, `reboot()` and `shutdown()` run in the worker and stay reported. |
+
+- Services are classified by their container tags (exported by `IgorPhpBundle`), not by path. A class that also backs a service running during a request is never folded.
+- Folded findings do not count in the summary or the exit code. **`--show-all`** lists them, marked `[OUT OF REQUEST: <reason>]`, and counts them again.
+- The JSON and LLM exports always contain every finding, with an `out_of_request` field naming the reason. Baselines are generated from every finding too.
+- Dev-mode workers still run the profiler and the debug decorators: use `--show-all` when you audit a worker that serves the dev environment.
+
 ---
 
 ## 🤖 CI/CD Integration

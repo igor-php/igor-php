@@ -233,7 +233,7 @@ func TestReportAllFindings(t *testing.T) {
 		},
 	}
 
-	reportAllFindings(rep, results, root)
+	reportAllFindings(rep, results, root, false)
 
 	if !rep.printProjectHeaderCalled {
 		t.Error("Expected PrintProjectHeader to be called")

@@ -25,6 +25,8 @@ type LLMWarning struct {
 	ASTDetails string     `json:"ast_details"`
 	RuleID     string     `json:"rule_id"`
 	Context    LLMContext `json:"context"`
+	// OutOfRequest names why the code never runs during a request (console, profiler...)
+	OutOfRequest string `json:"out_of_request,omitempty"`
 }
 
 // LLMContext provides additional technical background for the warning.
@@ -88,6 +90,7 @@ func (r *LLMReporter) PrintFindings(res symbol.AuditStatus, _ string, _ bool) {
 				},
 				InjectedLines: f.Dependencies,
 			},
+			OutOfRequest: f.OutOfRequest,
 		}
 		r.Warnings = append(r.Warnings, w)
 	}

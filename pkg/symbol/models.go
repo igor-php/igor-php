@@ -20,6 +20,9 @@ type Finding struct {
 	Reachability  string   `json:"reachability,omitempty"`
 	Ignored       bool     `json:"ignored,omitempty"`
 	IgnoreReason  string   `json:"ignore_reason,omitempty"`
+	// OutOfRequest names why the code never runs while the worker serves a request
+	// (console, profiler, kernel boot...): the CLI folds these findings unless --show-all is set.
+	OutOfRequest string `json:"out_of_request,omitempty"`
 }
 
 // Result groups findings by file.
@@ -99,6 +102,8 @@ type AuditStatus struct {
 	Dependencies []string  `json:"dependencies"`
 	IsShared     bool      `json:"is_shared"`
 	IsPublic     bool      `json:"is_public"`
+	// OutOfRequest is set when every service backed by a class of this file only runs outside a request.
+	OutOfRequest string `json:"out_of_request,omitempty"`
 }
 
 // IsVendor returns true if the file is part of the vendor directory.

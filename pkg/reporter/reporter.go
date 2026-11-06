@@ -21,6 +21,12 @@ type Reporter interface {
 	PrintSummary(results []symbol.AuditStatus, projectRoot string) bool
 }
 
+// FoldedNotifier is implemented by the reporters that fold the findings of code that never runs
+// during a request: they print how many were left out instead.
+type FoldedNotifier interface {
+	PrintFolded(count int, categories []string)
+}
+
 // JSONReporter implements Reporter for standard JSON output.
 type JSONReporter struct {
 	StartTime time.Time
@@ -138,6 +144,10 @@ func (r *CLIReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, 
 		case "INFO":
 			rankTag = " \033[90m[INFO]\033[0m"
 		}
+		// Only listed with --show-all: the code never runs during a request
+		if f.OutOfRequest != "" {
+			rankTag += fmt.Sprintf(" \033[90m[OUT OF REQUEST: %s]\033[0m", f.OutOfRequest)
+		}
 
 		// Baseline-exempt findings (--include-ignored) are shown dimmed and never annotated
 		if f.Ignored {
@@ -172,6 +182,16 @@ func (r *CLIReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, 
 			fmt.Printf("::%s file=%s,line=%d::%s\n", severity, relPath, f.Line, msg)
 		}
 	}
+}
+
+// PrintFolded prints how many findings were left out because their code never runs during a request.
+func (r *CLIReporter) PrintFolded(count int, categories []string) {
+	noun := "findings"
+	if count == 1 {
+		noun = "finding"
+	}
+	fmt.Printf("\nℹ️  %d %s in code that does not run during a request (%s) — use --show-all to list them\n",
+		count, noun, strings.Join(categories, ", "))
 }
 
 // PrintSummary displays the final audit statistics.
