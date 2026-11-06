@@ -19,5 +19,6 @@ app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService:
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonEncoding | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonGc | WARNING | Function 'gc_disable' modifies the global PHP garbage collector.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonUmask | WARNING | Function 'umask' modifies the global PHP process file creation mask.
+app/Services/StaleRequestService.php | App\Services\StaleRequestService::__construct | ERROR | Property 'request' of StaleRequestService keeps the HTTP request (Illuminate\Http\Request) across requests.
 app/Services/StatefulService.php | App\Services\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData()
 app/Services/StaticLeakService.php | App\Services\StaticLeakService::touch | ERROR | Mutation of state 'static::$hist' in StaticLeakService::touch()
