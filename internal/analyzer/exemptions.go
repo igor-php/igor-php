@@ -50,13 +50,24 @@ func (v *PHPVisitor) isResetMethodWrite(n, left, right *sitter.Node) bool {
 	return v.isEmptyValue(right)
 }
 
-// envByRefFunctions change the array (or variable) passed to them by reference.
-var envByRefFunctions = map[string]bool{
-	"array_pop": true, "array_push": true, "array_shift": true, "array_unshift": true, "array_splice": true,
-	"array_walk": true, "array_walk_recursive": true, "sort": true, "rsort": true, "usort": true, "uasort": true,
-	"uksort": true, "ksort": true, "krsort": true, "asort": true, "arsort": true, "natsort": true,
-	"natcasesort": true, "shuffle": true, "array_multisort": true, "settype": true, "parse_str": true,
-	"preg_match": true, "preg_match_all": true, "str_replace": true, "extract": true,
+// byRefParam names the parameter a function changes by reference: its position, or -1 when every
+// argument is passed by reference, and its name for named arguments.
+type byRefParam struct {
+	index int
+	name  string
+}
+
+// envByRefFunctions change the array (or variable) passed to them by reference. Only the argument
+// in that position is a write: preg_match('/x/', $_ENV['APP_ENV']) only reads the environment.
+var envByRefFunctions = map[string]byRefParam{
+	"array_pop": {0, "array"}, "array_push": {0, "array"}, "array_shift": {0, "array"}, "array_unshift": {0, "array"},
+	"array_splice": {0, "array"}, "array_walk": {0, "array"}, "array_walk_recursive": {0, "array"},
+	"sort": {0, "array"}, "rsort": {0, "array"}, "usort": {0, "array"}, "uasort": {0, "array"}, "uksort": {0, "array"},
+	"ksort": {0, "array"}, "krsort": {0, "array"}, "asort": {0, "array"}, "arsort": {0, "array"},
+	"natsort": {0, "array"}, "natcasesort": {0, "array"}, "shuffle": {0, "array"}, "extract": {0, "array"},
+	"array_multisort": {-1, ""}, "settype": {0, "var"}, "parse_str": {1, "result"},
+	"preg_match": {2, "matches"}, "preg_match_all": {2, "matches"}, "str_replace": {3, "count"},
+	"str_ireplace": {3, "count"},
 }
 
 // isEnvRead reports a read of $_ENV: it holds the process environment, not request data. Writes
@@ -102,7 +113,8 @@ func foreachByRef(n *sitter.Node, content func(*sitter.Node) string) bool {
 	return false
 }
 
-// isByRefCallArgument reports an argument passed to a function known to change it by reference.
+// isByRefCallArgument reports an argument passed in the by-reference position of a function known
+// to change it.
 func isByRefCallArgument(argument *sitter.Node, content func(*sitter.Node) string) bool {
 	args := argument.Parent()
 	if args == nil {
@@ -117,7 +129,27 @@ func isByRefCallArgument(argument *sitter.Node, content func(*sitter.Node) strin
 		return false
 	}
 	fn := strings.ToLower(content(name))
-	return envByRefFunctions[fn[strings.LastIndex(fn, `\`)+1:]]
+	param, found := envByRefFunctions[fn[strings.LastIndex(fn, `\`)+1:]]
+	if !found {
+		return false
+	}
+	if param.index < 0 {
+		return true
+	}
+	if argName := argument.ChildByFieldName("name"); argName != nil {
+		return strings.EqualFold(content(argName), param.name)
+	}
+	position := 0
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if sameNode(arg, argument) {
+			return position == param.index
+		}
+		if arg.Kind() == "argument" {
+			position++
+		}
+	}
+	return false
 }
 
 func (v *PHPVisitor) isThisProperty(n *sitter.Node) bool {

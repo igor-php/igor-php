@@ -87,6 +87,10 @@ final class NarrowExemptions
         }
         $count = count($_ENV);                                        // not reported: read
         $name = trim($_ENV['APP_NAME'] ?? '');                        // not reported: read
+        preg_match('/prod/', $_ENV['APP_ENV']);                       // not reported: the subject is read
+        str_replace('a', 'b', $_ENV['APP_NAME']);                     // not reported: only $count is by reference
+        preg_match('/(.+)/', 'x', $_ENV);                             // reported: $matches is written
+        parse_str('a=1', result: $_ENV);                              // reported: named by-reference argument
 
         return $_ENV['APP_ENV'] ?? 'prod';                            // not reported: process environment
     }
