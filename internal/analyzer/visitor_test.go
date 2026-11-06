@@ -1944,3 +1944,49 @@ class Hinted {
 		})
 	}
 }
+
+func TestPHPVisitor_DoctrineFlushState(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "doctrine_flush_state.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	engine := &mockEngine{}
+	v := NewVisitor(content, engine)
+	v.Walk(tree.RootNode())
+
+	reported := make(map[int]symbol.Finding)
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "postFlush()") {
+			reported[f.Line] = f
+		}
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		switch {
+		case strings.Contains(line, "// reported"):
+			if _, ok := reported[i+1]; !ok {
+				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		case strings.Contains(line, "// not reported"):
+			if f, ok := reported[i+1]; ok {
+				t.Errorf("line %d must not be reported (%s): %s", i+1, f.Message, strings.TrimSpace(line))
+			}
+		}
+	}
+
+	f := reported[17]
+	wantMsg := "Property 'pending' collected in onFlush() is only cleared in postFlush(), which Doctrine skips when the commit fails: the next flush of the worker processes it."
+	if f.Message != wantMsg || f.Severity != "ERROR" || f.ContextMethod != "onFlush" || f.ContextClass != "App\\EventListener\\PublishListener" {
+		t.Errorf("unexpected finding on line 17: %+v", f)
+	}
+	if want := "Implement ResetInterface (tagged kernel.reset) to clear it between requests, or clear it at the start of onFlush()."; f.Remediation != want {
+		t.Errorf("remediation = %q, want %q", f.Remediation, want)
+	}
+}

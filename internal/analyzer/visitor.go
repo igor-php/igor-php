@@ -250,6 +250,7 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	// which can be controllers or other per-request services
 	if n.Kind() == "class_declaration" {
 		v.checkStaleDependencies(n, fullName)
+		v.checkDoctrineFlushState(n)
 	}
 }
 
