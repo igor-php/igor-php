@@ -24,20 +24,72 @@ type localSave struct {
 	prop string
 }
 
-// savedProperty returns the property a local variable holds when restore runs: the one its latest
-// save before restore copied. A later assignment of something else overwrites it, unless it sits in
-// a branch that leaves (a catch that rethrows) and so never reaches restore.
-func savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) string {
+// savedProperty returns the property a local variable may hold when restore runs: the one its latest
+// save before restore copied, as long as one path keeps it. An assignment of something else only
+// drops it when it runs whenever restore does, or on every branch of an if statement that goes on.
+func (v *PHPVisitor) savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) string {
 	prop := ""
 	for _, s := range saves[variable] {
 		if s.node.StartByte() >= restore.StartByte() {
 			break
 		}
-		if s.prop != "" || sameFlow(s.node, restore) || !leaves(enclosingBlock(s.node)) {
+		switch {
+		case s.prop != "":
 			prop = s.prop
+		case sameFlow(s.node, restore) || v.overwrittenOnEveryBranch(s.node, variable, restore):
+			prop = ""
 		}
+		// Any other overwrite runs on some paths only: the save still reaches restore on the others
 	}
 	return prop
+}
+
+// overwrittenOnEveryBranch reports whether the if statement that holds an assignment assigns the
+// variable on every branch that goes on: it has an else, and each branch assigns it or leaves.
+func (v *PHPVisitor) overwrittenOnEveryBranch(assignment *sitter.Node, variable string, restore *sitter.Node) bool {
+	stmt := assignment.Parent()
+	for stmt != nil && stmt.Kind() != "if_statement" {
+		stmt = stmt.Parent()
+	}
+	if stmt == nil || !sameFlow(stmt, restore) {
+		return false
+	}
+	branches := []*sitter.Node{stmt.ChildByFieldName("body")}
+	hasElse := false
+	for i := uint(0); i < stmt.NamedChildCount(); i++ {
+		switch clause := stmt.NamedChild(i); clause.Kind() {
+		case "else_clause", "else_if_clause":
+			hasElse = hasElse || clause.Kind() == "else_clause"
+			branches = append(branches, clause.ChildByFieldName("body"))
+		}
+	}
+	if !hasElse {
+		return false
+	}
+	for _, b := range branches {
+		if b == nil || (!v.assignsVariable(b, variable) && !leaves(b)) {
+			return false
+		}
+	}
+	return true
+}
+
+// assignsVariable reports whether a node assigns a local variable, outside closures.
+func (v *PHPVisitor) assignsVariable(n *sitter.Node, variable string) bool {
+	switch n.Kind() {
+	case "anonymous_function", "arrow_function", "anonymous_class":
+		return false
+	case "assignment_expression":
+		if left := n.ChildByFieldName("left"); left != nil && left.Kind() == "variable_name" && v.getContent(left) == variable {
+			return true
+		}
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if v.assignsVariable(n.Child(i), variable) {
+			return true
+		}
+	}
+	return false
 }
 
 type propertyWrite struct {
@@ -130,7 +182,7 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 		}
 		setLower := strings.ToLower(set.value)
 		switch {
-		case savedProperty(saves, w.value, w.node) == w.prop:
+		case v.savedProperty(saves, w.value, w.node) == w.prop:
 			return set
 		case (setLower == "true" && lower == "false") || (setLower == "false" && lower == "true"):
 			return set
@@ -301,27 +353,27 @@ func (v *PHPVisitor) catchesEverything(clause *sitter.Node) bool {
 	return types != nil && v.catchCoversAll(v.getContent(types))
 }
 
-// enclosingBlock returns the innermost block that holds n, or n itself when there is none.
-func enclosingBlock(n *sitter.Node) *sitter.Node {
-	for p := n.Parent(); p != nil; p = p.Parent() {
-		if p.Kind() == "compound_statement" {
-			return p
-		}
-	}
-	return n
-}
-
 // leaves reports whether a clause may skip the code after its try statement: a throw, a return, an
 // exit, a break or a continue in it. Closures run later and are not followed.
 func leaves(n *sitter.Node) bool {
+	return leavesFrom(n, false)
+}
+
+// leavesFrom tracks whether n sits in a loop or a switch of the clause: a break or a continue there
+// only ends that loop.
+func leavesFrom(n *sitter.Node, inLoop bool) bool {
 	switch n.Kind() {
-	case "throw_expression", "return_statement", "exit_statement", "break_statement", "continue_statement":
+	case "throw_expression", "return_statement", "exit_statement":
 		return true
+	case "break_statement", "continue_statement":
+		return !inLoop
 	case "anonymous_function", "arrow_function", "anonymous_class":
 		return false
+	case "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement":
+		inLoop = true
 	}
 	for i := uint(0); i < n.ChildCount(); i++ {
-		if leaves(n.Child(i)) {
+		if leavesFrom(n.Child(i), inLoop) {
 			return true
 		}
 	}

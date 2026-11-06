@@ -264,6 +264,35 @@ class UnsafeRestores
         $this->enabled = false; // reported
     }
 
+    // Reported: when $flag is false, $old still holds the saved value
+    public function conditionalOverwrite(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        if ($flag) {
+            $old = $request;
+        }
+        $this->handle($request);
+        $this->current = $old; // reported
+    }
+
+    // Not reported: the break only ends the loop of the catch, the catch-all swallows the rest
+    public function loopInCatch(object $message, array $items): void
+    {
+        try {
+            $this->enabled = true;
+            $this->handle($message);
+        } catch (\RuntimeException $e) {
+            foreach ($items as $item) {
+                if ($item) {
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+        }
+        $this->enabled = false; // not reported
+    }
+
     private function handle(object $message): object
     {
         return $message;
