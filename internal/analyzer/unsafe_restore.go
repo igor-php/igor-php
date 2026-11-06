@@ -327,7 +327,7 @@ func (v *PHPVisitor) savedOnEveryPath(saves map[string][]localSave, w propertyWr
 // runtimeCleanupFunctions restore the process state without throwing.
 var runtimeCleanupFunctions = map[string]bool{
 	"restore_error_handler": true, "restore_exception_handler": true, "gc_enable": true, "gc_disable": true,
-	"error_reporting": true, "ini_restore": true, "ob_end_clean": true, "ob_get_clean": true,
+	"error_reporting": true, "ini_restore": true,
 }
 
 // isRuntimeCleanup reports a call of a PHP function that restores the process state, unless the

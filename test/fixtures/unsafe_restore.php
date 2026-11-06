@@ -580,6 +580,18 @@ class UnsafeRestores
         }
     }
 
+    // Reported: ob_end_clean() runs the output handler, which can throw before the cleanup
+    public function outputBufferCleanup(object $message): void
+    {
+        $this->current = $message;
+        try {
+            $this->handle($message);
+        } finally {
+            ob_end_clean();
+            $this->current = null; // reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
