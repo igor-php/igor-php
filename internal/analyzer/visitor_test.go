@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ type mockEngine struct {
 	recordedParents   map[string]string
 	declaredMethods   map[string][]string
 	definedServices   map[string]bool
+	unresetServices   map[string]bool
 }
 
 func (m *mockEngine) RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string) {
@@ -72,6 +74,10 @@ func (m *mockEngine) IsSharedService(className string) bool {
 
 func (m *mockEngine) HasServiceDefinition(className string) bool {
 	return m.definedServices[className]
+}
+
+func (m *mockEngine) MissingResetTag(className string) bool {
+	return m.unresetServices[className]
 }
 
 func (m *mockEngine) IsResettable(className string) bool {
@@ -2101,5 +2107,114 @@ class Env implements Symfony\Contracts\Service\ResetInterface {
 	f := findings[0]
 	if f.Category != symbol.CategoryNotReset || f.Property != "globals" || f.ContextMethod != "addGlobal" {
 		t.Errorf("unexpected finding: category %q, property %q, method %q", f.Category, f.Property, f.ContextMethod)
+	}
+}
+
+func TestPHPVisitor_MissingResetTag(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "missing_reset_tag.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	unreset := map[string]bool{}
+	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset", "FinallyBuffer", "AnonymousCleanup"} {
+		unreset["App\\Service\\"+class] = true
+	}
+	v := NewVisitor(content, &mockEngine{unresetServices: unreset})
+	v.Walk(tree.RootNode())
+
+	var got []string
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "kernel.reset") {
+			got = append(got, fmt.Sprintf("%s %d %s | %s", f.Severity, f.Line, f.Message, f.Remediation))
+		}
+	}
+	hint := "Tag the service so services_resetter calls it after each request: ->tag('kernel.reset', ['method' => '%s', 'on_invalid' => 'ignore']). " +
+		"on_invalid: ignore keeps the container valid when a decorator replaces the service, since the resetter calls the outermost one."
+	want := []string{
+		"ERROR 10 BufferingLogger has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
+		"ERROR 26 SkolemConverter has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+		"ERROR 167 AliasedReset has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+		"ERROR 203 AnonymousCleanup has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// A grouped import names the Symfony contract too, with or without an alias
+
+func TestPHPVisitor_MissingResetTag_GroupedImport(t *testing.T) {
+	for _, header := range []string{
+		`use Symfony\Contracts\Service\{ResetInterface};
+class Pool implements ResetInterface`,
+		`use Symfony\Contracts\Service\{ServiceSubscriberInterface, ResetInterface as Resettable};
+class Pool implements Resettable`,
+	} {
+		content := []byte("<?php\nnamespace App\\Service;\n\n" + header + `
+{
+    public function __construct(private object $inner)
+    {
+    }
+
+    public function reset(): void
+    {
+        $this->inner->reset();
+    }
+}
+`)
+		p := sitter.NewParser()
+		_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+		tree := p.Parse(content, nil)
+
+		v := NewVisitor(content, &mockEngine{unresetServices: map[string]bool{`App\Service\Pool`: true}})
+		v.Walk(tree.RootNode())
+		tree.Close()
+		found := false
+		for _, f := range v.Findings() {
+			found = found || strings.Contains(f.Message, "kernel.reset")
+		}
+		if !found {
+			t.Errorf("missing kernel.reset finding with %q", header)
+		}
+	}
+}
+
+// Another contract named ResetInterface is not the one services_resetter calls
+
+func TestPHPVisitor_MissingResetTag_OtherResetInterface(t *testing.T) {
+	content := []byte(`<?php
+namespace App\Service;
+
+use App\Contracts\ResetInterface;
+
+class Rewinder implements ResetInterface
+{
+    public function __construct(private object $stream)
+    {
+    }
+
+    public function reset(): void
+    {
+        $this->stream->rewind();
+    }
+}
+`)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{unresetServices: map[string]bool{`App\Service\Rewinder`: true}})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "kernel.reset") {
+			t.Errorf("unexpected finding: %s", f.Message)
+		}
 	}
 }

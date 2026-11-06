@@ -84,7 +84,7 @@ func TestSymfonyBridge_IsSharedService(t *testing.T) {
 		{"App\\Excluded", false}, // tagged container.excluded, should not be shared
 		{"App\\Both", true},      // has an active shared definition despite having an excluded one
 		{"App\\Conflict", true},  // has conflicting shared definitions, should resolve to shared (true)
-		{"App\\Unknown", false},   // not found, returns false
+		{"App\\Unknown", false},  // not found, returns false
 	}
 
 	for _, tt := range tests {
@@ -430,5 +430,59 @@ func TestSymfonyBridge_tryLoadFromAgent_MalformedJSON(t *testing.T) {
 	}
 	if loaded {
 		t.Error("expected loaded to be false when agent map is malformed")
+	}
+}
+
+func TestAuditor_MissingResetTag(t *testing.T) {
+	resetTag := []any{map[string]any{"name": "kernel.reset"}}
+	newAuditor := func(framework string, defs map[string]symbol.SymfonyService) *Auditor {
+		a := NewAuditor(config.Config{})
+		a.Symfony = &SymfonyBridge{Framework: framework, Container: &symbol.SymfonyContainer{Definitions: defs}}
+		return a
+	}
+	defs := map[string]symbol.SymfonyService{
+		"logger":                {Class: `App\Logger`, Shared: true},
+		"app.tagged":            {Class: `App\Tagged`, Shared: true, Tags: resetTag},
+		"app.mapped":            {Class: `App\Mapped`, Shared: true, Resettable: true},
+		"app.prototype":         {Class: `App\Prototype`, Shared: false},
+		"app.excluded":          {Class: `App\Excluded`, Shared: true, Tags: []any{map[string]any{"name": "container.excluded"}}},
+		"app.twice.a":           {Class: `App\Twice`, Shared: true},
+		"app.twice.b":           {Class: `App\Twice`, Shared: true, Resettable: true},
+		"app.decorated":         {Class: `App\Decorator`, Shared: true, Resettable: true},
+		"app.decorated.inner":   {Class: `App\Decorated`, Shared: true},
+		"app.outer":             {Class: `App\Outer`, Shared: true, Resettable: true},
+		"app.outer.inner.inner": {Class: `App\DeepDecorated`, Shared: true},
+		"app.plain.inner":       {Class: `App\PlainDecorated`, Shared: true},
+		"app.plain":             {Class: `App\PlainDecorator`, Shared: true},
+		// decoration_inner_name renamed the decorated service: only the decorator tag names it
+		"app.original":  {Class: `App\RenamedDecorated`, Shared: true},
+		"app.collector": {Class: `App\CollectorDecorator`, Shared: true, Resettable: true, Decorates: "app.original"},
+	}
+	a := newAuditor(FrameworkSymfony, defs)
+	tests := map[string]bool{
+		`App\Logger`:           true,
+		`\App\Logger`:          true,
+		`App\Tagged`:           false,
+		`App\Mapped`:           false,
+		`App\Prototype`:        false,
+		`App\Excluded`:         false,
+		`App\Twice`:            false, // one of its services is reset
+		`App\Decorated`:        false, // its decorator took over the kernel.reset tag
+		`App\DeepDecorated`:    false,
+		`App\PlainDecorated`:   true,
+		`App\RenamedDecorated`: false,
+		`App\Unknown`:          false,
+	}
+	for class, want := range tests {
+		if got := a.MissingResetTag(class); got != want {
+			t.Errorf("MissingResetTag(%q) = %v, want %v", class, got, want)
+		}
+	}
+
+	if newAuditor(FrameworkLaravel, defs).MissingResetTag(`App\Logger`) {
+		t.Error("MissingResetTag must not apply to Laravel, where kernel.reset does not exist")
+	}
+	if NewAuditor(config.Config{}).MissingResetTag(`App\Logger`) {
+		t.Error("MissingResetTag must be false without a service map")
 	}
 }
