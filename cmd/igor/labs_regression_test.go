@@ -125,7 +125,14 @@ func formatLabFinding(file string, f symbol.Finding) string {
 	if f.ContextMethod != "" {
 		context += "::" + f.ContextMethod
 	}
-	return fmt.Sprintf("%s | %s | %s | %s", file, context, f.Severity, f.Message)
+	line := fmt.Sprintf("%s | %s | %s | %s", file, context, f.Severity, f.Message)
+	if f.Category == symbol.CategoryCache {
+		line += " | cache key: " + f.CacheKey
+	}
+	if f.OutOfRequest != "" {
+		line += " | folded: " + f.OutOfRequest
+	}
+	return line
 }
 
 // diffLines reports the lines missing from got and the unexpected ones, keeping

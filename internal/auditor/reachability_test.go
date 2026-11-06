@@ -236,3 +236,134 @@ class SymlinkedService
 		t.Error("expected symlinked vendor class to be excluded from projectClasses")
 	}
 }
+
+func TestAuditor_Extends(t *testing.T) {
+	a := NewAuditor(config.Config{NoAgent: true})
+	a.RecordClassParent(`App\Kernel`, `\Symfony\Component\HttpKernel\Kernel`)
+	a.RecordClassParent(`App\TestKernel`, `App\Kernel`)
+	// A cycle in a malformed hierarchy must not loop
+	a.RecordClassParent(`App\A`, `App\B`)
+	a.RecordClassParent(`App\B`, `App\A`)
+
+	kernel := `Symfony\Component\HttpKernel\Kernel`
+	tests := []struct {
+		class string
+		want  bool
+	}{
+		{kernel, true},
+		{`App\Kernel`, true},
+		{`\App\TestKernel`, true},
+		{`App\Rendering\Kernel`, false},
+		{`App\A`, false},
+	}
+	for _, tt := range tests {
+		if got := a.Extends(tt.class, kernel); got != tt.want {
+			t.Errorf("Extends(%q, Kernel) = %v, want %v", tt.class, got, tt.want)
+		}
+	}
+}
+
+func TestAuditor_Extends_ReadsParentsOutsideTheAudit(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "BaseKernel.php")
+	if err := os.WriteFile(base, []byte(`<?php
+namespace App;
+
+use Symfony\Component\HttpKernel\Kernel;
+
+abstract class BaseKernel extends Kernel
+{
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewAuditor(config.Config{NoAgent: true})
+	a.Symfony = &SymfonyBridge{ClassToFile: map[string]string{`App\BaseKernel`: base}}
+	// Only the audited file recorded its parent: App\BaseKernel is not part of the audit
+	a.RecordClassParent(`App\Kernel`, `App\BaseKernel`)
+
+	if !a.Extends(`App\Kernel`, `Symfony\Component\HttpKernel\Kernel`) {
+		t.Errorf("App\\Kernel must extend the Symfony kernel through App\\BaseKernel")
+	}
+	if a.Extends(`App\Other`, `Symfony\Component\HttpKernel\Kernel`) {
+		t.Errorf("a class outside the class map must not extend the Symfony kernel")
+	}
+}
+
+func TestMarkReachability_NotResetPropertyWrittenInSeveralMethods(t *testing.T) {
+	dir := t.TempDir()
+	appPath := filepath.Join(dir, "app.php")
+	vendorPath := filepath.Join(dir, "vendor.php")
+	if err := os.WriteFile(appPath, []byte(`<?php
+namespace App\Controller;
+
+use Vendor\Lib\Tracker;
+
+class TrackController
+{
+    private Tracker $tracker;
+
+    public function run(): void
+    {
+        $this->tracker->track('hello');
+    }
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// track() is called, then neverCalled() writes the same property last
+	if err := os.WriteFile(vendorPath, []byte(`<?php
+namespace Vendor\Lib;
+
+use Symfony\Contracts\Service\ResetInterface;
+
+class Tracker implements ResetInterface
+{
+    private array $seen = [];
+
+    public function track(string $value): void
+    {
+        $this->seen[] = $value;
+    }
+
+    public function neverCalled(): void
+    {
+        $this->seen[] = 'x';
+    }
+
+    public function reset(): void
+    {
+    }
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	auditor := NewAuditor(config.Config{})
+	appFindings, err := auditor.Audit(appPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vendorFindings, err := auditor.Audit(vendorPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditor.recordProjectClass(`App\Controller\TrackController`)
+	results := []symbol.AuditStatus{{FilePath: appPath, Findings: appFindings}, {FilePath: vendorPath, Findings: vendorFindings}}
+	auditor.MarkReachability(results)
+
+	found := false
+	for _, f := range results[1].Findings {
+		if f.Category != symbol.CategoryNotReset {
+			continue
+		}
+		found = true
+		if f.Reachability != "HIGH" {
+			t.Errorf("a property also written by the called track() must be HIGH, got %q (method %s, also %v)", f.Reachability, f.ContextMethod, f.AlsoMethods)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a not-reset finding, got %+v", results[1].Findings)
+	}
+}
