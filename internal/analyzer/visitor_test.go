@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ type mockEngine struct {
 	recordedParents   map[string]string
 	declaredMethods   map[string][]string
 	definedServices   map[string]bool
+	unresetServices   map[string]bool
 }
 
 func (m *mockEngine) RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string) {
@@ -72,6 +74,10 @@ func (m *mockEngine) IsSharedService(className string) bool {
 
 func (m *mockEngine) HasServiceDefinition(className string) bool {
 	return m.definedServices[className]
+}
+
+func (m *mockEngine) MissingResetTag(className string) bool {
+	return m.unresetServices[className]
 }
 
 func (m *mockEngine) IsResettable(className string) bool {
@@ -1942,5 +1948,40 @@ class Hinted {
 				}
 			}
 		})
+	}
+}
+
+func TestPHPVisitor_MissingResetTag(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "missing_reset_tag.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	unreset := map[string]bool{}
+	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup"} {
+		unreset["App\\Service\\"+class] = true
+	}
+	v := NewVisitor(content, &mockEngine{unresetServices: unreset})
+	v.Walk(tree.RootNode())
+
+	var got []string
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "kernel.reset") {
+			got = append(got, fmt.Sprintf("%s %d %s | %s", f.Severity, f.Line, f.Message, f.Remediation))
+		}
+	}
+	hint := "Tag the service so services_resetter calls it after each request: ->tag('kernel.reset', ['method' => '%s', 'on_invalid' => 'ignore']). " +
+		"on_invalid: ignore keeps the container valid when a decorator replaces the service, since the resetter calls the outermost one."
+	want := []string{
+		"ERROR 8 BufferingLogger has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
+		"ERROR 24 SkolemConverter has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)
 	}
 }

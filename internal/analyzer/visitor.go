@@ -15,6 +15,7 @@ type Engine interface {
 	IsSafeNamespace(className string) bool
 	IsResettable(className string) bool
 	HasServiceDefinition(className string) bool
+	MissingResetTag(className string) bool
 	GetMethodReturnType(className, methodName string) string
 	IsSharedService(className string) bool
 	RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string)
@@ -250,6 +251,7 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	// which can be controllers or other per-request services
 	if n.Kind() == "class_declaration" {
 		v.checkStaleDependencies(n, fullName)
+		v.checkMissingResetTag(n, fullName, classHeader)
 	}
 }
 

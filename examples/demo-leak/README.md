@@ -33,6 +33,7 @@ The leak demonstrations use **PHP's RAM only**, except experiment 11, which writ
 10. **PHP Superglobals**: Direct pollution of `$_SERVER`, `$_GET`, `$_POST`, etc.
 11. **Magic Method __destruct() Bypass**: `__destruct()` never runs in persistent workers until worker exit.
 12. **Dangerous Process State Mutations**: Functions altering process-wide C/PHP state (`chdir`, `umask`, `mb_internal_encoding`, `gc_disable`).
+13. **clear() Never Called**: A service with a `clear()` method but no `kernel.reset` tag, so nothing calls it between requests.
 
 ## 🛡️ How Igor-Php helps
 

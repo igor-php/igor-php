@@ -27,3 +27,6 @@ src/Service/ProcessStateLeakService.php | App\Service\ProcessStateLeakService::p
 src/Service/ProcessStateLeakService.php | App\Service\ProcessStateLeakService::poisonUmask | WARNING | Function 'umask' modifies the global PHP process file creation mask.
 src/Service/StatefulService.php | App\Service\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData()
 src/Service/StaticLeakService.php | App\Service\StaticLeakService::touch | ERROR | Mutation of state 'static::$hist' in StaticLeakService::touch()
+src/Service/UnwiredClearService.php | App\Service\UnwiredClearService | ERROR | UnwiredClearService has clear() but its service is never reset between requests (missing kernel.reset tag).
+src/Service/UnwiredClearService.php | App\Service\UnwiredClearService::clear | ERROR | Mutation of state 'lines' in UnwiredClearService::clear()
+src/Service/UnwiredClearService.php | App\Service\UnwiredClearService::log | ERROR | Mutation of state 'lines' in UnwiredClearService::log()
