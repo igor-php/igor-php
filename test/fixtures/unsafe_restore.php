@@ -400,6 +400,18 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the named form array_pop(array: ...) is the same cleanup
+    public function popNamed(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } finally {
+            array_pop(array: $this->stack);
+            $this->enabled = false; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;

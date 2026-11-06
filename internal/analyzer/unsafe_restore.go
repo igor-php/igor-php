@@ -235,12 +235,17 @@ func (v *PHPVisitor) isStackCleanup(call *sitter.Node) bool {
 	if name == nil || args == nil || !stackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))] {
 		return false
 	}
+	// The array is the first argument, positional or named (array_pop(array: $this->stack))
 	first := args.NamedChild(0)
-	if first == nil || first.Kind() != "argument" || first.NamedChildCount() != 1 {
+	if first == nil || first.Kind() != "argument" || first.NamedChildCount() == 0 {
 		return false
 	}
-	_, ok := v.isPropertyFetchOnThis(first.NamedChild(0))
-	return ok && v.getContent(first.NamedChild(0).ChildByFieldName("object")) == "$this"
+	if name := first.ChildByFieldName("name"); name != nil && v.getContent(name) != "array" {
+		return false
+	}
+	value := first.NamedChild(first.NamedChildCount() - 1)
+	_, ok := v.isPropertyFetchOnThis(value)
+	return ok && v.getContent(value.ChildByFieldName("object")) == "$this"
 }
 
 // collectRestoreEvents walks a method body in source order. It records the writes to $this
