@@ -149,6 +149,57 @@ class UnsafeRestores
         };
     }
 
+    // Reported: unqualified in this namespace, Exception and Error name App\Service classes
+    public function unqualifiedCatch(object $message): object
+    {
+        $this->running = true;
+        try {
+            $result = $this->handle($message);
+        } catch (Exception|Error $e) {
+            $this->running = false; // reported
+            throw $e;
+        }
+        $this->running = false;
+
+        return $result;
+    }
+
+    // Reported: the finally only restores the first write, not the second one
+    public function twoPhases(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } finally {
+            $this->enabled = false; // not reported
+        }
+        $this->enabled = true;
+        $this->handle($message);
+        $this->enabled = false; // reported
+    }
+
+    // Reported: set in the try body, restored after the try statement
+    public function afterTry(object $message): void
+    {
+        try {
+            $this->enabled = true;
+            $this->handle($message);
+        } catch (\RuntimeException $e) {
+            $this->handle($e);
+        }
+        $this->enabled = false; // reported
+    }
+
+    // Not reported: the variable no longer holds the saved property
+    public function overwrittenSave(object $message): void
+    {
+        $value = $this->current;
+        $value = $this->handle($message);
+        $this->current = $message;
+        $this->handle($message);
+        $this->current = $value; // not reported
+    }
+
     private function handle(object $message): object
     {
         return $message;

@@ -17,6 +17,25 @@ type restoreContext struct {
 	catchTypes     string
 }
 
+// localSave is an assignment to a local variable: prop is the $this property it copied, or ""
+// when it assigned something else.
+type localSave struct {
+	at   uint
+	prop string
+}
+
+// savedProperty returns the property a local variable held at an offset: the one its latest
+// assignment before that offset copied, or "".
+func savedProperty(saves map[string][]localSave, variable string, at uint) string {
+	prop := ""
+	for _, s := range saves[variable] {
+		if s.at < at {
+			prop = s.prop
+		}
+	}
+	return prop
+}
+
 type propertyWrite struct {
 	node  *sitter.Node
 	prop  string
@@ -45,8 +64,8 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 	}
 
 	var writes []propertyWrite
-	saves := make(map[string]string) // local variable => property it saved
-	var calls []uint                 // start bytes of the expressions that can throw
+	saves := make(map[string][]localSave) // local variable => its assignments, in source order
+	var calls []uint                      // start bytes of the expressions that can throw
 	v.collectRestoreEvents(body, restoreContext{}, &writes, saves, &calls)
 
 	reported := make(map[string]bool)
@@ -58,7 +77,7 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 		if set == nil || !throwsBetween(calls, set.node.EndByte(), w.node.StartByte()) {
 			continue
 		}
-		if v.restoredSafely(writes, w.prop, saves) {
+		if v.restoredSafely(writes, set, saves) {
 			continue
 		}
 		reported[w.prop] = true
@@ -74,14 +93,15 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 	}
 }
 
-// restoredSafely reports whether one of the method's restorations of prop runs on every exception:
-// in a finally block, or in a catch that also catches \Error.
-func (v *PHPVisitor) restoredSafely(writes []propertyWrite, prop string, saves map[string]string) bool {
+// restoredSafely reports whether one of the method's restorations of the write set runs on every
+// exception: in a finally block, or in a catch that also catches \Error. A safe restoration of
+// another write of the same property does not protect this one.
+func (v *PHPVisitor) restoredSafely(writes []propertyWrite, set *propertyWrite, saves map[string][]localSave) bool {
 	for i, w := range writes {
-		if w.prop != prop || (!w.ctx.inFinally && !(w.ctx.inCatch && w.ctx.catchCoversAll)) {
+		if w.prop != set.prop || (!w.ctx.inFinally && !(w.ctx.inCatch && w.ctx.catchCoversAll)) {
 			continue
 		}
-		if v.restoredWrite(writes[:i], w, saves) != nil {
+		if v.restoredWrite(writes[:i], w, saves) == set {
 			return true
 		}
 	}
@@ -91,7 +111,7 @@ func (v *PHPVisitor) restoredSafely(writes []propertyWrite, prop string, saves m
 // restoredWrite returns the earlier write that w restores, or nil when w is no restoration:
 // w assigns the value saved from the property before it was set, or switches a boolean back,
 // or resets to null a value set earlier.
-func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, saves map[string]string) *propertyWrite {
+func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, saves map[string][]localSave) *propertyWrite {
 	lower := strings.ToLower(w.value)
 	for i := len(before) - 1; i >= 0; i-- {
 		set := &before[i]
@@ -106,7 +126,7 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 		}
 		setLower := strings.ToLower(set.value)
 		switch {
-		case saves[w.value] == w.prop:
+		case savedProperty(saves, w.value, w.node.StartByte()) == w.prop:
 			return set
 		case (setLower == "true" && lower == "false") || (setLower == "false" && lower == "true"):
 			return set
@@ -121,7 +141,7 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 // collectRestoreEvents walks a method body in source order. It records the writes to $this
 // properties with their try context, the local variables saving a property, and the expressions
 // that can throw. Closures are skipped: they run later, in another scope.
-func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, writes *[]propertyWrite, saves map[string]string, calls *[]uint) {
+func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, writes *[]propertyWrite, saves map[string][]localSave, calls *[]uint) {
 	switch n.Kind() {
 	case "anonymous_function", "arrow_function", "anonymous_class", "class_declaration", "function_definition":
 		return
@@ -131,7 +151,7 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 		if types := n.ChildByFieldName("type"); types != nil {
 			ctx.catchTypes = v.getContent(types)
 		}
-		ctx.catchCoversAll = catchCoversAll(ctx.catchTypes)
+		ctx.catchCoversAll = v.catchCoversAll(ctx.catchTypes)
 	case "finally_clause":
 		ctx.inFinally = true
 	case "function_call_expression", "member_call_expression", "nullsafe_member_call_expression",
@@ -143,9 +163,13 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 			if prop, ok := v.isPropertyFetchOnThis(left); ok && v.getContent(left.ChildByFieldName("object")) == "$this" {
 				*writes = append(*writes, propertyWrite{node: n, prop: prop, value: strings.TrimSpace(v.getContent(right)), ctx: ctx})
 			} else if left.Kind() == "variable_name" {
-				if prop, ok := v.isPropertyFetchOnThis(right); ok {
-					saves[v.getContent(left)] = prop
+				// Any other assignment overwrites the saved value
+				prop := ""
+				if p, ok := v.isPropertyFetchOnThis(right); ok && v.getContent(right.ChildByFieldName("object")) == "$this" {
+					prop = p
 				}
+				name := v.getContent(left)
+				saves[name] = append(saves[name], localSave{at: n.StartByte(), prop: prop})
 			}
 		}
 	}
@@ -154,13 +178,17 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 	}
 }
 
-// catchCoversAll reports whether a catch type list also catches \Error.
-func catchCoversAll(types string) bool {
+// catchCoversAll reports whether a catch type list also catches \Error. The types are resolved
+// through the imports and the namespace: an unqualified Exception in a namespace without import
+// names a class of that namespace, not \Exception.
+func (v *PHPVisitor) catchCoversAll(types string) bool {
 	hasException, hasError := false, false
 	for _, t := range strings.Split(types, "|") {
-		name := strings.ToLower(strings.TrimSpace(t))
-		name = name[strings.LastIndex(name, `\`)+1:]
-		switch name {
+		name := strings.TrimSpace(t)
+		if name == "" {
+			continue
+		}
+		switch strings.ToLower(v.resolveFQCN(name)) {
 		case "throwable":
 			return true
 		case "exception":
@@ -183,22 +211,33 @@ func throwsBetween(calls []uint, from, to uint) bool {
 }
 
 // sameFlow reports whether restore runs whenever set ran: walking up from restore to the block of
-// set only crosses try statements and their clauses.
+// set, or to a block that holds it through try statements, only crosses try statements and their
+// clauses.
 func sameFlow(set, restore *sitter.Node) bool {
-	scope := set.Parent()
-	for scope != nil && scope.Kind() != "compound_statement" {
-		scope = scope.Parent()
+	block := set.Parent()
+	for block != nil && block.Kind() != "compound_statement" {
+		block = block.Parent()
 	}
-	if scope == nil {
-		return false
-	}
-	// A write in a try body is restored by the catch and finally clauses of the same try
-	if parent := scope.Parent(); parent != nil && parent.Kind() == "try_statement" {
-		scope = parent
+	// A write in a try body is restored by the catch and finally clauses of the same try, or after
+	// the try statement, in the block that holds it
+	var scopes []*sitter.Node
+	for block != nil {
+		scopes = append(scopes, block)
+		try := block.Parent()
+		if try == nil || try.Kind() != "try_statement" {
+			break
+		}
+		scopes = append(scopes, try)
+		block = try.Parent()
+		if block != nil && block.Kind() != "compound_statement" {
+			break
+		}
 	}
 	for n := restore.Parent(); n != nil; n = n.Parent() {
-		if n.StartByte() == scope.StartByte() && n.EndByte() == scope.EndByte() && n.Kind() == scope.Kind() {
-			return true
+		for _, scope := range scopes {
+			if sameNode(n, scope) && n.Kind() == scope.Kind() {
+				return true
+			}
 		}
 		switch n.Kind() {
 		case "expression_statement", "compound_statement", "try_statement", "catch_clause", "finally_clause":
