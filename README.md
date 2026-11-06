@@ -151,6 +151,8 @@ On a Laravel project, Composer's package discovery registers `IgorPhp\Laravel\Ig
 - **Resettable**: a persistent service that has a `reset()` method and is referenced by one of your Octane listeners on a request event (`RequestReceived`, `RequestHandled`, `RequestTerminated`, `OperationTerminated`). Igor then checks that `reset()` clears every property the service fills. Implementing `Symfony\Contracts\Service\ResetInterface` is not enough: nothing in Laravel calls it.
 - **Controllers**: rebuilt for every request, so their own properties are not checked, but their code (`exit()`, superglobals, process functions…) is still audited. The files declaring closure routes are audited the same way.
 
+**Without Octane** (a custom FrankenPHP worker loop that reuses one application), Igor detects that `laravel/octane` is not installed and switches to the worker model: the same container serves every request, so every `singleton()` and `scoped()` binding persists once resolved, whether or not it was resolved at boot. Only `bind()` services are built per request, and nothing is resettable, since no Octane listener runs.
+
 The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan. `--no-agent` skips the Laravel detection entirely.
 
 ### Via Go
