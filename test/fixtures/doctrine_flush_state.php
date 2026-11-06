@@ -284,6 +284,63 @@ class ThrowingFinallyListener
     }
 }
 
+// Not reported: the call before the clear catches \Throwable, and the closure is only declared
+class CaughtFinallyListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // not reported
+        } finally {
+            try {
+                $this->publish();
+            } catch (\Throwable $e) {
+            }
+            $later = fn () => $this->publish();
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+
+    private function publish(): void
+    {
+    }
+}
+
+// Reported: the catch only handles \RuntimeException, and its body may throw again
+class RethrowingFinallyListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // reported
+        } finally {
+            try {
+                $this->publish();
+            } catch (\RuntimeException $e) {
+            }
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+
+    private function publish(): void
+    {
+    }
+}
+
 // Reported: the finally only covers the first write, the append after the try survives the event
 class PartlyCoveredListener
 {

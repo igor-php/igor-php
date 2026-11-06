@@ -135,7 +135,7 @@ func (v *PHPVisitor) clearedByEvent(writes []flushWrite, method *sitter.Node) bo
 	var clears []*sitter.Node
 	for _, w := range writes {
 		if w.clear {
-			if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) && !mayThrowBefore(w.node, finally) {
+			if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) && !v.mayThrowBefore(w.node, finally) {
 				clears = append(clears, w.node)
 			}
 		}
@@ -280,14 +280,29 @@ var throwingKinds = map[string]bool{
 }
 
 // mayThrowBefore reports whether the finally block runs a call (or throws) before the clear: the
-// exception skips the clear and the collected state survives the event.
-func mayThrowBefore(clear, finally *sitter.Node) bool {
+// exception skips the clear and the collected state survives the event. A closure only declared
+// there does not run, and a call inside a try that catches \Throwable cannot skip the clear (its
+// catch blocks still can).
+func (v *PHPVisitor) mayThrowBefore(clear, finally *sitter.Node) bool {
 	limit := clear.StartByte()
 	var found bool
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
 		if found || n.StartByte() >= limit {
 			return
+		}
+		switch n.Kind() {
+		case "anonymous_function", "arrow_function", "anonymous_class":
+			return
+		case "try_statement":
+			if v.catchesAllIn(n) {
+				for i := uint(0); i < n.NamedChildCount(); i++ {
+					if child := n.NamedChild(i); child.Kind() == "catch_clause" || child.Kind() == "finally_clause" {
+						walk(child)
+					}
+				}
+				return
+			}
 		}
 		if throwingKinds[n.Kind()] && n.EndByte() <= limit {
 			found = true
@@ -299,6 +314,16 @@ func mayThrowBefore(clear, finally *sitter.Node) bool {
 	}
 	walk(finally)
 	return found
+}
+
+// catchesAllIn reports whether one of the catch clauses of a try statement catches \Throwable.
+func (v *PHPVisitor) catchesAllIn(try *sitter.Node) bool {
+	for i := uint(0); i < try.NamedChildCount(); i++ {
+		if child := try.NamedChild(i); child.Kind() == "catch_clause" && v.catchesEverything(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // enclosingFinally returns the innermost finally clause of the method that holds n, or nil.
