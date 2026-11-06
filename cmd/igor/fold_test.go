@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -76,7 +77,11 @@ func TestOutOfRequestFiles_KeepsFilesThatAlsoRunDuringARequest(t *testing.T) {
 	aud.Symfony = bridge
 
 	got := outOfRequestFiles(aud)
-	want := map[string]string{"/app/src/ReportCommand.php": "console", "/app/src/Cache.php": "cache clearer"}
+	// The paths are cleaned, which uses the OS separator
+	want := map[string]string{
+		filepath.Clean("/app/src/ReportCommand.php"): "console",
+		filepath.Clean("/app/src/Cache.php"):         "cache clearer",
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("outOfRequestFiles() = %v, want %v", got, want)
 	}
