@@ -479,6 +479,23 @@ class UnsafeRestores
         }
     }
 
+    // Reported: the throw still runs the finally, which restores the value saved again
+    public function throwingOverwrite(object $request, bool $fail): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        try {
+            if ($fail) {
+                $old = $this->current;
+                throw new \RuntimeException();
+            }
+            $this->handle($request);
+            $this->current = $old; // reported
+        } finally {
+            $this->current = $old;
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;

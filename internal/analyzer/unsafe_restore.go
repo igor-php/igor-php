@@ -53,14 +53,27 @@ func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string
 	return reach
 }
 
-// leavesAfter reports whether the block holding a statement always leaves the function.
+// leavesAfter reports whether the block holding a statement always leaves the function. Inside a try
+// statement, the return or the throw still runs its catch and finally clauses, where the restore
+// may sit: the assignment is kept.
 func leavesAfter(n *sitter.Node) bool {
 	stmt := n.Parent()
 	if stmt == nil || stmt.Kind() != "expression_statement" {
 		return false
 	}
 	block := stmt.Parent()
-	return block != nil && block.Kind() == "compound_statement" && alwaysLeaves(block)
+	if block == nil || block.Kind() != "compound_statement" || !alwaysLeaves(block) {
+		return false
+	}
+	for p := block.Parent(); p != nil; p = p.Parent() {
+		switch p.Kind() {
+		case "try_statement":
+			return false
+		case "method_declaration", "function_definition", "anonymous_function", "arrow_function":
+			return true
+		}
+	}
+	return true
 }
 
 // enclosingIf returns the nearest if statement that holds n, or nil.
