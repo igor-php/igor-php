@@ -133,6 +133,9 @@ func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 			{ContextClass: `App\Kernel`, ContextMethod: "configureContainer"},
 			// Another class named Kernel is not the Symfony kernel
 			{ContextClass: `App\Rendering\Kernel`, ContextMethod: "build"},
+			// A property also written in handle() changes during requests
+			{ContextClass: kernel, ContextMethod: "build", AlsoMethods: []string{"handle"}},
+			{ContextClass: kernel, ContextMethod: "build", AlsoMethods: []string{"configureContainer"}},
 		}},
 	}
 	markOutOfRequest(results, extends)
@@ -151,6 +154,7 @@ func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 		"initializeContainer=",
 		"configureContainer=kernel boot",
 		"build=",
+		"build=", "build=kernel boot",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("marked findings = %v, want %v", got, want)

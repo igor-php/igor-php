@@ -128,8 +128,14 @@ func markOutOfRequest(results []symbol.AuditStatus, extends func(class, ancestor
 // isKernelBootFinding matches the Symfony kernel by its full name: the HttpKernel Kernel and the
 // application kernels extending it, and the MicroKernelTrait. Another class named Kernel is not one.
 func isKernelBootFinding(f symbol.Finding, extends func(class, ancestor string) bool) bool {
+	// A grouped finding is only folded when every method that mutates the property builds the container
 	if !kernelBootMethods[f.ContextMethod] {
 		return false
+	}
+	for _, m := range f.AlsoMethods {
+		if !kernelBootMethods[m] {
+			return false
+		}
 	}
 	class := strings.TrimPrefix(f.ContextClass, `\`)
 	return strings.EqualFold(class, symfonyMicroKernelTrait) || extends(class, symfonyKernel)
