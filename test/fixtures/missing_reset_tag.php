@@ -175,3 +175,26 @@ class AliasedReset implements ResetContract
         $this->pool->reset();
     }
 }
+
+// Not reported: push() empties its buffer in finally, and the client is a lazy initializer
+class FinallyBuffer
+{
+    private array $items = [];
+    private ?object $client = null;
+
+    public function push(string $item): void
+    {
+        try {
+            $this->items[] = $item;
+            $this->client ??= new \stdClass();
+        } finally {
+            $this->items = [];
+        }
+    }
+
+    public function clear(): void
+    {
+        $this->items = [];
+        $this->client = null;
+    }
+}

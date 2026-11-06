@@ -1963,7 +1963,7 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 	defer tree.Close()
 
 	unreset := map[string]bool{}
-	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset"} {
+	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset", "FinallyBuffer"} {
 		unreset["App\\Service\\"+class] = true
 	}
 	v := NewVisitor(content, &mockEngine{unresetServices: unreset})
@@ -1984,6 +1984,39 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// Another contract named ResetInterface is not the one services_resetter calls
+func TestPHPVisitor_MissingResetTag_OtherResetInterface(t *testing.T) {
+	content := []byte(`<?php
+namespace App\Service;
+
+use App\Contracts\ResetInterface;
+
+class Rewinder implements ResetInterface
+{
+    public function __construct(private object $stream)
+    {
+    }
+
+    public function reset(): void
+    {
+        $this->stream->rewind();
+    }
+}
+`)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{unresetServices: map[string]bool{`App\Service\Rewinder`: true}})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "kernel.reset") {
+			t.Errorf("unexpected finding: %s", f.Message)
+		}
 	}
 }
 

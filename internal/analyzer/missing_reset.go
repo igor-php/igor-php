@@ -59,7 +59,15 @@ func (v *PHPVisitor) unwiredResetMethod(class, body *sitter.Node) string {
 				v.collectThisWrites(member, cleared[lower])
 			}
 		case lower != "__construct" && !v.hasAttribute(member, "WorkerSafe"):
-			v.collectThisWrites(member, written)
+			mutated := make(map[string]bool)
+			v.collectThisWrites(member, mutated)
+			// The method already frees what it cleans up in a finally block, as the mutation check assumes
+			cleaned := v.finallyCleanedIn(member)
+			for prop := range mutated {
+				if !cleaned[prop] {
+					written[prop] = true
+				}
+			}
 		}
 	}
 	// The properties excluded from the mutation checks do not need a reset either
@@ -91,7 +99,12 @@ func (v *PHPVisitor) collectThisWrites(n *sitter.Node, props map[string]bool) {
 	case "anonymous_class", "class_declaration", "function_definition":
 		return
 	case "assignment_expression", "augmented_assignment_expression":
-		if prop, ok := v.thisWriteTarget(n.ChildByFieldName("left")); ok && !v.isIgnoredLine(n) {
+		left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+		// A lazy initializer builds the same object for every request
+		if left != nil && right != nil && v.isLazyInit(n, left, right) {
+			break
+		}
+		if prop, ok := v.thisWriteTarget(left); ok && !v.isIgnoredLine(n) {
 			props[prop] = true
 		}
 	case "update_expression":
@@ -104,6 +117,17 @@ func (v *PHPVisitor) collectThisWrites(n *sitter.Node, props map[string]bool) {
 	for i := uint(0); i < n.ChildCount(); i++ {
 		v.collectThisWrites(n.Child(i), props)
 	}
+}
+
+// finallyCleanedIn returns the properties a method cleans up in its finally blocks, with the scan the
+// mutation check runs on each method.
+func (v *PHPVisitor) finallyCleanedIn(method *sitter.Node) map[string]bool {
+	saved := v.finallyCleaned
+	v.finallyCleaned = make(map[string]bool)
+	v.preScanFinallyCleanups(method)
+	cleaned := v.finallyCleaned
+	v.finallyCleaned = saved
+	return cleaned
 }
 
 // thisWriteTarget returns the property written by $this->prop or $this->prop[...] = ...
@@ -165,9 +189,7 @@ func (v *PHPVisitor) implementsResetInterface(class *sitter.Node) bool {
 			continue
 		}
 		for j := uint(0); j < clause.NamedChildCount(); j++ {
-			name := v.getContent(clause.NamedChild(j))
-			resolved := v.resolveFQCN(name)
-			if strings.EqualFold(resolved, resetInterface) || strings.EqualFold(strings.TrimPrefix(name, `\`), "ResetInterface") {
+			if strings.EqualFold(v.resolveFQCN(v.getContent(clause.NamedChild(j))), resetInterface) {
 				return true
 			}
 		}
