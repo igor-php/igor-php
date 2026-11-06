@@ -293,6 +293,41 @@ class UnsafeRestores
         $this->enabled = false; // not reported
     }
 
+    // Reported: the else branch only returns on $stop, otherwise $old still holds the saved value
+    public function conditionalReturn(object $request, bool $flag, bool $stop): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        if ($flag) {
+            $old = null;
+
+            return;
+        } else {
+            if ($stop) {
+                return;
+            }
+        }
+        $this->handle($request);
+        $this->current = $old; // reported
+    }
+
+    // Reported: break 2 leaves the outer loop, past the restore
+    public function multiLevelBreak(array $messages, array $items): void
+    {
+        foreach ($messages as $message) {
+            try {
+                $this->enabled = true;
+                $this->handle($message);
+            } catch (\RuntimeException $e) {
+                foreach ($items as $item) {
+                    break 2;
+                }
+            } catch (\Throwable $e) {
+            }
+            $this->enabled = false; // reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;

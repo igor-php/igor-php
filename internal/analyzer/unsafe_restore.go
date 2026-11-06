@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -67,26 +68,44 @@ func (v *PHPVisitor) overwrittenOnEveryBranch(assignment *sitter.Node, variable 
 		return false
 	}
 	for _, b := range branches {
-		if b == nil || (!v.assignsVariable(b, variable) && !leaves(b)) {
+		if b == nil || (!v.alwaysAssigns(b, variable) && !alwaysLeaves(b)) {
 			return false
 		}
 	}
 	return true
 }
 
-// assignsVariable reports whether a node assigns a local variable, outside closures.
-func (v *PHPVisitor) assignsVariable(n *sitter.Node, variable string) bool {
-	switch n.Kind() {
-	case "anonymous_function", "arrow_function", "anonymous_class":
-		return false
-	case "assignment_expression":
-		if left := n.ChildByFieldName("left"); left != nil && left.Kind() == "variable_name" && v.getContent(left) == variable {
+// alwaysAssigns reports whether a block assigns a local variable in one of its own statements, so
+// on every path through it.
+func (v *PHPVisitor) alwaysAssigns(block *sitter.Node, variable string) bool {
+	for i := uint(0); i < block.NamedChildCount(); i++ {
+		stmt := block.NamedChild(i)
+		if stmt.Kind() != "expression_statement" || stmt.NamedChildCount() == 0 {
+			continue
+		}
+		expr := stmt.NamedChild(0)
+		if expr.Kind() != "assignment_expression" {
+			continue
+		}
+		if left := expr.ChildByFieldName("left"); left != nil && left.Kind() == "variable_name" && v.getContent(left) == variable {
 			return true
 		}
 	}
-	for i := uint(0); i < n.ChildCount(); i++ {
-		if v.assignsVariable(n.Child(i), variable) {
+	return false
+}
+
+// alwaysLeaves reports whether a block ends every path through it: one of its own statements
+// returns, throws or exits.
+func alwaysLeaves(block *sitter.Node) bool {
+	for i := uint(0); i < block.NamedChildCount(); i++ {
+		stmt := block.NamedChild(i)
+		switch stmt.Kind() {
+		case "return_statement", "exit_statement":
 			return true
+		case "expression_statement":
+			if stmt.NamedChildCount() > 0 && stmt.NamedChild(0).Kind() == "throw_expression" {
+				return true
+			}
 		}
 	}
 	return false
@@ -133,7 +152,7 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 		if set == nil || !throwsBetween(calls, set.node.EndByte(), w.node.StartByte()) {
 			continue
 		}
-		if v.restoredSafely(writes, set, saves) || swallowedBeforeRestore(calls, set.node, w.node, v.catchesEverything) {
+		if v.restoredSafely(writes, set, saves) || v.swallowedBeforeRestore(calls, set.node, w.node) {
 			continue
 		}
 		reported[w.prop] = true
@@ -308,7 +327,7 @@ func sameFlow(set, restore *sitter.Node) bool {
 // sits in the body of a try statement that restore follows, a catch of that statement catches
 // everything without leaving (no throw or return), and nothing outside the try body can throw
 // before restore.
-func swallowedBeforeRestore(calls []uint, set, restore *sitter.Node, catchesEverything func(*sitter.Node) bool) bool {
+func (v *PHPVisitor) swallowedBeforeRestore(calls []uint, set, restore *sitter.Node) bool {
 	var try *sitter.Node
 	for p := set.Parent(); p != nil; p = p.Parent() {
 		if p.Kind() == "try_statement" {
@@ -329,10 +348,10 @@ func swallowedBeforeRestore(calls []uint, set, restore *sitter.Node, catchesEver
 		clause := try.NamedChild(i)
 		switch clause.Kind() {
 		case "catch_clause", "finally_clause":
-			if leaves(clause) {
+			if v.leaves(clause) {
 				return false
 			}
-			swallows = swallows || (clause.Kind() == "catch_clause" && catchesEverything(clause))
+			swallows = swallows || (clause.Kind() == "catch_clause" && v.catchesEverything(clause))
 		}
 	}
 	if !swallows {
@@ -355,27 +374,39 @@ func (v *PHPVisitor) catchesEverything(clause *sitter.Node) bool {
 
 // leaves reports whether a clause may skip the code after its try statement: a throw, a return, an
 // exit, a break or a continue in it. Closures run later and are not followed.
-func leaves(n *sitter.Node) bool {
-	return leavesFrom(n, false)
+func (v *PHPVisitor) leaves(n *sitter.Node) bool {
+	return v.leavesFrom(n, 0)
 }
 
-// leavesFrom tracks whether n sits in a loop or a switch of the clause: a break or a continue there
-// only ends that loop.
-func leavesFrom(n *sitter.Node, inLoop bool) bool {
+// leavesFrom counts the loops and switches of the clause around n: a break or a continue only stays
+// in the clause when its level (break 2) does not exceed them.
+func (v *PHPVisitor) leavesFrom(n *sitter.Node, depth int) bool {
 	switch n.Kind() {
 	case "throw_expression", "return_statement", "exit_statement":
 		return true
 	case "break_statement", "continue_statement":
-		return !inLoop
+		return v.jumpLevel(n) > depth
 	case "anonymous_function", "arrow_function", "anonymous_class":
 		return false
 	case "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement":
-		inLoop = true
+		depth++
 	}
 	for i := uint(0); i < n.ChildCount(); i++ {
-		if leavesFrom(n.Child(i), inLoop) {
+		if v.leavesFrom(n.Child(i), depth) {
 			return true
 		}
 	}
 	return false
+}
+
+// jumpLevel returns how many loops a break or a continue ends: its argument, 1 by default.
+func (v *PHPVisitor) jumpLevel(n *sitter.Node) int {
+	if n.NamedChildCount() == 0 {
+		return 1
+	}
+	level, err := strconv.Atoi(strings.TrimSpace(v.getContent(n.NamedChild(0))))
+	if err != nil || level < 1 {
+		return 1
+	}
+	return level
 }
