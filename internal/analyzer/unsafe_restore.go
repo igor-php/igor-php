@@ -25,24 +25,26 @@ type localSave struct {
 	prop string
 }
 
-// savedProperty returns the property a local variable may hold when restore runs: the one its latest
-// save before restore copied, as long as one path keeps it. An assignment of something else only
-// drops it when it runs whenever restore does, or on every branch of an if statement that goes on.
-func (v *PHPVisitor) savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) string {
+// savedProperty returns the property a local variable may hold when restore runs, and the save that
+// copied it: its latest save before restore, as long as one path keeps it. An assignment of something
+// else only drops it when it runs whenever restore does, or on every branch of an if statement that
+// goes on.
+func (v *PHPVisitor) savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) (string, *sitter.Node) {
 	prop := ""
+	var saved *sitter.Node
 	for _, s := range saves[variable] {
 		if s.node.StartByte() >= restore.StartByte() {
 			break
 		}
 		switch {
 		case s.prop != "":
-			prop = s.prop
+			prop, saved = s.prop, s.node
 		case sameFlow(s.node, restore) || v.overwrittenOnEveryBranch(s.node, variable, restore):
-			prop = ""
+			prop, saved = "", nil
 		}
 		// Any other overwrite runs on some paths only: the save still reaches restore on the others
 	}
-	return prop
+	return prop, saved
 }
 
 // overwrittenOnEveryBranch reports whether the if statement that holds an assignment assigns the
@@ -212,9 +214,14 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 			return nil
 		}
 		setLower := strings.ToLower(set.value)
+		// The value must be saved before the write: a save after it holds the temporary value
+		prop, saved := v.savedProperty(saves, w.value, w.node)
 		switch {
-		case v.savedProperty(saves, w.value, w.node) == w.prop:
-			return set
+		case prop == w.prop:
+			if saved.StartByte() < set.node.StartByte() {
+				return set
+			}
+			return nil
 		case (setLower == "true" && lower == "false") || (setLower == "false" && lower == "true"):
 			return set
 		case lower == "null" && setLower != "null":

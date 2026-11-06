@@ -412,6 +412,15 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the value is saved after the write, the last assignment restores nothing
+    public function lateSave(object $request): void
+    {
+        $this->current = $request;
+        $old = $this->current;
+        $this->handle($request);
+        $this->current = $old; // not reported
+    }
+
     private function handle(object $message): object
     {
         return $message;
