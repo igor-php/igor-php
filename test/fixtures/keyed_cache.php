@@ -16,6 +16,10 @@ class Caches
         self::$cache[$k] = 1; // cache [$k]
         $this->items[$k] = $other; // mutation
         $this->resolved[$k] ??= 0; // mutation
+        $this->resolved[$k] ??= [$this->compute($k)]; // cache [$k]
+        $this->resolved[$k] ??= "v-{$k}"; // cache [$k]
+        $this->resolved[$k] ??= ['a', 1]; // mutation
+        $this->resolved[$k] ??= "plain\n"; // mutation
         $this->normalizerCache[] = $other; // mutation
         $this->normalizerCache = []; // mutation
     }

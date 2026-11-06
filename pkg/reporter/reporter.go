@@ -182,13 +182,24 @@ func printNotResetGroup(class string, findings []symbol.Finding, sourceIndicator
 	if len(findings) == 1 {
 		noun = "property"
 	}
+	// The class carries the tags its properties share; when they differ, each property shows its own
+	shared := findingTags(findings[0])
+	for _, f := range findings[1:] {
+		if findingTags(f) != shared {
+			shared = ""
+			break
+		}
+	}
 	fmt.Printf("  %s%s \033[33m⚠️  %s (resettable) — %d %s mutated but not reset in reset():\033[0m\n",
-		sourceIndicator, findingTags(findings[0]), class, len(findings), noun)
+		sourceIndicator, shared, class, len(findings), noun)
 	items := make([]string, 0, len(findings))
 	for _, f := range findings {
 		item := fmt.Sprintf("%s (line %d)", f.Property, f.Line)
 		if f.ContextMethod != "" {
 			item = fmt.Sprintf("%s (%s, line %d)", f.Property, f.ContextMethod, f.Line)
+		}
+		if shared == "" {
+			item += findingTags(f)
 		}
 		items = append(items, item)
 	}

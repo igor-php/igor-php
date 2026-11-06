@@ -473,6 +473,19 @@ func TestReporter_PrintFindings_GroupsNotResetAndCaches(t *testing.T) {
 	if !strings.Contains(one, "1 property mutated but not reset in reset():") || !strings.Contains(one, "      only (line 3)") {
 		t.Errorf("unexpected single-property group:\n%s", one)
 	}
+
+	// Properties with different reachability keep their own tags
+	high, info := notReset("globals", "addGlobal", 12), notReset("loadedTemplates", "load", 40)
+	high.Reachability, info.Reachability = "HIGH", "INFO"
+	mixed := capturePrintFindings(t, &CLIReporter{}, symbol.AuditStatus{FilePath: "/tmp/project/src/S.php", Findings: []symbol.Finding{high, info}}, false)
+	if !strings.Contains(mixed, "[PROJECT] ⚠️  Twig\\Environment (resettable)") || !strings.Contains(mixed, "globals (addGlobal, line 12) [HIGH], loadedTemplates (load, line 40) [INFO]") {
+		t.Errorf("mixed reachability must be shown per property:\n%s", mixed)
+	}
+	info.Reachability = "HIGH"
+	same := capturePrintFindings(t, &CLIReporter{}, symbol.AuditStatus{FilePath: "/tmp/project/src/S.php", Findings: []symbol.Finding{high, info}}, false)
+	if !strings.Contains(same, "[HIGH] ⚠️  Twig\\Environment (resettable)") || strings.Count(same, "[HIGH]") != 1 {
+		t.Errorf("a shared tag must be shown once on the class:\n%s", same)
+	}
 }
 
 func TestWrapList(t *testing.T) {

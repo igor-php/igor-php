@@ -103,3 +103,14 @@ func TestLLMReporter_HTMLEscape(t *testing.T) {
 		t.Error("Output should contain the literal '->' symbol")
 	}
 }
+
+func TestLLMReporter_CopiesGroupingFields(t *testing.T) {
+	r := NewLLMReporter("dev").(*LLMReporter)
+	r.PrintFindings(symbol.AuditStatus{FilePath: "src/S.php", Findings: []symbol.Finding{
+		{Message: "cache", Category: symbol.CategoryCache, Property: "normalizerCache", CacheKey: "[$format][$type]"},
+	}}, "", false)
+	w := r.Warnings[0]
+	if w.Category != symbol.CategoryCache || w.Property != "normalizerCache" || w.CacheKey != "[$format][$type]" {
+		t.Errorf("grouping fields not exported: %+v", w)
+	}
+}

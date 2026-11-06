@@ -84,13 +84,33 @@ func hasChildOfKind(n *sitter.Node, kind string) bool {
 	return false
 }
 
-// isLiteral reports whether a value is a constant literal (number, string, boolean, null, array).
+// isLiteral reports whether a value is a constant literal: a number, a string without
+// interpolation, a boolean, null, or an array of such literals.
 func isLiteral(n *sitter.Node) bool {
 	if n == nil {
 		return false
 	}
 	switch n.Kind() {
-	case "integer", "float", "string", "encapsed_string", "boolean", "null", "array_creation_expression":
+	case "integer", "float", "string", "boolean", "null":
+		return true
+	case "encapsed_string":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			switch n.NamedChild(i).Kind() {
+			case "string_content", "string_value", "escape_sequence":
+			default:
+				return false
+			}
+		}
+		return true
+	case "array_creation_expression":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			element := n.NamedChild(i)
+			for j := uint(0); j < element.NamedChildCount(); j++ {
+				if !isLiteral(element.NamedChild(j)) {
+					return false
+				}
+			}
+		}
 		return true
 	}
 	return false

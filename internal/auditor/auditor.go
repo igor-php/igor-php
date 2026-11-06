@@ -253,8 +253,12 @@ func (a *Auditor) MarkReachability(results []symbol.AuditStatus) {
 			if finding.ContextClass == "" || finding.ContextMethod == "" {
 				continue
 			}
-			findingKey := normalizeClassName(finding.ContextClass) + "::" + finding.ContextMethod
-			if reachableNodes[findingKey] {
+			class := normalizeClassName(finding.ContextClass)
+			reachable := reachableNodes[class+"::"+finding.ContextMethod]
+			for _, method := range finding.AlsoMethods {
+				reachable = reachable || reachableNodes[class+"::"+method]
+			}
+			if reachable {
 				finding.Reachability = "HIGH"
 			} else {
 				finding.Reachability = "INFO"

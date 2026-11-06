@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/igor-php/igor-php/pkg/symbol"
@@ -23,7 +24,8 @@ type Engine interface {
 }
 
 type mutationInfo struct {
-	method     string // the method that mutates the property
+	method     string   // the method of the reported write
+	methods    []string // every method that mutates the property, for reachability
 	line       int
 	code       string
 	snippet    string
@@ -1049,13 +1051,13 @@ func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop strin
 	}
 	switch {
 	case v.isReset && !dynamic:
-		v.mutated[key] = mutationInfo{
+		v.recordMutation(key, mutationInfo{
 			method:     v.curMethod,
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
 			snippet:    v.getContent(n),
 			astDetails: n.ToSexp(),
-		}
+		})
 	default:
 		msg := fmt.Sprintf("Mutation of static state '%s::%s' in %s::%s()", target, prop, v.curClass, v.curMethod)
 		if v.curClass == "" {
@@ -1087,17 +1089,28 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 		if v.isWorkerSafeClass || v.isWorkerSafeMethod || v.isIgnoredLine(n) {
 			return
 		}
-		v.mutated[key] = mutationInfo{
+		v.recordMutation(key, mutationInfo{
 			method:     v.curMethod,
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
 			snippet:    v.getContent(n),
 			astDetails: n.ToSexp(),
-		}
+		})
 	case v.curClass != "" || static:
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
 		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
 	}
+}
+
+// recordMutation keeps the last write of a property for the report, and every method that
+// mutates it: the finding is reachable as soon as one of them is called.
+func (v *PHPVisitor) recordMutation(prop string, info mutationInfo) {
+	methods := v.mutated[prop].methods
+	if info.method != "" && !slices.Contains(methods, info.method) {
+		methods = append(methods, info.method)
+	}
+	info.methods = methods
+	v.mutated[prop] = info
 }
 
 func (v *PHPVisitor) performResetCheck() {
@@ -1127,11 +1140,22 @@ func (v *PHPVisitor) performResetCheck() {
 				Remediation:   fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
 				ContextClass:  fullName,
 				ContextMethod: info.method,
+				AlsoMethods:   otherMethods(info.methods, info.method),
 				Category:      symbol.CategoryNotReset,
 				Property:      prop,
 			})
 		}
 	}
+}
+
+func otherMethods(methods []string, method string) []string {
+	var others []string
+	for _, m := range methods {
+		if m != method {
+			others = append(others, m)
+		}
+	}
+	return others
 }
 
 // isIgnoredLine reports whether the node's line or the line above it carries @igor-ignore.
@@ -1285,13 +1309,13 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 	// It is allowed as long as the property itself is cleared/reset in the reset() method.
 	if v.isReset {
 		if isDirectProp {
-			v.mutated[propName] = mutationInfo{
+			v.recordMutation(propName, mutationInfo{
 				method:     v.curMethod,
 				line:       int(n.StartPosition().Row) + 1,
 				code:       v.lines[n.StartPosition().Row],
 				snippet:    v.getContent(n),
 				astDetails: n.ToSexp(),
-			}
+			})
 		}
 		return
 	}
