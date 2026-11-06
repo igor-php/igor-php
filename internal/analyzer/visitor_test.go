@@ -1985,3 +1985,37 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)
 	}
 }
+
+func TestPHPVisitor_NarrowExemptions(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "narrow_exemptions.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	reported := make(map[int]bool)
+	for _, f := range v.Findings() {
+		reported[f.Line] = true
+	}
+
+	// Each line of the fixture says whether it must be reported
+	for i, line := range strings.Split(string(content), "\n") {
+		switch {
+		case strings.Contains(line, "// not reported"):
+			if reported[i+1] {
+				t.Errorf("line %d must not be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		case strings.Contains(line, "// reported"):
+			if !reported[i+1] {
+				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
