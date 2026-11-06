@@ -170,15 +170,27 @@ func (v *PHPVisitor) coveredByClear(write *sitter.Node, clears []*sitter.Node, m
 	return false
 }
 
+// callbackParam names the callback parameter of a function: its position and its name.
+type callbackParam struct {
+	index int
+	name  string
+}
+
 // syncCallbackFunctions call their callback before they return.
-var syncCallbackFunctions = map[string]bool{
-	"array_map": true, "array_walk": true, "array_walk_recursive": true, "array_filter": true, "array_reduce": true,
-	"usort": true, "uasort": true, "uksort": true, "iterator_apply": true, "call_user_func": true, "call_user_func_array": true,
+var syncCallbackFunctions = map[string]callbackParam{
+	"array_map": {0, "callback"}, "array_walk": {1, "callback"}, "array_walk_recursive": {1, "callback"},
+	"array_filter": {1, "callback"}, "array_reduce": {1, "callback"}, "usort": {1, "callback"},
+	"uasort": {1, "callback"}, "uksort": {1, "callback"}, "iterator_apply": {1, "callback"},
+	"call_user_func": {0, "callback"}, "call_user_func_array": {0, "callback"},
 }
 
 // runsOnTheSpot reports whether a closure runs where it is written: invoked immediately
-// ((function () {...})()), or passed to a function that calls it before returning (array_map).
+// ((function () {...})()), or passed as the callback of a built-in function that calls it before
+// returning (array_map). A generator only runs when it is advanced.
 func (v *PHPVisitor) runsOnTheSpot(closure *sitter.Node) bool {
+	if containsYield(closure.ChildByFieldName("body")) {
+		return false
+	}
 	p := closure.Parent()
 	if p != nil && p.Kind() == "parenthesized_expression" {
 		call := p.Parent()
@@ -187,12 +199,57 @@ func (v *PHPVisitor) runsOnTheSpot(closure *sitter.Node) bool {
 	if p == nil || p.Kind() != "argument" || p.Parent() == nil || p.Parent().Parent() == nil {
 		return false
 	}
-	call := p.Parent().Parent()
-	if call.Kind() != "function_call_expression" {
+	args, call := p.Parent(), p.Parent().Parent()
+	nameNode := call.ChildByFieldName("function")
+	if call.Kind() != "function_call_expression" || nameNode == nil {
 		return false
 	}
-	name := call.ChildByFieldName("function")
-	return name != nil && syncCallbackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))]
+	raw := v.getContent(nameNode)
+	name := strings.ToLower(strings.TrimPrefix(raw, "\\"))
+	param, ok := syncCallbackFunctions[name]
+	if !ok {
+		return false
+	}
+	// An unqualified name may call a function of the namespace or an imported one
+	if !strings.HasPrefix(raw, "\\") {
+		if shadowed := v.getShadowedFunctions(call.StartByte()); shadowed != nil && shadowed[name] {
+			return false
+		}
+	}
+	if argName := p.ChildByFieldName("name"); argName != nil {
+		return v.getContent(argName) == param.name
+	}
+	position := 0
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if sameNode(arg, p) {
+			return position == param.index
+		}
+		if arg.Kind() == "argument" {
+			position++
+		}
+	}
+	return false
+}
+
+// containsYield reports whether a function body yields: calling it then only creates a generator.
+// Nested functions are not followed.
+func containsYield(n *sitter.Node) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Kind() {
+	case "yield_expression":
+		return true
+	case "anonymous_function", "arrow_function", "function_definition", "method_declaration", "anonymous_class":
+		return false
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if containsYield(n.Child(i)) {
+			return true
+		}
+	}
+	return false
 }
 
 // unconditional reports whether a statement runs whenever the enclosing scope does: only plain

@@ -388,3 +388,70 @@ class SyncCallbackListener
         $this->pending = [];
     }
 }
+
+// Reported: a generator closure only runs when it is advanced, after the finally
+class GeneratorListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $items = (function () use ($args): \Generator {
+                $this->pending[] = $args; // reported
+                yield $args;
+            })();
+        } finally {
+            $this->pending = [];
+        }
+        iterator_to_array($items);
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Reported: array_reduce() only calls its second argument, the initial value is returned as is
+class ReduceInitialListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $later = array_reduce([], fn ($carry) => $carry, function () use ($args): void {
+                $this->pending[] = $args; // reported
+            });
+        } finally {
+            $this->pending = [];
+        }
+        $later();
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Not reported: the named callback argument runs inside the try
+class NamedCallbackListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            array_map(array: [$args], callback: fn (object $entity) => $this->pending[] = $entity); // not reported
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}

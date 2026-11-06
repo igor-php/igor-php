@@ -2204,3 +2204,43 @@ class Rewinder implements ResetInterface
 		}
 	}
 }
+
+func TestPHPVisitor_DoctrineFlushState_ShadowedCallbackFunction(t *testing.T) {
+	code := `<?php
+namespace App\EventListener;
+
+use function Vendor\defer as array_map;
+
+class DeferredListener
+{
+    private array $pending = [];
+
+    public function onFlush($args): void
+    {
+        try {
+            array_map(fn ($entity) => $this->pending[] = $entity, [$args]);
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}`
+	content := []byte(code)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "postFlush()") && f.Line == 13 {
+			return
+		}
+	}
+	t.Errorf("an imported array_map() may defer its callback: expected a finding on line 13, got %v", v.Findings())
+}
