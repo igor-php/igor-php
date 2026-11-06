@@ -152,7 +152,7 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 		if set == nil || !throwsBetween(calls, set.node.EndByte(), w.node.StartByte()) {
 			continue
 		}
-		if v.restoredSafely(writes, set, saves) || v.swallowedBeforeRestore(calls, set.node, w.node) {
+		if v.restoredSafely(writes, set, saves, calls) || v.swallowedBeforeRestore(calls, set.node, w.node) {
 			continue
 		}
 		reported[w.prop] = true
@@ -169,18 +169,30 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 }
 
 // restoredSafely reports whether one of the method's restorations of the write set runs on every
-// exception: in a finally block, or in a catch that also catches \Error. A safe restoration of
-// another write of the same property does not protect this one.
-func (v *PHPVisitor) restoredSafely(writes []propertyWrite, set *propertyWrite, saves map[string][]localSave) bool {
+// exception: in a finally block, or in a catch that also catches \Error, with nothing before it in
+// the clause that can throw past it. A safe restoration of another write of the same property does
+// not protect this one.
+func (v *PHPVisitor) restoredSafely(writes []propertyWrite, set *propertyWrite, saves map[string][]localSave, calls []uint) bool {
 	for i, w := range writes {
 		if w.prop != set.prop || (!w.ctx.inFinally && !(w.ctx.inCatch && w.ctx.catchCoversAll)) {
 			continue
 		}
-		if v.restoredWrite(writes[:i], w, saves) == set {
+		if v.restoredWrite(writes[:i], w, saves) == set && v.reachedInClause(calls, w.node) {
 			return true
 		}
 	}
 	return false
+}
+
+// reachedInClause reports whether a restoration in a catch or finally clause always runs once the
+// clause starts: whatever can throw before it in the clause is swallowed there.
+func (v *PHPVisitor) reachedInClause(calls []uint, restore *sitter.Node) bool {
+	for p := restore.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "catch_clause" || p.Kind() == "finally_clause" {
+			return v.swallowedBetween(calls, p.StartByte(), restore)
+		}
+	}
+	return true
 }
 
 // restoredWrite returns the earlier write that w restores, or nil when w is no restoration:
@@ -213,6 +225,9 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 	return nil
 }
 
+// stackFunctions push to or pop from an array without throwing.
+var stackFunctions = map[string]bool{"array_pop": true, "array_push": true, "array_shift": true, "array_unshift": true}
+
 // collectRestoreEvents walks a method body in source order. It records the writes to $this
 // properties with their try context, the local variables saving a property, and the expressions
 // that can throw. Closures are skipped: they run later, in another scope.
@@ -229,7 +244,12 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 		ctx.catchCoversAll = v.catchCoversAll(ctx.catchTypes)
 	case "finally_clause":
 		ctx.inFinally = true
-	case "function_call_expression", "member_call_expression", "nullsafe_member_call_expression",
+	case "function_call_expression":
+		// A stack cleanup (array_pop($this->stack)) does not throw
+		if name := n.ChildByFieldName("function"); name == nil || !stackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))] {
+			*calls = append(*calls, n.StartByte())
+		}
+	case "member_call_expression", "nullsafe_member_call_expression",
 		"scoped_call_expression", "object_creation_expression", "throw_expression", "include_expression", "require_expression":
 		*calls = append(*calls, n.StartByte())
 	case "assignment_expression":
@@ -323,26 +343,46 @@ func sameFlow(set, restore *sitter.Node) bool {
 	return false
 }
 
-// swallowedBeforeRestore reports whether every exception between set and restore is swallowed: set
-// sits in the body of a try statement that restore follows, a catch of that statement catches
-// everything without leaving (no throw or return), and nothing outside the try body can throw
-// before restore.
+// swallowedBeforeRestore reports whether every exception thrown between set and restore is
+// swallowed before restore: each expression that can throw sits in the body of a try statement that
+// restore follows, with a catch that catches everything and no clause that leaves.
 func (v *PHPVisitor) swallowedBeforeRestore(calls []uint, set, restore *sitter.Node) bool {
-	var try *sitter.Node
-	for p := set.Parent(); p != nil; p = p.Parent() {
-		if p.Kind() == "try_statement" {
-			try = p
-			break
+	return v.swallowedBetween(calls, set.EndByte(), restore)
+}
+
+// swallowedBetween reports whether every expression that can throw from the byte from to restore
+// is swallowed by a try statement that ends before restore.
+func (v *PHPVisitor) swallowedBetween(calls []uint, from uint, restore *sitter.Node) bool {
+	root := restore
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	for _, c := range calls {
+		if c >= from && c < restore.StartByte() && !v.swallowedAt(root, c, restore) {
+			return false
 		}
 	}
-	if try == nil || try.EndByte() > restore.StartByte() {
-		return false
+	return true
+}
+
+// swallowedAt reports whether the expression starting at byte c sits in the body of a try statement
+// that ends before restore, catches everything and has no clause that leaves.
+func (v *PHPVisitor) swallowedAt(root *sitter.Node, c uint, restore *sitter.Node) bool {
+	for p := root.DescendantForByteRange(c, c); p != nil; p = p.Parent() {
+		if p.Kind() != "try_statement" || p.EndByte() > restore.StartByte() {
+			continue
+		}
+		body := p.ChildByFieldName("body")
+		if body != nil && c >= body.StartByte() && c < body.EndByte() && v.swallows(p) {
+			return true
+		}
 	}
-	body := try.ChildByFieldName("body")
-	if body == nil || set.StartByte() < body.StartByte() || set.EndByte() > body.EndByte() {
-		return false
-	}
-	// One catch must catch everything, and no catch nor the finally may skip the restore
+	return false
+}
+
+// swallows reports whether a try statement swallows every exception of its body: a catch catches
+// everything, and no catch nor the finally may skip the code after the statement.
+func (v *PHPVisitor) swallows(try *sitter.Node) bool {
 	swallows := false
 	for i := uint(0); i < try.NamedChildCount(); i++ {
 		clause := try.NamedChild(i)
@@ -354,16 +394,7 @@ func (v *PHPVisitor) swallowedBeforeRestore(calls []uint, set, restore *sitter.N
 			swallows = swallows || (clause.Kind() == "catch_clause" && v.catchesEverything(clause))
 		}
 	}
-	if !swallows {
-		return false
-	}
-	for _, c := range calls {
-		inBody := c >= body.StartByte() && c < body.EndByte()
-		if c >= set.EndByte() && c < restore.StartByte() && !inBody {
-			return false
-		}
-	}
-	return true
+	return swallows
 }
 
 // catchesEverything reports whether a catch clause also catches \Error.

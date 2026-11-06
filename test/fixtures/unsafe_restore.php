@@ -104,8 +104,8 @@ class UnsafeRestores
             $this->handle(new \stdClass());
             $this->enabled = false; // not reported
         } catch (\Throwable $e) {
-            $this->handle($e);
             $this->enabled = false; // not reported
+            $this->handle($e);
         }
     }
 
@@ -326,6 +326,56 @@ class UnsafeRestores
             }
             $this->enabled = false; // reported
         }
+    }
+
+    // Reported: the call before the cleanup in finally can throw and skip it
+    public function callBeforeCleanup(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } finally {
+            $this->handle($message);
+            $this->enabled = false; // reported
+        }
+    }
+
+    // Not reported: the call before the cleanup in finally is guarded by its own catch (\Throwable)
+    public function guardedCleanup(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } finally {
+            try {
+                $this->handle($message);
+            } catch (\Throwable $e) {
+            }
+            $this->enabled = false; // not reported
+        }
+    }
+
+    // Not reported: set before the try, every exception of the try is swallowed before the restore
+    public function swallowedAfterWrite(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } catch (\Throwable $e) {
+        }
+        $this->enabled = false; // not reported
+    }
+
+    // Reported: the call after the swallowing try can still throw past the restore
+    public function throwsAfterSwallow(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } catch (\Throwable $e) {
+        }
+        $this->handle($message);
+        $this->enabled = false; // reported
     }
 
     private function handle(object $message): object
