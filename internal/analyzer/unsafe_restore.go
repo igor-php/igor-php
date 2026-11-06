@@ -20,16 +20,20 @@ type restoreContext struct {
 // localSave is an assignment to a local variable: prop is the $this property it copied, or ""
 // when it assigned something else.
 type localSave struct {
-	at   uint
+	node *sitter.Node
 	prop string
 }
 
-// savedProperty returns the property a local variable held at an offset: the one its latest
-// assignment before that offset copied, or "".
-func savedProperty(saves map[string][]localSave, variable string, at uint) string {
+// savedProperty returns the property a local variable holds when restore runs: the one its latest
+// save before restore copied. A later assignment of something else only overwrites it when it runs
+// whenever restore does: one in a branch that exits (a catch that rethrows) leaves the save in place.
+func savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) string {
 	prop := ""
 	for _, s := range saves[variable] {
-		if s.at < at {
+		if s.node.StartByte() >= restore.StartByte() {
+			break
+		}
+		if s.prop != "" || sameFlow(s.node, restore) {
 			prop = s.prop
 		}
 	}
@@ -77,7 +81,7 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 		if set == nil || !throwsBetween(calls, set.node.EndByte(), w.node.StartByte()) {
 			continue
 		}
-		if v.restoredSafely(writes, set, saves) {
+		if v.restoredSafely(writes, set, saves) || swallowedBeforeRestore(calls, set.node, w.node, v.catchesEverything) {
 			continue
 		}
 		reported[w.prop] = true
@@ -126,7 +130,7 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 		}
 		setLower := strings.ToLower(set.value)
 		switch {
-		case savedProperty(saves, w.value, w.node.StartByte()) == w.prop:
+		case savedProperty(saves, w.value, w.node) == w.prop:
 			return set
 		case (setLower == "true" && lower == "false") || (setLower == "false" && lower == "true"):
 			return set
@@ -169,7 +173,7 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 					prop = p
 				}
 				name := v.getContent(left)
-				saves[name] = append(saves[name], localSave{at: n.StartByte(), prop: prop})
+				saves[name] = append(saves[name], localSave{node: n, prop: prop})
 			}
 		}
 	}
@@ -243,6 +247,67 @@ func sameFlow(set, restore *sitter.Node) bool {
 		case "expression_statement", "compound_statement", "try_statement", "catch_clause", "finally_clause":
 		default:
 			return false
+		}
+	}
+	return false
+}
+
+// swallowedBeforeRestore reports whether every exception between set and restore is swallowed: set
+// sits in the body of a try statement that restore follows, a catch of that statement catches
+// everything without leaving (no throw or return), and nothing outside the try body can throw
+// before restore.
+func swallowedBeforeRestore(calls []uint, set, restore *sitter.Node, catchesEverything func(*sitter.Node) bool) bool {
+	var try *sitter.Node
+	for p := set.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "try_statement" {
+			try = p
+			break
+		}
+	}
+	if try == nil || try.EndByte() > restore.StartByte() {
+		return false
+	}
+	body := try.ChildByFieldName("body")
+	if body == nil || set.StartByte() < body.StartByte() || set.EndByte() > body.EndByte() {
+		return false
+	}
+	swallows := false
+	for i := uint(0); i < try.NamedChildCount(); i++ {
+		clause := try.NamedChild(i)
+		if clause.Kind() == "catch_clause" && catchesEverything(clause) && !leaves(clause) {
+			swallows = true
+		}
+	}
+	if !swallows {
+		return false
+	}
+	for _, c := range calls {
+		inBody := c >= body.StartByte() && c < body.EndByte()
+		if c >= set.EndByte() && c < restore.StartByte() && !inBody {
+			return false
+		}
+	}
+	return true
+}
+
+// catchesEverything reports whether a catch clause also catches \Error.
+func (v *PHPVisitor) catchesEverything(clause *sitter.Node) bool {
+	types := clause.ChildByFieldName("type")
+	return types != nil && v.catchCoversAll(v.getContent(types))
+}
+
+// leaves reports whether a clause may skip the code after its try statement: a throw, a return, an
+// exit, a break or a continue in it. Closures run later and are not followed.
+func leaves(n *sitter.Node) bool {
+	switch n.Kind() {
+	case "throw_expression", "return_statement", "exit_statement", "break_statement", "continue_statement":
+		return true
+	case "anonymous_function", "arrow_function", "anonymous_class":
+		return false
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if leaves(n.Child(i)) {
+			return true
 		}
 	}
 	return false

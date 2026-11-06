@@ -200,6 +200,43 @@ class UnsafeRestores
         $this->current = $value; // not reported
     }
 
+    // Reported: the catch overwrites the saved value, but it rethrows, so the restore still uses it
+    public function overwrittenInCatch(object $request): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        try {
+            $this->handle($request);
+        } catch (\Exception $e) {
+            $old = null;
+            throw $e;
+        }
+        $this->current = $old; // reported
+    }
+
+    // Not reported: catch (\Throwable) swallows every exception, the restore always runs
+    public function swallowed(object $message): void
+    {
+        try {
+            $this->enabled = true;
+            $this->handle($message);
+        } catch (\Throwable $e) {
+        }
+        $this->enabled = false; // not reported
+    }
+
+    // Reported: catch (\Throwable) rethrows, the restore after the try is skipped
+    public function rethrown(object $message): void
+    {
+        try {
+            $this->enabled = true;
+            $this->handle($message);
+        } catch (\Throwable $e) {
+            throw $e;
+        }
+        $this->enabled = false; // reported
+    }
+
     private function handle(object $message): object
     {
         return $message;
