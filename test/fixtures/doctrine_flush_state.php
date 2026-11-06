@@ -3,6 +3,7 @@
 namespace App\EventListener;
 
 use Doctrine\ORM\Event\OnFlushEventArgs;
+use Igor\WorkerSafe;
 use Symfony\Contracts\Service\ResetInterface;
 
 // Reported: collected in onFlush, cleared only in postFlush
@@ -146,5 +147,90 @@ class Collector
     public function flush(): void
     {
         $this->items = [];
+    }
+}
+
+// Reported: the clear only runs when $startFresh is true
+class ConditionalClearListener
+{
+    private array $pending = [];
+    private bool $startFresh = false;
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        if ($this->startFresh) {
+            $this->pending = [];
+        }
+        $this->pending[] = $args; // reported
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Not reported: onFlush clears what it collected in its own finally block
+class FinallyListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // not reported
+            $this->process($this->pending);
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+
+    private function process(array $pending): void
+    {
+    }
+}
+
+// Not reported: the event is marked worker-safe
+class SafeEventListener
+{
+    private array $pending = [];
+
+    #[WorkerSafe]
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        $this->pending[] = $args; // not reported
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Not reported: the writes belong to an anonymous helper, not to the listener
+class HelperListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): object
+    {
+        return new class {
+            private array $pending = [];
+
+            public function add(object $entity): void
+            {
+                $this->pending[] = $entity; // not reported
+            }
+        };
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
     }
 }

@@ -37,12 +37,11 @@ func (v *PHPVisitor) checkDoctrineFlushState(n *sitter.Node) {
 	reported := make(map[string]bool)
 	for _, event := range doctrineCollectEvents {
 		method := methods[strings.ToLower(event)]
-		if method == nil {
+		if method == nil || v.hasAttribute(method, "WorkerSafe") {
 			continue
 		}
 		for prop, writes := range v.collectFlushWrites(method) {
-			if !clearedInPostFlush[prop] || reported[prop] || v.workerSafeProps[prop] || writes[0].clear {
-				// writes[0].clear: the event starts by clearing what a failed commit left
+			if !clearedInPostFlush[prop] || reported[prop] || v.workerSafeProps[prop] || clearedByEvent(writes, method) {
 				continue
 			}
 			first := firstCollectingWrite(writes)
@@ -123,6 +122,46 @@ func isCollectEvent(lowerName string) bool {
 	return false
 }
 
+// clearedByEvent reports whether the event itself leaves nothing behind for a failed commit: it
+// starts by clearing the property on every path, or clears it in a finally block.
+func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
+	if writes[0].clear && unconditional(writes[0].node, method) {
+		return true
+	}
+	for _, w := range writes {
+		if w.clear && inFinally(w.node, method) {
+			return true
+		}
+	}
+	return false
+}
+
+// unconditional reports whether a statement of a method runs on every path: only plain blocks
+// separate it from the method body, no condition, loop or catch.
+func unconditional(n, method *sitter.Node) bool {
+	body := method.ChildByFieldName("body")
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if body != nil && sameNode(p, body) {
+			return true
+		}
+		switch p.Kind() {
+		case "expression_statement", "compound_statement":
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func inFinally(n, method *sitter.Node) bool {
+	for p := n.Parent(); p != nil && !sameNode(p, method); p = p.Parent() {
+		if p.Kind() == "finally_clause" {
+			return true
+		}
+	}
+	return false
+}
+
 func firstCollectingWrite(writes []flushWrite) *flushWrite {
 	for i := range writes {
 		if !writes[i].clear {
@@ -133,12 +172,15 @@ func firstCollectingWrite(writes []flushWrite) *flushWrite {
 }
 
 // collectFlushWrites returns, in source order, the writes of each $this property in a method.
-// Closures are included: Doctrine listeners often collect in a loop callback.
+// Closures are included: Doctrine listeners often collect in a loop callback. Nested classes and
+// functions are not: $this is another object there, or none.
 func (v *PHPVisitor) collectFlushWrites(method *sitter.Node) map[string][]flushWrite {
 	writes := make(map[string][]flushWrite)
 	var walk func(n *sitter.Node)
 	walk = func(n *sitter.Node) {
 		switch n.Kind() {
+		case "anonymous_class", "class_declaration", "function_definition":
+			return
 		case "assignment_expression", "augmented_assignment_expression":
 			left := n.ChildByFieldName("left")
 			if prop, direct, ok := v.flushWriteTarget(left); ok {
