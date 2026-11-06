@@ -150,7 +150,7 @@ func shouldSkipServicePath(_ string, path string, cfg config.Config, aud *audito
 
 func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Auditor, processed map[string]bool) []symbol.AuditStatus {
 	var list []symbol.AuditStatus
-	outOfRequest := outOfRequestClasses(aud)
+	outOfRequest := outOfRequestFiles(aud)
 	for id, def := range aud.Symfony.Container.Definitions {
 		if skip, reason := shouldSkipServiceMeta(id, def, aud); skip {
 			if cfg.Verbose {
@@ -175,7 +175,7 @@ func collectSymfonyServices(rootPath string, cfg config.Config, aud *auditor.Aud
 					Dependencies: deps,
 					IsShared:     def.Shared,
 					IsPublic:     def.Public,
-					OutOfRequest: outOfRequest[def.Class],
+					OutOfRequest: outOfRequest[filepath.Clean(path)],
 				})
 				processed[path] = true
 			} else if cfg.Verbose {
@@ -279,7 +279,7 @@ func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Con
 			Dependencies: extractDependencies(*matchedDef),
 			IsShared:     matchedDef.Shared,
 			IsPublic:     matchedDef.Public,
-			OutOfRequest: outOfRequestClasses(aud)[matchedDef.Class],
+			OutOfRequest: outOfRequestFiles(aud)[cleanTarget],
 		}}
 	}
 

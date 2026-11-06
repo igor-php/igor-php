@@ -102,7 +102,7 @@ type AuditStatus struct {
 	Dependencies []string  `json:"dependencies"`
 	IsShared     bool      `json:"is_shared"`
 	IsPublic     bool      `json:"is_public"`
-	// OutOfRequest is set when every service backed by this file only runs outside a request.
+	// OutOfRequest is set when every service backed by a class of this file only runs outside a request.
 	OutOfRequest string `json:"out_of_request,omitempty"`
 }
 

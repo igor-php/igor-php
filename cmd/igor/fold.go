@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -62,49 +63,76 @@ func outOfRequestCategory(id string, def symbol.SymfonyService) string {
 	return ""
 }
 
-// outOfRequestClasses maps each class to the reason its services never run during a request.
-// A class is left out as soon as one of its audited services may run during a request.
-func outOfRequestClasses(aud *auditor.Auditor) map[string]string {
+// outOfRequestFiles maps each file to the reason the services of every class it declares never run
+// during a request. A file is left out as soon as one of its classes backs a service that may run
+// during a request: a file is audited as a whole, so its findings are only folded when none of them
+// can come from request code.
+func outOfRequestFiles(aud *auditor.Auditor) map[string]string {
+	return outOfRequestBy(aud, func(def symbol.SymfonyService) (string, bool) {
+		path, found := aud.Symfony.ClassToFile[def.Class]
+		return filepath.Clean(path), found
+	})
+}
+
+// outOfRequestBy groups the audited services by key and returns the reason each group never runs
+// during a request. When the services of a group have several reasons, the first in alphabetical
+// order is kept, so that the result does not depend on the map iteration order.
+func outOfRequestBy(aud *auditor.Auditor, key func(symbol.SymfonyService) (string, bool)) map[string]string {
 	categories := make(map[string]string)
 	inRequest := make(map[string]bool)
 	for id, def := range aud.Symfony.Container.Definitions {
 		if skip, _ := shouldSkipServiceMeta(id, def, aud); skip {
 			continue
 		}
-		category := outOfRequestCategory(id, def)
-		if category == "" {
-			inRequest[def.Class] = true
+		k, ok := key(def)
+		if !ok {
 			continue
 		}
-		if _, found := categories[def.Class]; !found {
-			categories[def.Class] = category
+		category := outOfRequestCategory(id, def)
+		if category == "" {
+			inRequest[k] = true
+			continue
+		}
+		if current, found := categories[k]; !found || category < current {
+			categories[k] = category
 		}
 	}
-	for class := range inRequest {
-		delete(categories, class)
+	for k := range inRequest {
+		delete(categories, k)
 	}
 	return categories
 }
 
-// markOutOfRequest flags the findings of code that never runs during a request: the services
+const (
+	symfonyKernel           = `Symfony\Component\HttpKernel\Kernel`
+	symfonyMicroKernelTrait = `Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait`
+)
+
+// markOutOfRequest flags the findings of code that never runs during a request: the files
 // classified at collection time, and the container building methods of the Symfony kernel.
-func markOutOfRequest(results []symbol.AuditStatus, symfony bool) {
+// extends reports whether a class inherits from another; it is nil outside Symfony.
+func markOutOfRequest(results []symbol.AuditStatus, extends func(class, ancestor string) bool) {
 	for i := range results {
 		for j := range results[i].Findings {
 			f := &results[i].Findings[j]
 			switch {
 			case results[i].OutOfRequest != "":
 				f.OutOfRequest = results[i].OutOfRequest
-			case symfony && isKernelBootFinding(*f):
+			case extends != nil && isKernelBootFinding(*f, extends):
 				f.OutOfRequest = kernelBootCategory
 			}
 		}
 	}
 }
 
-func isKernelBootFinding(f symbol.Finding) bool {
-	class := shortClassName(f.ContextClass)
-	return (class == "Kernel" || class == "MicroKernelTrait") && kernelBootMethods[f.ContextMethod]
+// isKernelBootFinding matches the Symfony kernel by its full name: the HttpKernel Kernel and the
+// application kernels extending it, and the MicroKernelTrait. Another class named Kernel is not one.
+func isKernelBootFinding(f symbol.Finding, extends func(class, ancestor string) bool) bool {
+	if !kernelBootMethods[f.ContextMethod] {
+		return false
+	}
+	class := strings.TrimPrefix(f.ContextClass, `\`)
+	return strings.EqualFold(class, symfonyMicroKernelTrait) || extends(class, symfonyKernel)
 }
 
 // foldOutOfRequest recomputes each file status without its out-of-request findings,
