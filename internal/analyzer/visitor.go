@@ -173,6 +173,9 @@ func (v *PHPVisitor) handleMethodOrFunction(n *sitter.Node, nodeType string) {
 	v.localSharedVars = make(map[string]bool)
 	v.preScanFinallyCleanups(n)
 	v.recordMethodDeclaration(nodeType)
+	if nodeType == "method_declaration" {
+		v.checkUnsafeRestores(n)
+	}
 
 	if nodeType == "method_declaration" && strings.ToLower(v.curMethod) == "__destruct" {
 		fullName := v.curClass
