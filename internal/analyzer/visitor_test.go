@@ -2245,6 +2245,47 @@ class DeferredListener
 	t.Errorf("an imported array_map() may defer its callback: expected a finding on line 13, got %v", v.Findings())
 }
 
+func TestPHPVisitor_DoctrineFlushState_ImportedBuiltinCallback(t *testing.T) {
+	code := `<?php
+namespace App\EventListener;
+
+use function array_map;
+use function \array_filter;
+
+class ImportedBuiltinListener
+{
+    private array $pending = [];
+
+    public function onFlush($args): void
+    {
+        try {
+            array_map(fn ($entity) => $this->pending[] = $entity, [$args]);
+            array_filter([$args], fn ($entity) => $this->pending[] = $entity);
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}`
+	content := []byte(code)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "only cleared in postFlush()") {
+			t.Errorf("use function array_map; imports the built-in, its callback runs on the spot: unexpected finding %v", f)
+		}
+	}
+}
+
 func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "unsafe_restore.php"))
 	if err != nil {

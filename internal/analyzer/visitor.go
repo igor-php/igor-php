@@ -727,14 +727,19 @@ func (v *PHPVisitor) extractFunctionUse(n *sitter.Node, shadowed map[string]bool
 
 		for i := uint(0); i < clause.ChildCount(); i++ {
 			child := clause.Child(i)
+			// use function array_map; imports the global function itself: nothing is shadowed.
+			// In a group (use function App\Helper\{umask}), the name is under the group prefix.
 			if child.Kind() == "name" {
-				shadowed[strings.ToLower(v.getContent(child))] = true
+				if clause.Parent() != nil && clause.Parent().Kind() == "namespace_use_group" {
+					shadowed[strings.ToLower(v.getContent(child))] = true
+				}
 				return
 			}
 			if child.Kind() == "qualified_name" {
-				parts := strings.Split(v.getContent(child), "\\")
-				lastName := parts[len(parts)-1]
-				shadowed[strings.ToLower(lastName)] = true
+				parts := strings.Split(strings.TrimPrefix(v.getContent(child), "\\"), "\\")
+				if len(parts) > 1 {
+					shadowed[strings.ToLower(parts[len(parts)-1])] = true
+				}
 				return
 			}
 		}
