@@ -257,3 +257,24 @@ class ConditionalFinallyListener
         $this->pending = [];
     }
 }
+
+// Reported: the finally only covers the first write, the append after the try survives the event
+class PartlyCoveredListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // reported
+        } finally {
+            $this->pending = [];
+        }
+        $this->pending[] = $args;
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}

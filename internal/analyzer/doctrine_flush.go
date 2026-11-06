@@ -132,12 +132,30 @@ func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 		if !w.clear {
 			continue
 		}
-		// A clear in finally must run whenever the finally block does: no condition inside it either
-		if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) {
+		// A clear in finally must run whenever the finally block does (no condition inside it either),
+		// and come after every collecting write of the event: none outside its try statement
+		if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) && coversWrites(finally.Parent(), w.node, writes) {
 			return true
 		}
 	}
 	return false
+}
+
+// coversWrites reports whether every collecting write sits in the try statement and before the clear.
+func coversWrites(try, clear *sitter.Node, writes []flushWrite) bool {
+	if try == nil {
+		return false
+	}
+	for _, w := range writes {
+		if w.clear {
+			continue
+		}
+		start := w.node.StartByte()
+		if start < try.StartByte() || start >= clear.StartByte() {
+			return false
+		}
+	}
+	return true
 }
 
 // unconditional reports whether a statement runs whenever the enclosing scope does: only plain
