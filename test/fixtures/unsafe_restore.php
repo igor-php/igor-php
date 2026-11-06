@@ -421,6 +421,18 @@ class UnsafeRestores
         $this->current = $old; // not reported
     }
 
+    // Reported: the save after the write only runs on some paths, the first one still reaches
+    public function conditionalLateSave(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        if ($flag) {
+            $old = $this->current;
+        }
+        $this->handle($request);
+        $this->current = $old; // reported
+    }
+
     private function handle(object $message): object
     {
         return $message;

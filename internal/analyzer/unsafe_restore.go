@@ -25,26 +25,27 @@ type localSave struct {
 	prop string
 }
 
-// savedProperty returns the property a local variable may hold when restore runs, and the save that
-// copied it: its latest save before restore, as long as one path keeps it. An assignment of something
-// else only drops it when it runs whenever restore does, or on every branch of an if statement that
-// goes on.
-func (v *PHPVisitor) savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) (string, *sitter.Node) {
-	prop := ""
-	var saved *sitter.Node
+// reachingSaves returns the saves of a local variable that may still hold their value when restore
+// runs. An assignment that runs whenever restore does (or on every branch of an if statement that
+// goes on) replaces them all; one that runs on some paths only adds to them, or keeps them when it
+// assigns something else than a property.
+func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string, restore *sitter.Node) []localSave {
+	var reach []localSave
 	for _, s := range saves[variable] {
 		if s.node.StartByte() >= restore.StartByte() {
 			break
 		}
+		definite := sameFlow(s.node, restore) || (s.prop == "" && v.overwrittenOnEveryBranch(s.node, variable, restore))
 		switch {
+		case definite && s.prop != "":
+			reach = []localSave{s}
+		case definite:
+			reach = nil
 		case s.prop != "":
-			prop, saved = s.prop, s.node
-		case sameFlow(s.node, restore) || v.overwrittenOnEveryBranch(s.node, variable, restore):
-			prop, saved = "", nil
+			reach = append(reach, s)
 		}
-		// Any other overwrite runs on some paths only: the save still reaches restore on the others
 	}
-	return prop, saved
+	return reach
 }
 
 // overwrittenOnEveryBranch reports whether the if statement that holds an assignment assigns the
@@ -215,13 +216,9 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 		}
 		setLower := strings.ToLower(set.value)
 		// The value must be saved before the write: a save after it holds the temporary value
-		prop, saved := v.savedProperty(saves, w.value, w.node)
 		switch {
-		case prop == w.prop:
-			if saved.StartByte() < set.node.StartByte() {
-				return set
-			}
-			return nil
+		case v.savedBefore(saves, w, set.node):
+			return set
 		case (setLower == "true" && lower == "false") || (setLower == "false" && lower == "true"):
 			return set
 		case lower == "null" && setLower != "null":
@@ -230,6 +227,17 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 		return nil
 	}
 	return nil
+}
+
+// savedBefore reports whether the variable w assigns may hold, on one path, the value of its property
+// saved before the write set.
+func (v *PHPVisitor) savedBefore(saves map[string][]localSave, w propertyWrite, set *sitter.Node) bool {
+	for _, s := range v.reachingSaves(saves, w.value, w.node) {
+		if s.prop == w.prop && s.node.StartByte() < set.StartByte() {
+			return true
+		}
+	}
+	return false
 }
 
 // stackFunctions push to or pop from an array without throwing.
