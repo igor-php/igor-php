@@ -36,7 +36,7 @@ func TestAuditFixtures(t *testing.T) {
 		{
 			name:           "Array state mutation",
 			fixture:        "array_mutation.php",
-			expectedErrors: 4,
+			expectedErrors: 3, // clear() emptying $cache is the reset, not a leak (#105)
 			contains:       "Mutation of state",
 		},
 		{
@@ -60,7 +60,7 @@ func TestAuditFixtures(t *testing.T) {
 		{
 			name:           "Security risks (superglobals & static vars)",
 			fixture:        "security_risks.php",
-			expectedErrors: 9, // 8 superglobals + 1 static var
+			expectedErrors: 8, // 7 superglobals + 1 static var: the $_ENV read is not reported (#105)
 			contains:       "$request->query",
 		},
 		{

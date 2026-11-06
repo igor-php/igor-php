@@ -24,7 +24,7 @@ class ArrayStateService
 
     public function clear(): void
     {
-        // Normal assignment (KO if not in reset)
+        // Empty value written in clear(): this write is the reset (OK, #105)
         $this->cache = [];
     }
 }
