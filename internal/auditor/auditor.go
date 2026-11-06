@@ -555,6 +555,21 @@ func (a *Auditor) IsResettable(className string) bool {
 	return false
 }
 
+// HasServiceDefinition reports whether the framework service map defines a service of this class,
+// in which case it, not the class header, says whether the container resets the service.
+func (a *Auditor) HasServiceDefinition(className string) bool {
+	if a.Symfony == nil || a.Symfony.Container == nil {
+		return false
+	}
+	normClass := normalizeClassName(className)
+	for _, def := range a.Symfony.Container.Definitions {
+		if normalizeClassName(def.Class) == normClass && !def.IsExcluded() {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSharedService checks if a class name is a shared service in Symfony.
 func (a *Auditor) IsSharedService(className string) bool {
 	if a.Symfony == nil {

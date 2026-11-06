@@ -64,16 +64,9 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
+        // services_resetter only calls the services tagged kernel.reset: implementing ResetInterface
+        // is not enough for a service a bundle registers without autoconfiguration
         $isResettable = $definition->hasTag('kernel.reset');
-        if (!$isResettable) {
-            try {
-                if (class_exists($class)) {
-                    $isResettable = is_subclass_of($class, 'Symfony\Contracts\Service\ResetInterface');
-                }
-            } catch (\Throwable $e) {
-                $isResettable = false;
-            }
-        }
 
         $serviceMap['definitions'][$id] = [
             'class' => $class,

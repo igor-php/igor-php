@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,13 @@ namespace Symfony\Component\HttpKernel\Bundle {
         public function build(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void {}
     }
 }
+namespace Symfony\Contracts\Service {
+    interface ResetInterface { public function reset(); }
+}
+namespace App\Service {
+    class BundleCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+    class TaggedCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+}
 namespace {
     require __DIR__ . '/../../src/php/IgorPhpBundle.php';
     require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
@@ -177,6 +185,12 @@ namespace {
     $cb->definitions['App\Service\ExcludedService'] = $excludedDef;
     $cb->definitions['App\Service\SyntheticService'] = $syntheticDef;
 
+    // A bundle service implementing ResetInterface without kernel.reset is never reset
+    $cb->definitions['app.bundle_collector'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\BundleCollector');
+    $taggedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\TaggedCollector');
+    $taggedDef->tags['kernel.reset'] = [['method' => 'reset']];
+    $cb->definitions['app.tagged_collector'] = $taggedDef;
+
     // Private interface aliases exist before the removing passes...
     $resettableDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ResettableCache');
     $cb->definitions['App\Service\ResettableCache'] = $resettableDef;
@@ -215,6 +229,14 @@ namespace {
     }
     if (isset($data['aliases']['App\Service\DeadInterface'])) {
         fwrite(STDERR, "Alias to a pruned service must not be exported\n");
+        exit(1);
+    }
+    if (($data['definitions']['app.bundle_collector']['resettable'] ?? null) !== false) {
+        fwrite(STDERR, "A ResetInterface service without the kernel.reset tag must not be resettable\n");
+        exit(1);
+    }
+    if (($data['definitions']['app.tagged_collector']['resettable'] ?? null) !== true) {
+        fwrite(STDERR, "A service tagged kernel.reset must be resettable\n");
         exit(1);
     }
     if (isset($data['definitions']['App\Service\ExcludedService'])) {
@@ -440,5 +462,80 @@ echo "SUCCESS\n";
 	}
 	if !strings.Contains(string(output), "SUCCESS") {
 		t.Fatalf("Real Symfony container compilation test did not complete: %s", string(output))
+	}
+}
+
+func TestServiceMapBuilder_ResettableOnlyWithOctaneListener(t *testing.T) {
+	requirePHP(t)
+
+	// The listener must live in a real file: the builder reads its source to find the services it resets
+	dir := t.TempDir()
+	listener := `<?php
+namespace App\Listeners;
+
+class ResetCollectors
+{
+    public function handle(): void
+    {
+        app(\App\Service\ListenedCollector::class)->reset();
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "ResetCollectors.php"), []byte(listener), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	phpScript := `
+namespace Symfony\Contracts\Service {
+    interface ResetInterface { public function reset(); }
+}
+namespace Illuminate\Contracts\Foundation {
+    interface Application {}
+}
+namespace App\Service {
+    // Implements ResetInterface, but nothing in Laravel calls it and no listener references it
+    class LonelyCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+    // Reset by an Octane listener on a request event
+    class ListenedCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+}
+namespace {
+    require $argv[1] . '/ResetCollectors.php';
+    require 'src/laravel/ServiceMapBuilder.php';
+
+    $app = new class implements \Illuminate\Contracts\Foundation\Application, \ArrayAccess {
+        public function offsetExists($k): bool { return $k === 'config'; }
+        public function offsetGet($k): mixed {
+            return new class {
+                public function get($key, $default) {
+                    return $key === 'octane.listeners'
+                        ? ['Laravel\\Octane\\Events\\RequestReceived' => ['App\\Listeners\\ResetCollectors']]
+                        : $default;
+                }
+            };
+        }
+        public function offsetSet($k, $v): void {}
+        public function offsetUnset($k): void {}
+    };
+
+    $builder = new \IgorPhp\Laravel\ServiceMapBuilder($app);
+    $isResettable = \Closure::bind(fn (string $class) => $this->isResettable($class), $builder, \IgorPhp\Laravel\ServiceMapBuilder::class);
+
+    if ($isResettable('App\\Service\\LonelyCollector') !== false) {
+        fwrite(STDERR, "A ResetInterface service no Octane listener references must not be resettable\n");
+        exit(1);
+    }
+    if ($isResettable('App\\Service\\ListenedCollector') !== true) {
+        fwrite(STDERR, "A service reset by an Octane request listener must be resettable\n");
+        exit(1);
+    }
+    echo "SUCCESS\n";
+}
+`
+
+	cmd := exec.Command("php", "-r", phpScript, "--", dir)
+	cmd.Dir = filepath.Join("..", "..")
+	output, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "SUCCESS") {
+		t.Fatalf("ServiceMapBuilder resettable test failed: %v\nOutput: %s", err, string(output))
 	}
 }
