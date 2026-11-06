@@ -5,6 +5,7 @@ app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoContr
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'chdir' modifies the global PHP process working directory.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'umask' modifies the global PHP process file creation mask.
+app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::staticArray | ERROR | Mutation of static state 'App\Support\AuditTrail::$entries' in LeakDemoController::staticArray()
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
@@ -19,6 +20,8 @@ app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService:
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonEncoding | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonGc | WARNING | Function 'gc_disable' modifies the global PHP garbage collector.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonUmask | WARNING | Function 'umask' modifies the global PHP process file creation mask.
+app/Services/StaleConfigService.php | App\Services\StaleConfigService::__construct | ERROR | Property 'config' of StaleConfigService keeps the configuration repository (Illuminate\Contracts\Config\Repository) across requests.
+app/Services/StaleContainerService.php | App\Services\StaleContainerService::__construct | ERROR | Property 'app' of StaleContainerService keeps the application container (Illuminate\Contracts\Foundation\Application) across requests.
 app/Services/StaleRequestService.php | App\Services\StaleRequestService::__construct | ERROR | Property 'request' of StaleRequestService keeps the HTTP request (Illuminate\Http\Request) across requests.
 app/Services/StatefulService.php | App\Services\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData()
 app/Services/StaticLeakService.php | App\Services\StaticLeakService::touch | ERROR | Mutation of state 'static::$hist' in StaticLeakService::touch()

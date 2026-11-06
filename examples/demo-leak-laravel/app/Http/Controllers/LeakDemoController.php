@@ -12,6 +12,9 @@ use App\Services\StaleRequestService;
 use App\Services\LazySingletonService;
 use App\Services\DestructorLeakService;
 use App\Services\ProcessStateLeakService;
+use App\Services\StaleConfigService;
+use App\Services\StaleContainerService;
+use App\Support\AuditTrail;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -28,6 +31,8 @@ class LeakDemoController extends Controller
         private ProcessStateLeakService $processStateLeakService,
         private StaleRequestService $staleRequestService,
         private LazySingletonService $lazySingletonService,
+        private StaleContainerService $staleContainerService,
+        private StaleConfigService $staleConfigService,
     ) {}
 
     public function index(): Response
@@ -53,6 +58,9 @@ class LeakDemoController extends Controller
                 <li><a href='/process-state-leak' style='color: #e83e8c; font-weight: bold;'>12. Dangerous Process State Mutations (NEW)</a></li>
                 <li><a href='/stale-request?name=First' style='color: #6f42c1; font-weight: bold;'>13. Stale Request Captured by a Singleton (Laravel)</a></li>
                 <li><a href='/lazy-singleton' style='color: #20c997; font-weight: bold;'>14. Lazy Singleton: Reset by the Octane Sandbox (Laravel)</a></li>
+                <li><a href='/stale-container?locale=fr' style='color: #6f42c1; font-weight: bold;'>15. Stale Container Captured by a Singleton (Laravel)</a></li>
+                <li><a href='/stale-config?locale=fr' style='color: #6f42c1; font-weight: bold;'>16. Stale Config Repository Captured by a Singleton (Laravel)</a></li>
+                <li><a href='/static-array' style='color: #dc3545; font-weight: bold;'>17. Static Array Written from a Controller</a></li>
             </ul>
         ");
     }
@@ -454,7 +462,7 @@ class LeakDemoController extends Controller
                     Octane builds it once when the worker boots (it is listed in <code>octane.warm</code>), so it keeps the request
                     that existed at that moment <b>forever</b>, while every new request gets its own fresh object.<br>
                     The same trap applies to the <code>Application</code> container and the <code>config</code> repository,
-                    which is the first warning of the Laravel Octane documentation.<br>
+                    which is the first warning of the Laravel Octane documentation (experiments 15 and 16).<br>
                     In <b>Classic mode (port 8091)</b>, both lines always match.
                  </div>
                  <a href='/stale-request?name=Alice' style='display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>👤 ?name=Alice</a>
@@ -493,6 +501,103 @@ class LeakDemoController extends Controller
                           "\$this->app->singleton(LazySingletonService::class); // not warmed => per request\n";
 
         return $this->renderLayout($html, true, 'app/Services/LazySingletonService.php', $controllerCode);
+    }
+
+    public function staleContainer(Request $request): Response
+    {
+        // Each request sets its own locale in its own copy of the configuration
+        config(['lab.locale' => (string) $request->query('locale', 'en')]);
+        $captured = $this->staleContainerService->describe();
+
+        $currentLocale = htmlspecialchars((string) config('lab.locale'), ENT_QUOTES, 'UTF-8');
+        $capturedLocale = htmlspecialchars($captured['locale'], ENT_QUOTES, 'UTF-8');
+        $sameContainer = $captured['same_container'] ? 'yes' : 'no';
+
+        $html = "<h2>15. Stale Container Captured by a Singleton</h2>
+                 <table style='border-collapse: collapse; margin-bottom: 20px;'>
+                    <tr><td style='padding: 6px 12px;'><b>Locale of the current request</b></td><td style='padding: 6px 12px;'>$currentLocale</td></tr>
+                    <tr><td style='padding: 6px 12px;'><b>Locale seen through the singleton's container</b></td><td style='padding: 6px 12px;'>$capturedLocale</td></tr>
+                    <tr><td style='padding: 6px 12px;'><b>Singleton's container is the request's container</b></td><td style='padding: 6px 12px;'>$sameContainer</td></tr>
+                 </table>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #6f42c1; margin-bottom: 20px;'>
+                    <b>🧠 The Leak scenario:</b> <code>StaleContainerService</code> receives the <code>Application</code> in its constructor.
+                    Octane warms it at worker boot, so it keeps the <b>base</b> application, while every request runs in a clone
+                    with its own configuration, auth state and per-request bindings. What the singleton resolves never belongs to the current request.<br>
+                    In <b>Classic mode (port 8091)</b>, both locales always match and the container is the same.
+                 </div>
+                 <a href='/stale-container?locale=fr' style='display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>🇫🇷 ?locale=fr</a>
+                 <a href='/stale-container?locale=de' style='display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 10px;'>🇩🇪 ?locale=de</a>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "// Route::get('/stale-container')\n" .
+                          "public function staleContainer(Request \$request): Response {\n" .
+                          "    config(['lab.locale' => \$request->query('locale', 'en')]);\n" .
+                          "    // The warmed singleton still reads the base application, not this request's clone!\n" .
+                          "    \$captured = \$this->staleContainerService->describe();\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'app/Services/StaleContainerService.php', $controllerCode);
+    }
+
+    public function staleConfig(Request $request): Response
+    {
+        // Each request sets its own locale in its own copy of the configuration
+        config(['lab.locale' => (string) $request->query('locale', 'en')]);
+
+        $currentLocale = htmlspecialchars((string) config('lab.locale'), ENT_QUOTES, 'UTF-8');
+        $capturedLocale = htmlspecialchars($this->staleConfigService->locale(), ENT_QUOTES, 'UTF-8');
+
+        $html = "<h2>16. Stale Config Repository Captured by a Singleton</h2>
+                 <table style='border-collapse: collapse; margin-bottom: 20px;'>
+                    <tr><td style='padding: 6px 12px;'><b>Locale of the current request</b></td><td style='padding: 6px 12px;'>$currentLocale</td></tr>
+                    <tr><td style='padding: 6px 12px;'><b>Locale seen by the singleton</b></td><td style='padding: 6px 12px;'>$capturedLocale</td></tr>
+                 </table>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #6f42c1; margin-bottom: 20px;'>
+                    <b>🧠 The Leak scenario:</b> <code>StaleConfigService</code> receives the <code>config</code> repository in its constructor.
+                    Octane gives every request a fresh copy of the configuration, so a value set during the request
+                    (<code>config(['lab.locale' => ...])</code>) never reaches the repository the warmed singleton kept.<br>
+                    In <b>Classic mode (port 8091)</b>, both lines always match.
+                 </div>
+                 <a href='/stale-config?locale=fr' style='display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;'>🇫🇷 ?locale=fr</a>
+                 <a href='/stale-config?locale=de' style='display: inline-block; padding: 10px 20px; background: #6f42c1; color: white; text-decoration: none; border-radius: 5px; font-weight: bold; margin-left: 10px;'>🇩🇪 ?locale=de</a>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "// Route::get('/stale-config')\n" .
+                          "public function staleConfig(Request \$request): Response {\n" .
+                          "    config(['lab.locale' => \$request->query('locale', 'en')]);\n" .
+                          "    // The warmed singleton reads the repository it received at worker boot!\n" .
+                          "    \$captured = \$this->staleConfigService->locale();\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'app/Services/StaleConfigService.php', $controllerCode);
+    }
+
+    public function staticArray(): Response
+    {
+        // The controller is rebuilt for every request, but the static array it appends to is not
+        AuditTrail::$entries[] = 'visit_' . time() . '_' . rand(1, 1000);
+
+        $html = "<h2>17. Static Array Written from a Controller</h2>
+                 <button onclick='window.location.reload()' style='padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>➕ Add Entry (F5)</button>
+                 <pre style='background: #f8f9fa; padding: 10px; border: 1px solid #ddd; margin-top: 10px;'>" . print_r(AuditTrail::$entries, true) . "</pre>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #dc3545; margin-bottom: 20px;'>
+                    <b>🧠 The Leak scenario:</b> <code>AuditTrail</code> is not a service: no container owns it, so neither the Octane sandbox
+                    nor <code>Route::flushController()</code> can reset it. Appending to <code>AuditTrail::\$entries</code> from a controller
+                    grows the array for the whole worker life, the last pattern of the Laravel Octane documentation.<br>
+                    In <b>Classic mode (port 8091)</b>, the array always holds a single entry.
+                 </div>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "// Route::get('/static-array')\n" .
+                          "public function staticArray(): Response {\n" .
+                          "    // Static state outlives the controller, the request and the Octane sandbox!\n" .
+                          "    AuditTrail::\$entries[] = 'visit_' . time();\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'app/Support/AuditTrail.php', $controllerCode);
     }
 
     private function renderModeBanner(): string
