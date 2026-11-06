@@ -281,8 +281,8 @@ var throwingKinds = map[string]bool{
 
 // mayThrowBefore reports whether the finally block may skip the clear: a call (or a throw) before
 // it whose exception leaves the block, or a return, an exit, a break or a continue leaving it first.
-// A closure only declared there does not run, and a call inside a try that catches \Throwable cannot
-// skip the clear (its catch blocks still can).
+// A function, class or closure only declared there does not run, and a call inside a try that
+// catches \Throwable cannot skip the clear (its catch blocks still can).
 func (v *PHPVisitor) mayThrowBefore(clear, finally *sitter.Node) bool {
 	limit := clear.StartByte()
 	var found bool
@@ -292,7 +292,8 @@ func (v *PHPVisitor) mayThrowBefore(clear, finally *sitter.Node) bool {
 			return
 		}
 		switch n.Kind() {
-		case "anonymous_function", "arrow_function", "anonymous_class":
+		case "anonymous_function", "arrow_function", "anonymous_class", "function_definition",
+			"class_declaration", "interface_declaration", "trait_declaration", "enum_declaration":
 			return
 		case "return_statement", "exit_statement":
 			found = true

@@ -370,7 +370,8 @@ class ReturningCatchListener
     }
 }
 
-// Not reported: the break only leaves the loop of the finally block, the clear still runs
+// Not reported: the break only leaves the loop of the finally block, and the declared function does
+// not run: the clear still runs
 class LoopBreakFinallyListener
 {
     private array $pending = [];
@@ -382,6 +383,10 @@ class LoopBreakFinallyListener
         } finally {
             foreach ([1, 2] as $i) {
                 break;
+            }
+            function flush_state_helper(): int
+            {
+                return 1;
             }
             $this->pending = [];
         }
