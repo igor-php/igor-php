@@ -148,7 +148,7 @@ On a Laravel project, Composer's package discovery registers `IgorPhp\Laravel\Ig
 
 - **Persistent**: the singletons resolved while the worker boots, by a service provider or listed in `octane.warm`. Their dependencies are audited too, since the singleton keeps them.
 - **Per request (skipped)**: `bind()` and `scoped()` bindings, the bindings in `octane.flush`, and the singletons first resolved during a request, which live in the request's sandbox.
-- **Resettable**: a persistent service that implements `Symfony\Contracts\Service\ResetInterface`, or that has a `reset()` method and is referenced by one of your Octane listeners on a request event (`RequestReceived`, `RequestHandled`, `RequestTerminated`, `OperationTerminated`). Igor then checks that `reset()` clears every property the service fills.
+- **Resettable**: a persistent service that has a `reset()` method and is referenced by one of your Octane listeners on a request event (`RequestReceived`, `RequestHandled`, `RequestTerminated`, `OperationTerminated`). Igor then checks that `reset()` clears every property the service fills. Implementing `Symfony\Contracts\Service\ResetInterface` is not enough: nothing in Laravel calls it.
 - **Controllers**: rebuilt for every request, so their own properties are not checked, but their code (`exit()`, superglobals, process functions…) is still audited. The files declaring closure routes are audited the same way.
 
 The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan. `--no-agent` skips the Laravel detection entirely.
@@ -383,7 +383,7 @@ The `IgorPhpBundle` includes a `CompilerPass` that runs every time you clear you
 
 > ⚠️ **Important**: You must run `php bin/console cache:clear` whenever you add or modify services in your Symfony project to ensure the Igor Agent map is up-to-date.
 
-- **What it does**: It iterates through the `ContainerBuilder` (including inlined definitions) and extracts, for each service, its class, its `public`/`shared` flags, whether it is resettable (tagged `kernel.reset` or implementing `ResetInterface`) and its injected service dependencies, plus the container aliases (including private ones).
+- **What it does**: It iterates through the `ContainerBuilder` (including inlined definitions) and extracts, for each service, its class, its `public`/`shared` flags, whether it is resettable (tagged `kernel.reset`: `services_resetter` only resets those, so a bundle service that implements `ResetInterface` without the tag is not resettable) and its injected service dependencies, plus the container aliases (including private ones).
 - **The Cache**: It writes this information into a small JSON file: `var/cache/<env>/igor_service_map.json`.
 - **The Benefit**: The Go binary reads this file instead of executing the heavy `debug:container` command. This makes the audit launch near-instant and ensures 100% accuracy, even for services added by complex compiler passes or decorators.
 

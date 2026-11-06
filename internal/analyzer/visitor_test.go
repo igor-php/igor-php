@@ -19,6 +19,7 @@ type mockEngine struct {
 	recordedCalls     []string
 	recordedParents   map[string]string
 	declaredMethods   map[string][]string
+	definedServices   map[string]bool
 }
 
 func (m *mockEngine) RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string) {
@@ -67,6 +68,10 @@ func (m *mockEngine) IsSharedService(className string) bool {
 		return false
 	}
 	return true
+}
+
+func (m *mockEngine) HasServiceDefinition(className string) bool {
+	return m.definedServices[className]
 }
 
 func (m *mockEngine) IsResettable(className string) bool {
@@ -430,6 +435,61 @@ class ResettableService {
 
 	if !found {
 		t.Errorf("Expected an IncompleteReset WARNING finding for missing reset because the class is marked resettable by Symfony, got: %v", findings)
+	}
+}
+
+func TestPHPVisitor_ResetInterfaceWithoutKernelResetTag_IsNotResettable(t *testing.T) {
+	// A bundle registers the service without autoconfiguration: it implements ResetInterface but
+	// is not tagged kernel.reset, so services_resetter never calls reset() (#118)
+	code := `<?php
+namespace App\Service;
+
+use Symfony\Contracts\Service\ResetInterface;
+
+class BundleCollector implements ResetInterface {
+    private $events = [];
+
+    public function collect($e) {
+        $this->events[] = $e;
+    }
+
+    public function reset(): void {
+        $this->events = [];
+    }
+}`
+	content := []byte(code)
+
+	p := sitter.NewParser()
+	lang := sitter.NewLanguage(php.LanguagePHP())
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	run := func(engine *mockEngine) []symbol.Finding {
+		v := NewVisitor(content, engine)
+		v.Walk(tree.RootNode())
+		return v.Findings()
+	}
+
+	hasError := func(findings []symbol.Finding) bool {
+		for _, f := range findings {
+			if f.Severity == "ERROR" && strings.Contains(f.Message, "events") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Defined in the service map, not resettable there: the header no longer decides
+	defined := run(&mockEngine{definedServices: map[string]bool{"App\\Service\\BundleCollector": true}})
+	if !hasError(defined) {
+		t.Errorf("Expected an ERROR on the mutation of $events because the container never resets the service, got: %v", defined)
+	}
+
+	// Not in the service map (a parent class, no bundle): the ResetInterface header still counts
+	undefined := run(&mockEngine{})
+	if hasError(undefined) {
+		t.Errorf("Expected no ERROR when the class is not in the service map and implements ResetInterface, got: %v", undefined)
 	}
 }
 

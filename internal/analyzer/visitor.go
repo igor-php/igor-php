@@ -14,6 +14,7 @@ type Engine interface {
 	IsExplicitlyNonShared(className string) bool
 	IsSafeNamespace(className string) bool
 	IsResettable(className string) bool
+	HasServiceDefinition(className string) bool
 	GetMethodReturnType(className, methodName string) string
 	IsSharedService(className string) bool
 	RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string)
@@ -223,10 +224,14 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	}
 	classHeader := classText[:headerEnd]
 
-	v.isReset = strings.Contains(classHeader, "resetinterface") || strings.Contains(classHeader, "resettableinterface")
-	if !v.isReset && v.engine != nil {
-		if v.engine.IsResettable(fullName) {
-			v.isReset = true
+	// The service map says what the container resets between requests: implementing
+	// ResetInterface only counts for classes it does not describe (parents, no bundle)
+	if v.engine != nil && v.engine.HasServiceDefinition(fullName) {
+		v.isReset = v.engine.IsResettable(fullName)
+	} else {
+		v.isReset = strings.Contains(classHeader, "resetinterface") || strings.Contains(classHeader, "resettableinterface")
+		if !v.isReset && v.engine != nil {
+			v.isReset = v.engine.IsResettable(fullName)
 		}
 	}
 	v.isReadonlyClass = strings.Contains(classHeader, "readonly")
