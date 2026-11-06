@@ -83,7 +83,7 @@ func main() {
 	}
 
 	// 8. Report Results
-	reportAllFindings(rep, results, rootPath)
+	reportAllFindings(rep, results, rootPath, foldsOutOfRequest(cfg))
 
 	if !rep.PrintSummary(results, rootPath) {
 		os.Exit(1)
@@ -129,6 +129,12 @@ func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]sym
 
 	// 6b. Rank findings by call-site reachability from application code
 	aud.MarkReachability(results)
+
+	// 6c. Flag the findings of code that never runs during a request; the CLI folds them
+	markOutOfRequest(results, bridge != nil && bridge.Framework == auditor.FrameworkSymfony)
+	if foldsOutOfRequest(*cfg) {
+		foldOutOfRequest(results)
+	}
 
 	return results, baseline, nil
 }

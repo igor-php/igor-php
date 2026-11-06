@@ -29,6 +29,7 @@ type Config struct {
 	TargetFile             string            `json:"-"` // Internal: set if a single file is audited instead of a directory
 	StdinContent           []byte            `json:"-"` // Internal: set if file content is provided via stdin
 	IncludeIgnored         bool              `json:"-"` // Internal: set if --include-ignored is used
+	ShowAll                bool              `json:"-"` // Internal: set if --show-all is used
 }
 
 // NormalizePath translates a physical path (which may be a resolved symlink)

@@ -37,6 +37,7 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	ignoreExternalBaselineFlag := fs.Bool("ignore-external-baseline", false, "Ignore baseline files defined in external vendor packages")
 	stdinFilePathFlag := fs.String("stdin-filepath", "", "Path of the file when passing file content via standard input (stdin)")
 	includeIgnoredFlag := fs.Bool("include-ignored", false, "Include baseline-ignored findings marked with ignored: true")
+	showAllFlag := fs.Bool("show-all", false, "List the findings of services that never run during a request (console, profiler, debug, warmers, loaders, kernel boot), folded by default")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -97,6 +98,7 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		cfg.StdinContent = stdinBytes
 	}
 	applyFlagOverrides(&cfg, consoleFlag, envFlag, verboseFlag, noAgentFlag, outputFlag, generateBaselineFlag, baselineFlag, containerDumpFlag, ignoreExternalBaselineFlag, checkBaselineFlag, pruneBaselineFlag, includeIgnoredFlag)
+	cfg.ShowAll = *showAllFlag
 
 	// Display summary of packages
 	if len(cfg.ProdPackages) > 0 || len(cfg.DevPackages) > 0 {
