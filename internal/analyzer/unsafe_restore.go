@@ -44,7 +44,7 @@ func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string
 				reach, replacedBy = nil, stmt
 			}
 			reach = append(reach, s)
-		case leavesAfter(s.node):
+		case leavesAfter(s.node, restore):
 			// The block of the assignment returns or throws: it never reaches restore
 		default:
 			reach = append(reach, s)
@@ -53,10 +53,10 @@ func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string
 	return reach
 }
 
-// leavesAfter reports whether the block holding a statement always leaves the function. Inside a try
-// statement, the return or the throw still runs its catch and finally clauses, where the restore
-// may sit: the assignment is kept.
-func leavesAfter(n *sitter.Node) bool {
+// leavesAfter reports whether the block holding a statement always leaves the function without
+// reaching restore. Inside a try statement that holds restore, the return or the throw still runs
+// its catch and finally clauses: the assignment is kept.
+func leavesAfter(n, restore *sitter.Node) bool {
 	stmt := n.Parent()
 	if stmt == nil || stmt.Kind() != "expression_statement" {
 		return false
@@ -68,7 +68,9 @@ func leavesAfter(n *sitter.Node) bool {
 	for p := block.Parent(); p != nil; p = p.Parent() {
 		switch p.Kind() {
 		case "try_statement":
-			return false
+			if restore.StartByte() >= p.StartByte() && restore.EndByte() <= p.EndByte() {
+				return false
+			}
 		case "method_declaration", "function_definition", "anonymous_function", "arrow_function":
 			return true
 		}

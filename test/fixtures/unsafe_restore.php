@@ -496,6 +496,25 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the return leaves through another try statement, before the write
+    public function earlyReturnInOtherTry(object $request, bool $skip): void
+    {
+        $old = $this->current;
+        try {
+            if ($skip) {
+                $old = null;
+                return;
+            }
+        } finally {
+        }
+        $this->current = $request;
+        try {
+            $this->handle($request);
+        } finally {
+            $this->current = $old; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
