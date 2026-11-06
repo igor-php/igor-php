@@ -25,15 +25,15 @@ type localSave struct {
 }
 
 // savedProperty returns the property a local variable holds when restore runs: the one its latest
-// save before restore copied. A later assignment of something else only overwrites it when it runs
-// whenever restore does: one in a branch that exits (a catch that rethrows) leaves the save in place.
+// save before restore copied. A later assignment of something else overwrites it, unless it sits in
+// a branch that leaves (a catch that rethrows) and so never reaches restore.
 func savedProperty(saves map[string][]localSave, variable string, restore *sitter.Node) string {
 	prop := ""
 	for _, s := range saves[variable] {
 		if s.node.StartByte() >= restore.StartByte() {
 			break
 		}
-		if s.prop != "" || sameFlow(s.node, restore) {
+		if s.prop != "" || sameFlow(s.node, restore) || !leaves(enclosingBlock(s.node)) {
 			prop = s.prop
 		}
 	}
@@ -271,11 +271,16 @@ func swallowedBeforeRestore(calls []uint, set, restore *sitter.Node, catchesEver
 	if body == nil || set.StartByte() < body.StartByte() || set.EndByte() > body.EndByte() {
 		return false
 	}
+	// One catch must catch everything, and no catch nor the finally may skip the restore
 	swallows := false
 	for i := uint(0); i < try.NamedChildCount(); i++ {
 		clause := try.NamedChild(i)
-		if clause.Kind() == "catch_clause" && catchesEverything(clause) && !leaves(clause) {
-			swallows = true
+		switch clause.Kind() {
+		case "catch_clause", "finally_clause":
+			if leaves(clause) {
+				return false
+			}
+			swallows = swallows || (clause.Kind() == "catch_clause" && catchesEverything(clause))
 		}
 	}
 	if !swallows {
@@ -294,6 +299,16 @@ func swallowedBeforeRestore(calls []uint, set, restore *sitter.Node, catchesEver
 func (v *PHPVisitor) catchesEverything(clause *sitter.Node) bool {
 	types := clause.ChildByFieldName("type")
 	return types != nil && v.catchCoversAll(v.getContent(types))
+}
+
+// enclosingBlock returns the innermost block that holds n, or n itself when there is none.
+func enclosingBlock(n *sitter.Node) *sitter.Node {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "compound_statement" {
+			return p
+		}
+	}
+	return n
 }
 
 // leaves reports whether a clause may skip the code after its try statement: a throw, a return, an

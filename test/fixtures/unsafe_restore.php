@@ -237,6 +237,33 @@ class UnsafeRestores
         $this->enabled = false; // reported
     }
 
+    // Not reported: both branches overwrite the saved value and go on, the restore is no restoration
+    public function overwrittenInBranches(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        if ($flag) {
+            $old = $request;
+        } else {
+            $old = null;
+        }
+        $this->handle($request);
+        $this->current = $old; // not reported
+    }
+
+    // Reported: catch (\Throwable) swallows, but the earlier catch returns before the restore
+    public function returningCatch(object $message): void
+    {
+        try {
+            $this->enabled = true;
+            $this->handle($message);
+        } catch (\RuntimeException $e) {
+            return;
+        } catch (\Throwable $e) {
+        }
+        $this->enabled = false; // reported
+    }
+
     private function handle(object $message): object
     {
         return $message;
