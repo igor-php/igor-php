@@ -14,6 +14,10 @@ use Illuminate\Contracts\Foundation\Application;
  * (by the service providers, or listed in octane.warm). A singleton first resolved during
  * a request lives in the request's clone and is dropped with it, like bind() and scoped()
  * services and the bindings listed in octane.flush.
+ *
+ * Without Octane (a custom FrankenPHP worker loop), the same application serves every request:
+ * every singleton persists once resolved, and so do scoped() bindings, which nothing forgets
+ * between HTTP requests. Only bind() services are built per request.
  */
 final class ServiceMapBuilder
 {
@@ -57,8 +61,10 @@ final class ServiceMapBuilder
             return [$this->instances, $this->scopedInstances, $this->aliases];
         })->call($this->app);
 
+        $octane = $this->usesOctane();
+
         // Bindings Octane drops before every request never outlive it
-        $transient = array_fill_keys(array_merge($scoped, $this->config('octane.flush', [])), true);
+        $transient = $octane ? array_fill_keys(array_merge($scoped, $this->config('octane.flush', [])), true) : [];
 
         // 1. Objects of the base application: they persist across requests
         foreach ($instances as $abstract => $instance) {
@@ -67,10 +73,12 @@ final class ServiceMapBuilder
             }
         }
 
-        // 2. Other bindings: bind(), scoped(), flushed or lazy singletons, created per request
+        // 2. Other bindings. Under Octane: bind(), scoped(), flushed or lazy singletons, created per
+        // request. Without it, a singleton or scoped binding persists from its first resolution on
         foreach ($this->app->getBindings() as $abstract => $binding) {
             if (!isset($this->definitions[$abstract])) {
-                $this->addDefinition($abstract, $this->concreteClass($abstract, $binding['concrete'] ?? null), false);
+                $shared = !$octane && ($binding['shared'] ?? false);
+                $this->addDefinition($abstract, $this->concreteClass($abstract, $binding['concrete'] ?? null), $shared);
             }
         }
 
@@ -96,6 +104,12 @@ final class ServiceMapBuilder
     public function getWarnings(): array
     {
         return $this->warnings;
+    }
+
+    /** Octane serves each request from a clone of the application: without it, nothing is dropped between requests. */
+    private function usesOctane(): bool
+    {
+        return class_exists('Laravel\\Octane\\Octane');
     }
 
     /** Resolves the octane.warm services like Octane does when a worker boots. */

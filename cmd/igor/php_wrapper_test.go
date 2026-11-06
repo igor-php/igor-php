@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -537,5 +538,96 @@ namespace {
 	output, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(output), "SUCCESS") {
 		t.Fatalf("ServiceMapBuilder resettable test failed: %v\nOutput: %s", err, string(output))
+	}
+}
+
+func TestServiceMapBuilder_PersistenceModelWithAndWithoutOctane(t *testing.T) {
+	requirePHP(t)
+
+	phpScript := `
+namespace Illuminate\Contracts\Foundation {
+    interface Application {}
+}
+namespace App\Service {
+    class Booted {}
+    class LazySingleton {}
+    class ScopedService {}
+    class Transient {}
+}
+namespace {
+    if ($argv[1] === 'octane') {
+        eval('namespace Laravel\Octane; class Octane {}');
+    }
+    require 'src/laravel/ServiceMapBuilder.php';
+
+    $app = new class implements \Illuminate\Contracts\Foundation\Application, \ArrayAccess {
+        // Read by the builder through a closure bound to the container, like Illuminate's protected properties
+        protected array $instances = [];
+        protected array $scopedInstances = ['App\\Service\\ScopedService'];
+        protected array $aliases = [];
+
+        public function __construct() { $this->instances['App\\Service\\Booted'] = new \App\Service\Booted(); }
+        public function getBindings(): array {
+            return [
+                'App\\Service\\LazySingleton' => ['concrete' => 'App\\Service\\LazySingleton', 'shared' => true],
+                'App\\Service\\ScopedService' => ['concrete' => 'App\\Service\\ScopedService', 'shared' => true],
+                'App\\Service\\Transient' => ['concrete' => 'App\\Service\\Transient', 'shared' => false],
+            ];
+        }
+        public function bound($abstract): bool { return false; }
+        public function getAlias($abstract) { return $abstract; }
+        public function make($abstract) { return new $abstract(); }
+        public function offsetExists($k): bool { return $k === 'config'; }
+        public function offsetGet($k): mixed {
+            return new class { public function get($key, $default) { return $default; } };
+        }
+        public function offsetSet($k, $v): void {}
+        public function offsetUnset($k): void {}
+    };
+
+    $map = (new \IgorPhp\Laravel\ServiceMapBuilder($app))->build();
+    $shared = array_map(fn (array $definition) => $definition['shared'], $map['definitions']);
+    ksort($shared);
+    echo json_encode($shared), "\n";
+}
+`
+
+	run := func(model string) map[string]bool {
+		t.Helper()
+		cmd := exec.Command("php", "-r", phpScript, "--", model)
+		cmd.Dir = filepath.Join("..", "..")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("ServiceMapBuilder (%s) failed: %v\nOutput: %s", model, err, string(output))
+		}
+		var shared map[string]bool
+		if err := json.Unmarshal(output, &shared); err != nil {
+			t.Fatalf("ServiceMapBuilder (%s) printed no JSON: %v\nOutput: %s", model, err, string(output))
+		}
+		return shared
+	}
+
+	// Octane serves each request from a clone: only what the base application holds after boot persists
+	octane := map[string]bool{
+		"App\\Service\\Booted":        true,
+		"App\\Service\\LazySingleton": false,
+		"App\\Service\\ScopedService": false,
+		"App\\Service\\Transient":     false,
+	}
+	// Without Octane the same application serves every request: singletons and scoped bindings persist
+	worker := map[string]bool{
+		"App\\Service\\Booted":        true,
+		"App\\Service\\LazySingleton": true,
+		"App\\Service\\ScopedService": true,
+		"App\\Service\\Transient":     false,
+	}
+
+	for model, want := range map[string]map[string]bool{"octane": octane, "worker": worker} {
+		got := run(model)
+		for id, shared := range want {
+			if got[id] != shared {
+				t.Errorf("%s model: %s shared = %v, want %v (map: %v)", model, id, got[id], shared, got)
+			}
+		}
 	}
 }
