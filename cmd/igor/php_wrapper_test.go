@@ -99,6 +99,7 @@ namespace Symfony\Component\DependencyInjection {
         public function isSynthetic(): bool { return $this->synthetic; }
         public function hasTag(string $name): bool { return isset($this->tags[$name]); }
         public function getTag(string $name): array { return $this->tags[$name] ?? []; }
+        public function getTags(): array { return $this->tags; }
         public function getArguments(): array { return $this->arguments; }
         public function getMethodCalls(): array { return $this->methodCalls; }
         public function getProperties(): array { return $this->properties; }
@@ -404,6 +405,19 @@ $unused = new Definition('SplStack');
 $unused->setPublic(false);
 $container->setDefinition('app.unused_dead_service', $unused);
 
+// 7. Tagged services: a console command and a debug decorator
+$command = new Definition('SplObjectStorage');
+$command->setPublic(true);
+$command->addTag('console.command', ['command' => 'app:report']);
+$container->setDefinition('app.command', $command);
+$decorated = new Definition('SplDoublyLinkedList');
+$decorated->setPublic(true);
+$container->setDefinition('app.decorated', $decorated);
+$decorator = new Definition('SplQueue');
+$decorator->setPublic(true);
+$decorator->setDecoratedService('app.decorated');
+$container->setDefinition('debug.app.decorated', $decorator);
+
 // Register bundle
 $bundle = new IgorPhpBundle();
 $bundle->build($container);
@@ -436,6 +450,19 @@ if (($data['aliases']['Countable'] ?? null) !== 'ArrayObject') {
 }
 if (isset($data['aliases']['IteratorAggregate'])) {
     fwrite(STDERR, "Alias to a pruned service must not be exported\n");
+    exit(1);
+}
+
+if (($data['definitions']['app.command']['tags'] ?? null) !== [['name' => 'console.command']]) {
+    fwrite(STDERR, "Tag names must be exported as [{name: ...}]: " . json_encode($data['definitions']['app.command'] ?? null) . "\n");
+    exit(1);
+}
+if (!in_array(['name' => 'container.decorator'], $data['definitions']['debug.app.decorated']['tags'] ?? [], true)) {
+    fwrite(STDERR, "A decorator must carry the container.decorator tag: " . json_encode($data['definitions']['debug.app.decorated'] ?? null) . "\n");
+    exit(1);
+}
+if (($data['definitions']['app.parent']['tags'] ?? null) !== []) {
+    fwrite(STDERR, "An untagged service must export an empty tag list\n");
     exit(1);
 }
 

@@ -2091,3 +2091,68 @@ func TestPHPVisitor_NarrowExemptions(t *testing.T) {
 		}
 	}
 }
+
+func TestPHPVisitor_KeyedCacheCategory(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "keyed_cache.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	got := make(map[int]string)
+	for _, f := range v.Findings() {
+		got[f.Line] = f.Category + " " + f.Property + " " + f.CacheKey
+	}
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		idx := strings.Index(line, "// ")
+		if idx < 0 || !strings.Contains(line, "$") {
+			continue
+		}
+		want := strings.TrimSpace(line[idx+3:])
+		have, ok := got[i+1]
+		switch {
+		case !ok:
+			t.Errorf("line %d: no finding, want %q", i+1, want)
+		case want == "mutation" && strings.TrimSpace(have) != "":
+			t.Errorf("line %d: tagged %q, want a plain mutation", i+1, have)
+		case strings.HasPrefix(want, "cache ") && !(strings.HasPrefix(have, "cache ") && strings.HasSuffix(have, " "+strings.TrimPrefix(want, "cache "))):
+			t.Errorf("line %d: got %q, want %q", i+1, have, want)
+		}
+	}
+	if got[16] != "cache cache [$k]" {
+		t.Errorf("static cache: got %q", got[16])
+	}
+}
+
+func TestPHPVisitor_NotResetCategoryNamesTheMutatingMethod(t *testing.T) {
+	code := []byte(`<?php
+class Env implements Symfony\Contracts\Service\ResetInterface {
+    private $globals = [];
+    public function addGlobal($k, $v) {
+        $this->globals[$k] = $v;
+    }
+    public function reset() {}
+}`)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(code, nil)
+	defer tree.Close()
+
+	v := NewVisitor(code, &mockEngine{})
+	v.Walk(tree.RootNode())
+	findings := v.Findings()
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %+v", findings)
+	}
+	f := findings[0]
+	if f.Category != symbol.CategoryNotReset || f.Property != "globals" || f.ContextMethod != "addGlobal" {
+		t.Errorf("unexpected finding: category %q, property %q, method %q", f.Category, f.Property, f.ContextMethod)
+	}
+}
