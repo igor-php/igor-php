@@ -7,7 +7,6 @@ app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoContr
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::processStateLeak | WARNING | Function 'umask' modifies the global PHP process file creation mask.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::staticArray | ERROR | Mutation of static state 'App\Support\AuditTrail::$entries' in LeakDemoController::staticArray()
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
-app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
