@@ -44,11 +44,23 @@ func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string
 				reach, replacedBy = nil, stmt
 			}
 			reach = append(reach, s)
+		case leavesAfter(s.node):
+			// The block of the assignment returns or throws: it never reaches restore
 		default:
 			reach = append(reach, s)
 		}
 	}
 	return reach
+}
+
+// leavesAfter reports whether the block holding a statement always leaves the function.
+func leavesAfter(n *sitter.Node) bool {
+	stmt := n.Parent()
+	if stmt == nil || stmt.Kind() != "expression_statement" {
+		return false
+	}
+	block := stmt.Parent()
+	return block != nil && block.Kind() == "compound_statement" && alwaysLeaves(block)
 }
 
 // enclosingIf returns the nearest if statement that holds n, or nil.

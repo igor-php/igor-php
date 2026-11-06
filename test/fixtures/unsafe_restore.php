@@ -463,6 +463,22 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the overwrite returns before the write, every path to finally keeps the save
+    public function earlyReturnOverwrite(object $request, bool $skip): void
+    {
+        $old = $this->current;
+        if ($skip) {
+            $old = null;
+            return;
+        }
+        $this->current = $request;
+        try {
+            $this->handle($request);
+        } finally {
+            $this->current = $old; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
