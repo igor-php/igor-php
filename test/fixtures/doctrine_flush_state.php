@@ -259,6 +259,31 @@ class ConditionalFinallyListener
     }
 }
 
+// Reported: publish() may throw before the clear of the finally block
+class ThrowingFinallyListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // reported
+        } finally {
+            $this->publish();
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+
+    private function publish(): void
+    {
+    }
+}
+
 // Reported: the finally only covers the first write, the append after the try survives the event
 class PartlyCoveredListener
 {

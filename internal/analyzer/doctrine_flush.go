@@ -135,7 +135,7 @@ func (v *PHPVisitor) clearedByEvent(writes []flushWrite, method *sitter.Node) bo
 	var clears []*sitter.Node
 	for _, w := range writes {
 		if w.clear {
-			if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) {
+			if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) && !mayThrowBefore(w.node, finally) {
 				clears = append(clears, w.node)
 			}
 		}
@@ -269,6 +269,36 @@ func unconditional(n, scope *sitter.Node) bool {
 		}
 	}
 	return false
+}
+
+// throwingKinds are the expressions that may throw and skip the rest of a finally block.
+var throwingKinds = map[string]bool{
+	"function_call_expression": true, "member_call_expression": true, "nullsafe_member_call_expression": true,
+	"scoped_call_expression": true, "object_creation_expression": true, "throw_expression": true,
+	"include_expression": true, "include_once_expression": true, "require_expression": true,
+	"require_once_expression": true, "yield_expression": true,
+}
+
+// mayThrowBefore reports whether the finally block runs a call (or throws) before the clear: the
+// exception skips the clear and the collected state survives the event.
+func mayThrowBefore(clear, finally *sitter.Node) bool {
+	limit := clear.StartByte()
+	var found bool
+	var walk func(n *sitter.Node)
+	walk = func(n *sitter.Node) {
+		if found || n.StartByte() >= limit {
+			return
+		}
+		if throwingKinds[n.Kind()] && n.EndByte() <= limit {
+			found = true
+			return
+		}
+		for i := uint(0); i < n.ChildCount(); i++ {
+			walk(n.Child(i))
+		}
+	}
+	walk(finally)
+	return found
 }
 
 // enclosingFinally returns the innermost finally clause of the method that holds n, or nil.
