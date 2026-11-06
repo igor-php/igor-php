@@ -123,39 +123,44 @@ func isCollectEvent(lowerName string) bool {
 }
 
 // clearedByEvent reports whether the event itself leaves nothing behind for a failed commit: it
-// starts by clearing the property on every path, or clears it on every path of a finally block.
+// starts by clearing the property on every path, or every collecting write is followed by a clear
+// on every path of a finally block of its try statement.
 func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 	if writes[0].clear && unconditional(writes[0].node, method.ChildByFieldName("body")) {
 		return true
 	}
+	// A clear in finally must run whenever the finally block does (no condition inside it either).
+	// Successive try/finally blocks may each cover their own writes.
+	var clears []*sitter.Node
 	for _, w := range writes {
-		if !w.clear {
-			continue
-		}
-		// A clear in finally must run whenever the finally block does (no condition inside it either),
-		// and come after every collecting write of the event: none outside its try statement
-		if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) && coversWrites(finally.Parent(), w.node, writes) {
-			return true
+		if w.clear {
+			if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) {
+				clears = append(clears, w.node)
+			}
 		}
 	}
-	return false
-}
-
-// coversWrites reports whether every collecting write sits in the try statement and before the clear.
-func coversWrites(try, clear *sitter.Node, writes []flushWrite) bool {
-	if try == nil {
+	if len(clears) == 0 {
 		return false
 	}
 	for _, w := range writes {
-		if w.clear {
-			continue
-		}
-		start := w.node.StartByte()
-		if start < try.StartByte() || start >= clear.StartByte() {
+		if !w.clear && !coveredByClear(w.node, clears, method) {
 			return false
 		}
 	}
 	return true
+}
+
+// coveredByClear reports whether one of the finally clears sits in the finally of a try statement
+// holding the write, after it.
+func coveredByClear(write *sitter.Node, clears []*sitter.Node, method *sitter.Node) bool {
+	start := write.StartByte()
+	for _, clear := range clears {
+		try := enclosingFinally(clear, method).Parent()
+		if try != nil && start >= try.StartByte() && start < clear.StartByte() {
+			return true
+		}
+	}
+	return false
 }
 
 // unconditional reports whether a statement runs whenever the enclosing scope does: only plain

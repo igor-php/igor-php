@@ -278,3 +278,28 @@ class PartlyCoveredListener
         $this->pending = [];
     }
 }
+
+// Not reported: each try/finally block clears what it collected
+class TwoPhaseListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // not reported
+        } finally {
+            $this->pending = [];
+        }
+        try {
+            $this->pending[] = $args;
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
