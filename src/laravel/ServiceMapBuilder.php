@@ -78,7 +78,12 @@ final class ServiceMapBuilder
         foreach ($this->app->getBindings() as $abstract => $binding) {
             if (!isset($this->definitions[$abstract])) {
                 $shared = !$octane && ($binding['shared'] ?? false);
-                $this->addDefinition($abstract, $this->concreteClass($abstract, $binding['concrete'] ?? null), $shared);
+                $class = $this->concreteClass($abstract, $binding['concrete'] ?? null);
+                // A persistent factory singleton must still be audited: build it to learn its class
+                if ($class === null && $shared) {
+                    $class = $this->resolvedClass($abstract);
+                }
+                $this->addDefinition($abstract, $class, $shared);
             }
         }
 
@@ -265,7 +270,8 @@ final class ServiceMapBuilder
      */
     private function isResettable(string $class): bool
     {
-        if (!method_exists($class, 'reset')) {
+        // Without Octane, no listener runs between requests, whatever config/octane.php still lists
+        if (!$this->usesOctane() || !method_exists($class, 'reset')) {
             return false;
         }
 

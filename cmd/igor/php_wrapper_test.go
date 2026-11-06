@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -500,6 +501,9 @@ namespace App\Service {
     class ListenedCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
 }
 namespace {
+    if ($argv[2] === 'octane') {
+        eval('namespace Laravel\Octane; class Octane {}');
+    }
     require $argv[1] . '/ResetCollectors.php';
     require 'src/laravel/ServiceMapBuilder.php';
 
@@ -525,19 +529,23 @@ namespace {
         fwrite(STDERR, "A ResetInterface service no Octane listener references must not be resettable\n");
         exit(1);
     }
-    if ($isResettable('App\\Service\\ListenedCollector') !== true) {
-        fwrite(STDERR, "A service reset by an Octane request listener must be resettable\n");
+    // Without Octane, the listener still in config/octane.php never runs
+    $expected = $argv[2] === 'octane';
+    if ($isResettable('App\\Service\\ListenedCollector') !== $expected) {
+        fwrite(STDERR, "A service referenced by an Octane request listener must be resettable only when Octane runs\n");
         exit(1);
     }
     echo "SUCCESS\n";
 }
 `
 
-	cmd := exec.Command("php", "-r", phpScript, "--", dir)
-	cmd.Dir = filepath.Join("..", "..")
-	output, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "SUCCESS") {
-		t.Fatalf("ServiceMapBuilder resettable test failed: %v\nOutput: %s", err, string(output))
+	for _, model := range []string{"octane", "worker"} {
+		cmd := exec.Command("php", "-r", phpScript, "--", dir, model)
+		cmd.Dir = filepath.Join("..", "..")
+		output, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "SUCCESS") {
+			t.Fatalf("ServiceMapBuilder resettable test (%s) failed: %v\nOutput: %s", model, err, string(output))
+		}
 	}
 }
 
@@ -553,6 +561,7 @@ namespace App\Service {
     class LazySingleton {}
     class ScopedService {}
     class Transient {}
+    class Collector {}
 }
 namespace {
     if ($argv[1] === 'octane') {
@@ -572,11 +581,16 @@ namespace {
                 'App\\Service\\LazySingleton' => ['concrete' => 'App\\Service\\LazySingleton', 'shared' => true],
                 'App\\Service\\ScopedService' => ['concrete' => 'App\\Service\\ScopedService', 'shared' => true],
                 'App\\Service\\Transient' => ['concrete' => 'App\\Service\\Transient', 'shared' => false],
+                // A factory singleton: only building it tells its class
+                'collector' => ['concrete' => fn () => new \App\Service\Collector(), 'shared' => true],
             ];
         }
         public function bound($abstract): bool { return false; }
         public function getAlias($abstract) { return $abstract; }
-        public function make($abstract) { return new $abstract(); }
+        public function make($abstract) {
+            $concrete = $this->getBindings()[$abstract]['concrete'] ?? $abstract;
+            return $concrete instanceof \Closure ? $concrete() : new $concrete();
+        }
         public function offsetExists($k): bool { return $k === 'config'; }
         public function offsetGet($k): mixed {
             return new class { public function get($key, $default) { return $default; } };
@@ -614,20 +628,19 @@ namespace {
 		"App\\Service\\ScopedService": false,
 		"App\\Service\\Transient":     false,
 	}
-	// Without Octane the same application serves every request: singletons and scoped bindings persist
+	// Without Octane the same application serves every request: singletons and scoped bindings persist,
+	// including a factory singleton, built to learn its class
 	worker := map[string]bool{
 		"App\\Service\\Booted":        true,
 		"App\\Service\\LazySingleton": true,
 		"App\\Service\\ScopedService": true,
 		"App\\Service\\Transient":     false,
+		"collector":                   true,
 	}
 
 	for model, want := range map[string]map[string]bool{"octane": octane, "worker": worker} {
-		got := run(model)
-		for id, shared := range want {
-			if got[id] != shared {
-				t.Errorf("%s model: %s shared = %v, want %v (map: %v)", model, id, got[id], shared, got)
-			}
+		if got := run(model); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s model: shared = %v, want %v", model, got, want)
 		}
 	}
 }
