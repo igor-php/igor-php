@@ -25,36 +25,46 @@ type localSave struct {
 	prop string
 }
 
-// reachingSaves returns the saves of a local variable that may still hold their value when restore
-// runs. An assignment that runs whenever restore does (or on every branch of an if statement that
-// goes on) replaces them all; one that runs on some paths only adds to them, or keeps them when it
-// assigns something else than a property.
+// reachingSaves returns the assignments of a local variable that may still hold their value when
+// restore runs. An assignment that runs whenever restore does replaces them all, and so do the
+// branches of an if statement that assigns the variable on every branch that goes on; one that runs
+// on some paths only adds to them. Assignments of something else than a property have no prop.
 func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string, restore *sitter.Node) []localSave {
 	var reach []localSave
+	var replacedBy *sitter.Node // the if statement whose branches replaced the earlier saves
 	for _, s := range saves[variable] {
 		if s.node.StartByte() >= restore.StartByte() {
 			break
 		}
-		definite := sameFlow(s.node, restore) || (s.prop == "" && v.overwrittenOnEveryBranch(s.node, variable, restore))
 		switch {
-		case definite && s.prop != "":
+		case sameFlow(s.node, restore):
 			reach = []localSave{s}
-		case definite:
-			reach = nil
-		case s.prop != "":
+		case v.overwrittenOnEveryBranch(s.node, variable, restore):
+			if stmt := enclosingIf(s.node); replacedBy == nil || !sameNode(stmt, replacedBy) {
+				reach, replacedBy = nil, stmt
+			}
+			reach = append(reach, s)
+		default:
 			reach = append(reach, s)
 		}
 	}
 	return reach
 }
 
+// enclosingIf returns the nearest if statement that holds n, or nil.
+func enclosingIf(n *sitter.Node) *sitter.Node {
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "if_statement" {
+			return p
+		}
+	}
+	return nil
+}
+
 // overwrittenOnEveryBranch reports whether the if statement that holds an assignment assigns the
 // variable on every branch that goes on: it has an else, and each branch assigns it or leaves.
 func (v *PHPVisitor) overwrittenOnEveryBranch(assignment *sitter.Node, variable string, restore *sitter.Node) bool {
-	stmt := assignment.Parent()
-	for stmt != nil && stmt.Kind() != "if_statement" {
-		stmt = stmt.Parent()
-	}
+	stmt := enclosingIf(assignment)
 	if stmt == nil || !sameFlow(stmt, restore) {
 		return false
 	}
@@ -180,6 +190,10 @@ func (v *PHPVisitor) restoredSafely(writes []propertyWrite, set *propertyWrite, 
 		if w.prop != set.prop || (!w.ctx.inFinally && !(w.ctx.inCatch && w.ctx.catchCoversAll)) {
 			continue
 		}
+		// A restoration of a saved value must restore it on every path
+		if len(saves[w.value]) > 0 && !v.savedOnEveryPath(saves, w, set.node) {
+			continue
+		}
 		if v.restoredWrite(writes[:i], w, saves) == set && v.reachedInClause(calls, w.node) {
 			return true
 		}
@@ -238,6 +252,18 @@ func (v *PHPVisitor) savedBefore(saves map[string][]localSave, w propertyWrite, 
 		}
 	}
 	return false
+}
+
+// savedOnEveryPath reports whether the variable w assigns holds, on every path, the value of its
+// property saved before the write set: a cleanup that only restores on some paths protects nothing.
+func (v *PHPVisitor) savedOnEveryPath(saves map[string][]localSave, w propertyWrite, set *sitter.Node) bool {
+	reach := v.reachingSaves(saves, w.value, w.node)
+	for _, s := range reach {
+		if s.prop != w.prop || s.node.StartByte() >= set.StartByte() {
+			return false
+		}
+	}
+	return len(reach) > 0
 }
 
 // stackFunctions push to or pop from an array without throwing.

@@ -433,6 +433,36 @@ class UnsafeRestores
         $this->current = $old; // reported
     }
 
+    // Not reported: both branches save the temporary value, the last assignment restores nothing
+    public function lateSaveInBranches(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        if ($flag) {
+            $old = $this->current;
+        } else {
+            $old = $this->current;
+        }
+        $this->handle($request);
+        $this->current = $old; // not reported
+    }
+
+    // Reported: the finally restores the temporary value when the condition saved it again
+    public function conditionalSaveInFinally(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        try {
+            $this->handle($request);
+            $this->current = $old; // reported
+        } finally {
+            if ($flag) {
+                $old = $this->current;
+            }
+            $this->current = $old;
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
