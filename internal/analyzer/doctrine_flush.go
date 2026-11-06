@@ -44,7 +44,8 @@ func (v *PHPVisitor) checkDoctrineFlushState(n *sitter.Node) {
 			if !clearedInPostFlush[prop] || reported[prop] || v.workerSafeProps[prop] || clearedByEvent(writes, method) {
 				continue
 			}
-			first := firstCollectingWrite(writes)
+			// An ignored write does not hide the other events collecting the property
+			first := v.firstCollectingWrite(writes)
 			if first == nil {
 				continue
 			}
@@ -153,6 +154,12 @@ func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 // coveredByClear reports whether one of the finally clears sits in the finally of a try statement
 // holding the write, after it.
 func coveredByClear(write *sitter.Node, clears []*sitter.Node, method *sitter.Node) bool {
+	// A callback may run after the clear: its writes are never covered
+	for p := write.Parent(); p != nil && !sameNode(p, method); p = p.Parent() {
+		if p.Kind() == "anonymous_function" || p.Kind() == "arrow_function" {
+			return false
+		}
+	}
 	start := write.StartByte()
 	for _, clear := range clears {
 		try := enclosingFinally(clear, method).Parent()
@@ -192,9 +199,10 @@ func enclosingFinally(n, method *sitter.Node) *sitter.Node {
 	return nil
 }
 
-func firstCollectingWrite(writes []flushWrite) *flushWrite {
+// firstCollectingWrite returns the first collecting write not marked @igor-ignore, or nil.
+func (v *PHPVisitor) firstCollectingWrite(writes []flushWrite) *flushWrite {
 	for i := range writes {
-		if !writes[i].clear {
+		if !writes[i].clear && !v.isIgnoredLine(writes[i].node) {
 			return &writes[i]
 		}
 	}
@@ -214,7 +222,7 @@ func (v *PHPVisitor) collectFlushWrites(method *sitter.Node) map[string][]flushW
 		case "assignment_expression", "augmented_assignment_expression":
 			left := n.ChildByFieldName("left")
 			if prop, direct, ok := v.flushWriteTarget(left); ok {
-				clear := direct && n.Kind() == "assignment_expression" && isClearingValue(v.getContent(n.ChildByFieldName("right")))
+				clear := direct && n.Kind() == "assignment_expression" && v.isClearingValue(v.getContent(n.ChildByFieldName("right")))
 				writes[prop] = append(writes[prop], flushWrite{node: n, clear: clear})
 			}
 		case "update_expression":
@@ -259,10 +267,20 @@ func (v *PHPVisitor) flushWriteTarget(n *sitter.Node) (string, bool, bool) {
 	return v.getContent(nameNode), direct, true
 }
 
-// isClearingValue reports whether an assigned value empties a collection or a reference.
-func isClearingValue(value string) bool {
-	switch strings.ToLower(strings.Join(strings.Fields(value), "")) {
+// isClearingValue reports whether an assigned value empties a collection or a reference. The class
+// of an empty collection is resolved through the imports (use ArrayCollection as Collection).
+func (v *PHPVisitor) isClearingValue(value string) bool {
+	compact := strings.Join(strings.Fields(value), "")
+	switch strings.ToLower(compact) {
 	case "[]", "array()", "null", "0", "false", "''", `""`, "newarraycollection()", `new\doctrine\common\collections\arraycollection()`, "new\\splobjectstorage()", "newsplobjectstorage()":
+		return true
+	}
+	class, ok := strings.CutSuffix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(value), "new")), "()")
+	if !ok || !strings.HasPrefix(strings.ToLower(compact), "new") {
+		return false
+	}
+	switch strings.ToLower(v.resolveFQCN(strings.TrimSpace(class))) {
+	case `doctrine\common\collections\arraycollection`, "splobjectstorage":
 		return true
 	}
 	return false

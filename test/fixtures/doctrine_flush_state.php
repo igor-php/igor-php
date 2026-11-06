@@ -2,6 +2,7 @@
 
 namespace App\EventListener;
 
+use Doctrine\Common\Collections\ArrayCollection as Collection;
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Igor\WorkerSafe;
 use Symfony\Contracts\Service\ResetInterface;
@@ -296,6 +297,67 @@ class TwoPhaseListener
         } finally {
             $this->pending = [];
         }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Reported: the empty collection is created through an import alias
+class AliasedCollectionListener
+{
+    private Collection $pending;
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        $this->pending->add($args);
+        $this->pending[] = $args; // reported
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = new Collection();
+    }
+}
+
+// Reported: the callback appends after the finally cleared the property
+class CallbackListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $collect = function (object $entity): void {
+                $this->pending[] = $entity; // reported
+            };
+        } finally {
+            $this->pending = [];
+        }
+        $collect($args);
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
+// Reported: an ignored write in onFlush does not hide the collection in prePersist
+class IgnoredEventListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        $this->pending[] = $args; // @igor-ignore
+    }
+
+    public function prePersist(object $args): void
+    {
+        $this->pending[] = $args; // reported
     }
 
     public function postFlush(): void

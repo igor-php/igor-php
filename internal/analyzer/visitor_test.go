@@ -1987,7 +1987,7 @@ func TestPHPVisitor_DoctrineFlushState(t *testing.T) {
 		}
 	}
 
-	f := reported[18]
+	f := reported[19]
 	wantMsg := "Property 'pending' collected in onFlush() is only cleared in postFlush(), which Doctrine skips when the commit fails: the next flush of the worker processes it."
 	if f.Message != wantMsg || f.Severity != "ERROR" || f.ContextMethod != "onFlush" || f.ContextClass != "App\\EventListener\\PublishListener" {
 		t.Errorf("unexpected finding on line 17: %+v", f)
