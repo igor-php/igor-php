@@ -198,3 +198,32 @@ class FinallyBuffer
         $this->client = null;
     }
 }
+
+// Reported: the finally of the anonymous class clears its own items, not the service's
+class AnonymousCleanup
+{
+    private array $items = [];
+
+    public function add(string $item): object
+    {
+        $this->items[] = $item;
+
+        return new class {
+            private array $items = [];
+
+            public function run(): void
+            {
+                try {
+                    $this->items[] = 'run';
+                } finally {
+                    $this->items = [];
+                }
+            }
+        };
+    }
+
+    public function clear(): void
+    {
+        $this->items = [];
+    }
+}

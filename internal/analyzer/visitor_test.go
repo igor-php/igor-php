@@ -1963,7 +1963,7 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 	defer tree.Close()
 
 	unreset := map[string]bool{}
-	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset", "FinallyBuffer"} {
+	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset", "FinallyBuffer", "AnonymousCleanup"} {
 		unreset["App\\Service\\"+class] = true
 	}
 	v := NewVisitor(content, &mockEngine{unresetServices: unreset})
@@ -1981,9 +1981,47 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 		"ERROR 10 BufferingLogger has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
 		"ERROR 26 SkolemConverter has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
 		"ERROR 167 AliasedReset has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+		"ERROR 203 AnonymousCleanup has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// A grouped import names the Symfony contract too, with or without an alias
+func TestPHPVisitor_MissingResetTag_GroupedImport(t *testing.T) {
+	for _, header := range []string{
+		`use Symfony\Contracts\Service\{ResetInterface};
+class Pool implements ResetInterface`,
+		`use Symfony\Contracts\Service\{ServiceSubscriberInterface, ResetInterface as Resettable};
+class Pool implements Resettable`,
+	} {
+		content := []byte("<?php\nnamespace App\\Service;\n\n" + header + `
+{
+    public function __construct(private object $inner)
+    {
+    }
+
+    public function reset(): void
+    {
+        $this->inner->reset();
+    }
+}
+`)
+		p := sitter.NewParser()
+		_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+		tree := p.Parse(content, nil)
+
+		v := NewVisitor(content, &mockEngine{unresetServices: map[string]bool{`App\Service\Pool`: true}})
+		v.Walk(tree.RootNode())
+		tree.Close()
+		found := false
+		for _, f := range v.Findings() {
+			found = found || strings.Contains(f.Message, "kernel.reset")
+		}
+		if !found {
+			t.Errorf("missing kernel.reset finding with %q", header)
+		}
 	}
 }
 

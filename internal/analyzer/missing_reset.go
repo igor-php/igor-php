@@ -119,14 +119,36 @@ func (v *PHPVisitor) collectThisWrites(n *sitter.Node, props map[string]bool) {
 	}
 }
 
-// finallyCleanedIn returns the properties a method cleans up in its finally blocks, with the scan the
-// mutation check runs on each method.
+// finallyCleanedIn returns the properties a method cleans up in its finally blocks, with the checks
+// the mutation check runs on them. Nested classes and functions are skipped, as in collectThisWrites:
+// their $this is another object.
 func (v *PHPVisitor) finallyCleanedIn(method *sitter.Node) map[string]bool {
-	saved := v.finallyCleaned
-	v.finallyCleaned = make(map[string]bool)
-	v.preScanFinallyCleanups(method)
-	cleaned := v.finallyCleaned
-	v.finallyCleaned = saved
+	cleaned := make(map[string]bool)
+	var walk func(n *sitter.Node, inFinally bool)
+	walk = func(n *sitter.Node, inFinally bool) {
+		switch n.Kind() {
+		case "anonymous_class", "class_declaration", "function_definition":
+			return
+		case "finally_clause":
+			inFinally = true
+		}
+		if inFinally {
+			switch n.Kind() {
+			case "function_call_expression":
+				v.checkFinallyFunctionCall(n, cleaned)
+			case "assignment_expression":
+				v.checkFinallyAssignment(n, cleaned)
+			case "unset_statement":
+				v.checkFinallyUnset(n, cleaned)
+			}
+		}
+		for i := uint(0); i < n.ChildCount(); i++ {
+			walk(n.Child(i), inFinally)
+		}
+	}
+	if body := method.ChildByFieldName("body"); body != nil {
+		walk(body, false)
+	}
 	return cleaned
 }
 
