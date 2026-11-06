@@ -561,6 +561,25 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the throw leaves through a try without catch, before the write
+    public function earlyThrowInOtherTry(object $request, bool $skip): void
+    {
+        $old = $this->current;
+        try {
+            if ($skip) {
+                $old = null;
+                throw new \RuntimeException();
+            }
+        } finally {
+        }
+        $this->current = $request;
+        try {
+            $this->handle($request);
+        } finally {
+            $this->current = $old; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;

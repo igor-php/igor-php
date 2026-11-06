@@ -69,7 +69,11 @@ func leavesAfter(n, restore *sitter.Node) bool {
 	for p := block.Parent(); p != nil; p = p.Parent() {
 		switch p.Kind() {
 		case "try_statement":
-			if throws || (restore.StartByte() >= p.StartByte() && restore.EndByte() <= p.EndByte()) {
+			if restore.StartByte() >= p.StartByte() && restore.EndByte() <= p.EndByte() {
+				return false
+			}
+			// A catch of the statement may catch the throw and go on to restore
+			if body := p.ChildByFieldName("body"); throws && hasCatch(p) && body != nil && block.StartByte() >= body.StartByte() && block.EndByte() <= body.EndByte() {
 				return false
 			}
 		case "method_declaration", "function_definition", "anonymous_function", "arrow_function":
@@ -77,6 +81,16 @@ func leavesAfter(n, restore *sitter.Node) bool {
 		}
 	}
 	return true
+}
+
+// hasCatch reports whether a try statement has a catch clause.
+func hasCatch(try *sitter.Node) bool {
+	for i := uint(0); i < try.NamedChildCount(); i++ {
+		if try.NamedChild(i).Kind() == "catch_clause" {
+			return true
+		}
+	}
+	return false
 }
 
 // returnsDirectly reports whether one of a block's own statements returns or exits.
