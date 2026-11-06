@@ -33,7 +33,8 @@ func (v *PHPVisitor) isLazyInit(n, left, right *sitter.Node) bool {
 		}
 	}
 
-	return !v.hasVariableOtherThanThis(right)
+	// A call (even on an injected service, e.g. $this->identity->getUser()) may return per-request data
+	return !v.hasVariableOtherThanThis(right) && !hasCall(right)
 }
 
 // isResetMethodWrite reports an empty value (null, [], 0, false, ”) written to a property in
@@ -49,8 +50,18 @@ func (v *PHPVisitor) isResetMethodWrite(n, left, right *sitter.Node) bool {
 	return v.isEmptyValue(right)
 }
 
+// envByRefFunctions change the array (or variable) passed to them by reference.
+var envByRefFunctions = map[string]bool{
+	"array_pop": true, "array_push": true, "array_shift": true, "array_unshift": true, "array_splice": true,
+	"array_walk": true, "array_walk_recursive": true, "sort": true, "rsort": true, "usort": true, "uasort": true,
+	"uksort": true, "ksort": true, "krsort": true, "asort": true, "arsort": true, "natsort": true,
+	"natcasesort": true, "shuffle": true, "array_multisort": true, "settype": true, "parse_str": true,
+	"preg_match": true, "preg_match_all": true, "str_replace": true, "extract": true,
+}
+
 // isEnvRead reports a read of $_ENV: it holds the process environment, not request data. Writes
-// ($_ENV[...] = ..., unset($_ENV[...])) still poison every later request and stay reported.
+// ($_ENV[...] = ..., unset($_ENV[...])), references (=& $_ENV, foreach by reference) and by-reference
+// arguments (array_pop($_ENV)) still poison every later request and stay reported.
 func isEnvRead(n *sitter.Node, content func(*sitter.Node) string) bool {
 	if content(n) != "$_ENV" {
 		return false
@@ -67,12 +78,46 @@ func isEnvRead(n *sitter.Node, content func(*sitter.Node) string) bool {
 		return true
 	}
 	switch parent.Kind() {
-	case "assignment_expression", "augmented_assignment_expression", "reference_assignment_expression":
+	case "assignment_expression", "augmented_assignment_expression":
 		return !sameNode(parent.ChildByFieldName("left"), target)
-	case "update_expression", "unset_statement":
+	case "reference_assignment_expression", "update_expression", "unset_statement", "by_ref":
+		// $env = &$_ENV aliases it: writes through $env change the process environment
 		return false
+	case "foreach_statement":
+		return !foreachByRef(parent, content)
+	case "argument":
+		return !isByRefCallArgument(parent, content)
 	}
 	return true
+}
+
+// foreachByRef reports foreach ($_ENV as &$value) or foreach ($_ENV as $k => &$value).
+func foreachByRef(n *sitter.Node, content func(*sitter.Node) string) bool {
+	for i := uint(0); i < n.ChildCount(); i++ {
+		child := n.Child(i)
+		if child.Kind() == "by_ref" || (child.Kind() == "pair" && strings.Contains(content(child), "&")) {
+			return true
+		}
+	}
+	return false
+}
+
+// isByRefCallArgument reports an argument passed to a function known to change it by reference.
+func isByRefCallArgument(argument *sitter.Node, content func(*sitter.Node) string) bool {
+	args := argument.Parent()
+	if args == nil {
+		return false
+	}
+	call := args.Parent()
+	if call == nil || call.Kind() != "function_call_expression" {
+		return false
+	}
+	name := call.ChildByFieldName("function")
+	if name == nil {
+		return false
+	}
+	fn := strings.ToLower(content(name))
+	return envByRefFunctions[fn[strings.LastIndex(fn, `\`)+1:]]
 }
 
 func (v *PHPVisitor) isThisProperty(n *sitter.Node) bool {
@@ -99,9 +144,31 @@ func (v *PHPVisitor) isOwnStaticProperty(n *sitter.Node) bool {
 }
 
 func (v *PHPVisitor) isEmptyValue(n *sitter.Node) bool {
-	switch strings.ToLower(strings.Join(strings.Fields(v.getContent(n)), "")) {
-	case "null", "[]", "array()", "0", "false", "''", `""`:
+	value := strings.TrimSpace(v.getContent(n))
+	// Strings are compared as written: ' ' is not empty
+	if value == "''" || value == `""` {
 		return true
+	}
+	if strings.ContainsAny(value, `'"`) {
+		return false
+	}
+	switch strings.ToLower(strings.Join(strings.Fields(value), "")) {
+	case "null", "[]", "array()", "0", "false":
+		return true
+	}
+	return false
+}
+
+// hasCall reports whether an expression calls a function or a method.
+func hasCall(n *sitter.Node) bool {
+	switch n.Kind() {
+	case "function_call_expression", "member_call_expression", "nullsafe_member_call_expression", "scoped_call_expression":
+		return true
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if hasCall(n.Child(i)) {
+			return true
+		}
 	}
 	return false
 }

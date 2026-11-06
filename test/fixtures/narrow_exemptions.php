@@ -15,6 +15,8 @@ final class NarrowExemptions
     private $tokenStorage;
     private $instances = [];
     private $connection;
+    private $context;
+    private $identity;
     private $cache = [];
     private static $registry = [];
 
@@ -40,6 +42,11 @@ final class NarrowExemptions
         return $this->formatter ??= new Formatter($format);           // reported: built from a parameter
     }
 
+    public function context()
+    {
+        return $this->context ??= new Context($this->identity->getUser()); // reported: a call may return the caller's data
+    }
+
     public function tokenStorage()
     {
         return $this->tokenStorage ??= new Holder($this->tokenSource); // reported: may capture a token
@@ -54,6 +61,8 @@ final class NarrowExemptions
     public function close(): void
     {
         $this->connection = null;                                     // not reported
+        $this->locale = ' ';                                          // reported: a blank string is not empty
+        $this->locale = '';                                           // not reported
     }
 
     public function clearCache($key): void
@@ -70,6 +79,14 @@ final class NarrowExemptions
     {
         $_ENV['APP_THEME'] = 'dark';                                  // reported: a write poisons the process
         unset($_ENV['APP_DEBUG']);                                    // reported
+
+        array_pop($_ENV);                                             // reported: changed by reference
+        $env = &$_ENV;                                                // reported: aliased, writes go through $env
+        foreach ($_ENV as &$value) {                                  // reported: iterated by reference
+            $value = trim($value);
+        }
+        $count = count($_ENV);                                        // not reported: read
+        $name = trim($_ENV['APP_NAME'] ?? '');                        // not reported: read
 
         return $_ENV['APP_ENV'] ?? 'prod';                            // not reported: process environment
     }
