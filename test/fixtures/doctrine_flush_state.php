@@ -365,3 +365,26 @@ class IgnoredEventListener
         $this->pending = [];
     }
 }
+
+// Not reported: the callbacks run inside the try, before the finally clears the property
+class SyncCallbackListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            array_map(fn (object $entity) => $this->pending[] = $entity, [$args]); // not reported
+            (function () use ($args): void {
+                $this->pending[] = $args;
+            })();
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}

@@ -41,7 +41,7 @@ func (v *PHPVisitor) checkDoctrineFlushState(n *sitter.Node) {
 			continue
 		}
 		for prop, writes := range v.collectFlushWrites(method) {
-			if !clearedInPostFlush[prop] || reported[prop] || v.workerSafeProps[prop] || clearedByEvent(writes, method) {
+			if !clearedInPostFlush[prop] || reported[prop] || v.workerSafeProps[prop] || v.clearedByEvent(writes, method) {
 				continue
 			}
 			// An ignored write does not hide the other events collecting the property
@@ -126,7 +126,7 @@ func isCollectEvent(lowerName string) bool {
 // clearedByEvent reports whether the event itself leaves nothing behind for a failed commit: it
 // starts by clearing the property on every path, or every collecting write is followed by a clear
 // on every path of a finally block of its try statement.
-func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
+func (v *PHPVisitor) clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 	if writes[0].clear && unconditional(writes[0].node, method.ChildByFieldName("body")) {
 		return true
 	}
@@ -144,7 +144,7 @@ func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 		return false
 	}
 	for _, w := range writes {
-		if !w.clear && !coveredByClear(w.node, clears, method) {
+		if !w.clear && !v.coveredByClear(w.node, clears, method) {
 			return false
 		}
 	}
@@ -153,10 +153,10 @@ func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
 
 // coveredByClear reports whether one of the finally clears sits in the finally of a try statement
 // holding the write, after it.
-func coveredByClear(write *sitter.Node, clears []*sitter.Node, method *sitter.Node) bool {
-	// A callback may run after the clear: its writes are never covered
+func (v *PHPVisitor) coveredByClear(write *sitter.Node, clears []*sitter.Node, method *sitter.Node) bool {
+	// A callback may run after the clear: its writes are only covered when it runs on the spot
 	for p := write.Parent(); p != nil && !sameNode(p, method); p = p.Parent() {
-		if p.Kind() == "anonymous_function" || p.Kind() == "arrow_function" {
+		if (p.Kind() == "anonymous_function" || p.Kind() == "arrow_function") && !v.runsOnTheSpot(p) {
 			return false
 		}
 	}
@@ -168,6 +168,31 @@ func coveredByClear(write *sitter.Node, clears []*sitter.Node, method *sitter.No
 		}
 	}
 	return false
+}
+
+// syncCallbackFunctions call their callback before they return.
+var syncCallbackFunctions = map[string]bool{
+	"array_map": true, "array_walk": true, "array_walk_recursive": true, "array_filter": true, "array_reduce": true,
+	"usort": true, "uasort": true, "uksort": true, "iterator_apply": true, "call_user_func": true, "call_user_func_array": true,
+}
+
+// runsOnTheSpot reports whether a closure runs where it is written: invoked immediately
+// ((function () {...})()), or passed to a function that calls it before returning (array_map).
+func (v *PHPVisitor) runsOnTheSpot(closure *sitter.Node) bool {
+	p := closure.Parent()
+	if p != nil && p.Kind() == "parenthesized_expression" {
+		call := p.Parent()
+		return call != nil && call.Kind() == "function_call_expression" && sameNode(call.ChildByFieldName("function"), p)
+	}
+	if p == nil || p.Kind() != "argument" || p.Parent() == nil || p.Parent().Parent() == nil {
+		return false
+	}
+	call := p.Parent().Parent()
+	if call.Kind() != "function_call_expression" {
+		return false
+	}
+	name := call.ChildByFieldName("function")
+	return name != nil && syncCallbackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))]
 }
 
 // unconditional reports whether a statement runs whenever the enclosing scope does: only plain
