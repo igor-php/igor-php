@@ -869,11 +869,10 @@ func resolveFQCNInFile(typeName string, lines []string, namespace string) string
 	return typeName
 }
 
-// Extends reports whether class is ancestor or inherits from it through the `extends` relationships
-// recorded during the audit.
+// Extends reports whether class is ancestor or inherits from it. It follows the `extends`
+// relationships recorded during the audit, and reads the parents of the classes outside the audit
+// (an intermediate base kernel in a single-file audit) from their files in the framework class map.
 func (a *Auditor) Extends(class, ancestor string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	class, ancestor = normalizeClassName(class), normalizeClassName(ancestor)
 	visited := make(map[string]bool)
 	for class != "" && !visited[class] {
@@ -881,7 +880,27 @@ func (a *Auditor) Extends(class, ancestor string) bool {
 			return true
 		}
 		visited[class] = true
-		class = a.classParents[class]
+		class = a.parentOf(class)
 	}
 	return false
+}
+
+// parentOf returns the parent of a class: the one recorded during the audit, or the one declared in
+// its file, which the method signature lookup parses and caches.
+func (a *Auditor) parentOf(class string) string {
+	a.mu.Lock()
+	parent, recorded := a.classParents[class]
+	if !recorded {
+		parent, recorded = a.parentClassCache[class]
+	}
+	_, parsed := a.methodSignatureCache[class]
+	a.mu.Unlock()
+	if recorded || parsed {
+		return normalizeClassName(parent)
+	}
+	// No method has an empty name: the lookup only parses the class file and caches its parent
+	a.getMethodReturnTypeWithDepth(class, "", map[string]bool{})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return normalizeClassName(a.parentClassCache[class])
 }

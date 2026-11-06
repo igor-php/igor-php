@@ -262,3 +262,31 @@ func TestAuditor_Extends(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditor_Extends_ReadsParentsOutsideTheAudit(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "BaseKernel.php")
+	if err := os.WriteFile(base, []byte(`<?php
+namespace App;
+
+use Symfony\Component\HttpKernel\Kernel;
+
+abstract class BaseKernel extends Kernel
+{
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := NewAuditor(config.Config{NoAgent: true})
+	a.Symfony = &SymfonyBridge{ClassToFile: map[string]string{`App\BaseKernel`: base}}
+	// Only the audited file recorded its parent: App\BaseKernel is not part of the audit
+	a.RecordClassParent(`App\Kernel`, `App\BaseKernel`)
+
+	if !a.Extends(`App\Kernel`, `Symfony\Component\HttpKernel\Kernel`) {
+		t.Errorf("App\\Kernel must extend the Symfony kernel through App\\BaseKernel")
+	}
+	if a.Extends(`App\Other`, `Symfony\Component\HttpKernel\Kernel`) {
+		t.Errorf("a class outside the class map must not extend the Symfony kernel")
+	}
+}
