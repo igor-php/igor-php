@@ -35,6 +35,9 @@ The leak demonstrations use **PHP's RAM only**, except experiment 11, which writ
 12. **Dangerous Process State Mutations**: Functions altering process-wide C/PHP state (`chdir`, `umask`, `mb_internal_encoding`, `gc_disable`).
 13. **Stale Request Captured by a Singleton** *(Laravel)*: a warmed singleton receives `Request` in its constructor and keeps the boot-time request forever.
 14. **Lazy Singleton** *(Laravel, no leak)*: the same code as experiment 1, but not warmed: Octane throws it away after every request.
+15. **Stale Container Captured by a Singleton** *(Laravel)*: a warmed singleton receives the `Application` and keeps the base application, never the request's clone (`?locale=` set during the request is invisible to it).
+16. **Stale Config Repository Captured by a Singleton** *(Laravel)*: a warmed singleton receives the `config` repository; Octane gives every request its own copy, so `config([...])` set during the request never reaches it.
+17. **Static Array Written from a Controller**: a controller appends to `AuditTrail::$entries`, a static array no container owns, which grows for the whole worker life.
 
 ## 🧠 How Octane keeps state
 
@@ -42,8 +45,8 @@ Laravel's container works differently from Symfony's, and these differences deci
 
 - At worker boot, Octane bootstraps the application, loads deferred providers and resolves every binding listed in `octane.warm` ([`config/octane.php`](config/octane.php)).
 - For **each request**, Octane serves a `clone` of that base application, then flushes the clone (`Laravel\Octane\Worker::handle()`).
-- So only objects that already exist in the **base application** survive between requests: warmed singletons (experiments 1, 2, 7, 8, 11, 13) and everything they reference. A singleton first resolved during a request lives in the clone and disappears with it (experiment 14).
-- **Static properties, local `static` variables and process-wide settings ignore the container entirely**: they leak in any class (experiments 3, 4, 9, 10, 12).
+- So only objects that already exist in the **base application** survive between requests: warmed singletons (experiments 1, 2, 7, 8, 11, 13, 15, 16) and everything they reference. A singleton first resolved during a request lives in the clone and disappears with it (experiment 14).
+- **Static properties, local `static` variables and process-wide settings ignore the container entirely**: they leak in any class, a controller included (experiments 3, 4, 9, 10, 12, 17).
 - `scoped()` bindings, `#[Scoped]` classes, `octane.flush` entries and Octane listeners are the Laravel equivalents of Symfony's `ResetInterface` / `kernel.reset` (experiment 2).
 - Controllers are **not** persistent: Octane calls `Route::flushController()` after every request.
 
@@ -67,10 +70,12 @@ Igor detects `artisan` and runs `php artisan igor:dump` (registered by `IgorPhp\
 
 | # | Experiment | Igor |
 |---|---|---|
-| 1, 3, 4, 6, 7, 8, 9, 10, 11, 12 | Generic leaks | ✅ Detected |
+| 1, 3, 4, 6, 7, 8, 9, 10, 11, 12, 17 | Generic leaks | ✅ Detected (17: the static write is reported in the controller) |
 | 2 | Incomplete reset via an Octane listener | ✅ Only `$forgotten` reported: Igor knows the listener calls `reset()` |
 | 13 | Stale `Request` captured by a warmed singleton | ✅ Detected: the singleton keeps the `Request` of the first request |
 | 14 | Lazy (non-warmed) singleton | ✅ Not reported: it lives in the request's sandbox |
+| 15 | Stale `Application` captured by a warmed singleton | ✅ Detected: the singleton keeps the base application |
+| 16 | Stale `config` repository captured by a warmed singleton | ✅ Detected: the singleton keeps the boot-time configuration |
 
 Hints use Laravel wording when Igor detects a Laravel application (`abort()`, `session()`, Octane listeners…).
 

@@ -9,6 +9,8 @@ use App\Services\IncompleteResetService;
 use App\Services\LazySingletonService;
 use App\Services\LocalStaticService;
 use App\Services\ProcessStateLeakService;
+use App\Services\StaleConfigService;
+use App\Services\StaleContainerService;
 use App\Services\StaleRequestService;
 use App\Services\StatefulService;
 use App\Services\StaticLeakService;
@@ -32,6 +34,8 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(DestructorLeakService::class);
         $this->app->singleton(ProcessStateLeakService::class);
         $this->app->singleton(StaleRequestService::class);
+        $this->app->singleton(StaleContainerService::class);
+        $this->app->singleton(StaleConfigService::class);
 
         // Singleton NOT warmed: Octane resolves it in the request sandbox and forgets it afterwards
         $this->app->singleton(LazySingletonService::class);

@@ -21,4 +21,7 @@ Route::controller(LeakDemoController::class)->group(function () {
     Route::get('/process-state-leak', 'processStateLeak');
     Route::get('/stale-request', 'staleRequest');
     Route::get('/lazy-singleton', 'lazySingleton');
+    Route::get('/stale-container', 'staleContainer');
+    Route::get('/stale-config', 'staleConfig');
+    Route::get('/static-array', 'staticArray');
 });

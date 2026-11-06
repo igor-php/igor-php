@@ -146,6 +146,8 @@ return [
         \App\Services\DestructorLeakService::class,
         \App\Services\ProcessStateLeakService::class,
         \App\Services\StaleRequestService::class,
+        \App\Services\StaleContainerService::class,
+        \App\Services\StaleConfigService::class,
     ],
 
     'flush' => [
