@@ -279,26 +279,34 @@ var throwingKinds = map[string]bool{
 	"require_once_expression": true, "yield_expression": true,
 }
 
-// mayThrowBefore reports whether the finally block runs a call (or throws) before the clear: the
-// exception skips the clear and the collected state survives the event. A closure only declared
-// there does not run, and a call inside a try that catches \Throwable cannot skip the clear (its
-// catch blocks still can).
+// mayThrowBefore reports whether the finally block may skip the clear: a call (or a throw) before
+// it whose exception leaves the block, or a return, an exit, a break or a continue leaving it first.
+// A closure only declared there does not run, and a call inside a try that catches \Throwable cannot
+// skip the clear (its catch blocks still can).
 func (v *PHPVisitor) mayThrowBefore(clear, finally *sitter.Node) bool {
 	limit := clear.StartByte()
 	var found bool
-	var walk func(n *sitter.Node)
-	walk = func(n *sitter.Node) {
+	var walk func(n *sitter.Node, depth int)
+	walk = func(n *sitter.Node, depth int) {
 		if found || n.StartByte() >= limit {
 			return
 		}
 		switch n.Kind() {
 		case "anonymous_function", "arrow_function", "anonymous_class":
 			return
+		case "return_statement", "exit_statement":
+			found = true
+			return
+		case "break_statement", "continue_statement":
+			found = v.jumpLevel(n) > depth
+			return
+		case "for_statement", "foreach_statement", "while_statement", "do_statement", "switch_statement":
+			depth++
 		case "try_statement":
 			if v.catchesAllIn(n) {
 				for i := uint(0); i < n.NamedChildCount(); i++ {
 					if child := n.NamedChild(i); child.Kind() == "catch_clause" || child.Kind() == "finally_clause" {
-						walk(child)
+						walk(child, depth)
 					}
 				}
 				return
@@ -309,10 +317,10 @@ func (v *PHPVisitor) mayThrowBefore(clear, finally *sitter.Node) bool {
 			return
 		}
 		for i := uint(0); i < n.ChildCount(); i++ {
-			walk(n.Child(i))
+			walk(n.Child(i), depth)
 		}
 	}
-	walk(finally)
+	walk(finally, 0)
 	return found
 }
 

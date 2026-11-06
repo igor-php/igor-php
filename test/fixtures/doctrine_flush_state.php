@@ -341,6 +341,58 @@ class RethrowingFinallyListener
     }
 }
 
+// Reported: the catch returns before the clear of the finally block
+class ReturningCatchListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // reported
+        } finally {
+            try {
+                $this->publish();
+            } catch (\Throwable $e) {
+                return;
+            }
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+
+    private function publish(): void
+    {
+    }
+}
+
+// Not reported: the break only leaves the loop of the finally block, the clear still runs
+class LoopBreakFinallyListener
+{
+    private array $pending = [];
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // not reported
+        } finally {
+            foreach ([1, 2] as $i) {
+                break;
+            }
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
+
 // Reported: the finally only covers the first write, the append after the try survives the event
 class PartlyCoveredListener
 {
