@@ -574,6 +574,45 @@ func (a *Auditor) HasServiceDefinition(className string) bool {
 	return false
 }
 
+// MissingResetTag reports whether the Symfony container defines shared services of this class and
+// resets none of them: no definition is tagged kernel.reset, and neither is the decorator that took
+// over the tags of a decorated one (DecoratorServicePass moves them to the outermost decorator).
+func (a *Auditor) MissingResetTag(className string) bool {
+	if a.Symfony == nil || a.Symfony.Container == nil || a.Symfony.Framework != FrameworkSymfony {
+		return false
+	}
+	normClass := normalizeClassName(className)
+	found := false
+	for id, def := range a.Symfony.Container.Definitions {
+		if normalizeClassName(def.Class) != normClass || !def.Shared || def.IsExcluded() {
+			continue
+		}
+		if def.IsResettable() || a.isResetByDecorator(id) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+// isResetByDecorator reports whether a decorated service is reset through its decorator:
+// DecoratorServicePass moves kernel.reset to the outermost decorator, which names the service
+// it decorates. Maps that predate that export are matched through the "<decorator>.inner" ids.
+func (a *Auditor) isResetByDecorator(id string) bool {
+	for _, def := range a.Symfony.Container.Definitions {
+		if def.Decorates == id && def.IsResettable() {
+			return true
+		}
+	}
+	for strings.HasSuffix(id, ".inner") {
+		id = strings.TrimSuffix(id, ".inner")
+		if def, exists := a.Symfony.Container.Definitions[id]; exists && def.IsResettable() {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSharedService checks if a class name is a shared service in Symfony.
 func (a *Auditor) IsSharedService(className string) bool {
 	if a.Symfony == nil {

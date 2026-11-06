@@ -10,6 +10,7 @@ use App\Service\StatefulService;
 use App\Service\StaticLeakService;
 use App\Service\DestructorLeakService;
 use App\Service\ProcessStateLeakService;
+use App\Service\UnwiredClearService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,6 +28,7 @@ class LeakDemoController extends AbstractController
         private LocalStaticService $localStaticService,
         private DestructorLeakService $destructorLeakService,
         private ProcessStateLeakService $processStateLeakService,
+        private UnwiredClearService $unwiredClearService,
         #[Autowire(env: 'IGOR_RUNTIME_MODE')]
         private string $runtimeMode,
     ) {}
@@ -53,6 +55,7 @@ class LeakDemoController extends AbstractController
                 <li><a href='/superglobals'>10. PHP Superglobals</a></li>
                 <li><a href='/destructor-leak' style='color: #fd7e14; font-weight: bold;'>11. Magic Method __destruct() Bypass (NEW)</a></li>
                 <li><a href='/process-state-leak' style='color: #e83e8c; font-weight: bold;'>12. Dangerous Process State Mutations (NEW)</a></li>
+                <li><a href='/unwired-clear'>13. clear() Never Called (missing kernel.reset tag)</a></li>
             </ul>
         ");
     }
@@ -448,6 +451,30 @@ class LeakDemoController extends AbstractController
                           "}";
 
         return $this->renderLayout($html, true, 'src/Service/ProcessStateLeakService.php', $controllerCode);
+    }
+
+    #[Route('/unwired-clear')]
+    public function unwiredClear(): Response
+    {
+        $this->unwiredClearService->log('Request at ' . date('H:i:s') . ' #' . rand(1, 1000));
+        $html = "<h2>13. clear() Never Called</h2>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 20px;'>
+                    <b>🔍 The Experiment:</b><br>
+                    <code>UnwiredClearService</code> has a <code>clear()</code> method, but nothing calls it: autoconfiguration only tags the services implementing <code>ResetInterface</code> with <code>kernel.reset</code>.<br>
+                    In <b>Worker Mode (port 8080)</b>, the buffer keeps every line of every request. The fix is one tag: <code>kernel.reset</code> with <code>method: clear</code>.
+                 </div>
+                 <button onclick='window.location.reload()' style='padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>📝 Log a Line (F5)</button>
+                 <pre style='background: #f8f9fa; padding: 10px; border: 1px solid #ddd; margin-top: 10px;'>".print_r($this->unwiredClearService->getLines(), true)."</pre>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "#[Route('/unwired-clear')]\n" .
+                          "public function unwiredClear(): Response {\n" .
+                          "    // Buffers a line on every request: clear() exists but is never called\n" .
+                          "    \$this->unwiredClearService->log('Request at ' . date('H:i:s'));\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'src/Service/UnwiredClearService.php', $controllerCode);
     }
 
     private function renderModeBanner(): string
