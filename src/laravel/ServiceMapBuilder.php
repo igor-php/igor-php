@@ -245,15 +245,12 @@ final class ServiceMapBuilder
     }
 
     /**
-     * A persistent service is resettable when it implements Symfony's ResetInterface, or when an
-     * Octane listener resets it between requests: it has a reset() method and the code of a listener
-     * of a request event references its class.
+     * A persistent service is resettable when an Octane listener resets it between requests: it has
+     * a reset() method and the code of a listener of a request event references its class. Nothing
+     * in Laravel calls Symfony's ResetInterface, so implementing it is not enough.
      */
     private function isResettable(string $class): bool
     {
-        if (interface_exists('Symfony\Contracts\Service\ResetInterface') && is_subclass_of($class, 'Symfony\Contracts\Service\ResetInterface')) {
-            return true;
-        }
         if (!method_exists($class, 'reset')) {
             return false;
         }
