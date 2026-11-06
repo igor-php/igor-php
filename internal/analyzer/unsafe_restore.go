@@ -228,6 +228,21 @@ func (v *PHPVisitor) restoredWrite(before []propertyWrite, w propertyWrite, save
 // stackFunctions push to or pop from an array without throwing.
 var stackFunctions = map[string]bool{"array_pop": true, "array_push": true, "array_shift": true, "array_unshift": true}
 
+// isStackCleanup reports a call of a stack function on a property of the service, the array the
+// method pushed to: array_pop($this->stack). On another argument, a null one throws a TypeError.
+func (v *PHPVisitor) isStackCleanup(call *sitter.Node) bool {
+	name, args := call.ChildByFieldName("function"), call.ChildByFieldName("arguments")
+	if name == nil || args == nil || !stackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))] {
+		return false
+	}
+	first := args.NamedChild(0)
+	if first == nil || first.Kind() != "argument" || first.NamedChildCount() != 1 {
+		return false
+	}
+	_, ok := v.isPropertyFetchOnThis(first.NamedChild(0))
+	return ok && v.getContent(first.NamedChild(0).ChildByFieldName("object")) == "$this"
+}
+
 // collectRestoreEvents walks a method body in source order. It records the writes to $this
 // properties with their try context, the local variables saving a property, and the expressions
 // that can throw. Closures are skipped: they run later, in another scope.
@@ -245,8 +260,8 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 	case "finally_clause":
 		ctx.inFinally = true
 	case "function_call_expression":
-		// A stack cleanup (array_pop($this->stack)) does not throw
-		if name := n.ChildByFieldName("function"); name == nil || !stackFunctions[strings.ToLower(strings.TrimPrefix(v.getContent(name), "\\"))] {
+		// A cleanup of the service's own stack (array_pop($this->stack)) does not throw
+		if !v.isStackCleanup(n) {
 			*calls = append(*calls, n.StartByte())
 		}
 	case "member_call_expression", "nullsafe_member_call_expression",

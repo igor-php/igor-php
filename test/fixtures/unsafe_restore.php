@@ -378,6 +378,28 @@ class UnsafeRestores
         $this->enabled = false; // reported
     }
 
+    private array $stack = [];
+
+    // Reported: array_pop() on a local value throws a TypeError when it is null
+    public function popLocal(?array $items): void
+    {
+        $this->enabled = true;
+        array_pop($items);
+        $this->enabled = false; // reported
+    }
+
+    // Not reported: array_pop() on the service's own stack does not throw
+    public function popOwnStack(object $message): void
+    {
+        $this->enabled = true;
+        try {
+            $this->handle($message);
+        } finally {
+            array_pop($this->stack);
+            $this->enabled = false; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
