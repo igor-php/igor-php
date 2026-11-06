@@ -2244,3 +2244,63 @@ class DeferredListener
 	}
 	t.Errorf("an imported array_map() may defer its callback: expected a finding on line 13, got %v", v.Findings())
 }
+
+func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "unsafe_restore.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	reported := make(map[int]string)
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, " is restored ") {
+			if _, dup := reported[f.Line]; dup {
+				t.Errorf("line %d reported twice", f.Line)
+			}
+			reported[f.Line] = f.Message
+		}
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		switch {
+		case strings.Contains(line, "// reported"):
+			if _, ok := reported[i+1]; !ok {
+				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		case strings.Contains(line, "// not reported"):
+			if msg, ok := reported[i+1]; ok {
+				t.Errorf("line %d must not be reported (%s): %s", i+1, msg, strings.TrimSpace(line))
+			}
+		}
+	}
+	for line := range reported {
+		if !strings.Contains(lines[line-1], "// reported") {
+			t.Errorf("unexpected finding on line %d: %s", line, reported[line])
+		}
+	}
+
+	want := map[string]bool{
+		"Property 'running' is restored in catch (\\Exception): an \\Error leaves it set for the next requests.":                       true,
+		"Property 'appendNewline' is restored without finally: an exception thrown after line 32 leaves it set for the next requests.": true,
+	}
+	for msg := range want {
+		found := false
+		for _, got := range reported {
+			if got == msg {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing message %q in %v", msg, reported)
+		}
+	}
+}
