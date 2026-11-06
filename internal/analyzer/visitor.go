@@ -16,6 +16,7 @@ type Engine interface {
 	IsSafeNamespace(className string) bool
 	IsResettable(className string) bool
 	HasServiceDefinition(className string) bool
+	MissingResetTag(className string) bool
 	GetMethodReturnType(className, methodName string) string
 	IsSharedService(className string) bool
 	RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string)
@@ -253,6 +254,7 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 	// which can be controllers or other per-request services
 	if n.Kind() == "class_declaration" {
 		v.checkStaleDependencies(n, fullName)
+		v.checkMissingResetTag(n, fullName)
 	}
 }
 
@@ -1687,6 +1689,22 @@ func (v *PHPVisitor) resolveFQCN(typeName string) string {
 	return typeName
 }
 
+// lookupGroupedImport resolves a name through the members of a grouped import.
+func lookupGroupedImport(prefix, group, typeName string) (string, bool) {
+	for _, member := range strings.Split(group, ",") {
+		member = strings.TrimSpace(member)
+		name, alias, aliased := strings.Cut(member, " as ")
+		name = strings.TrimSpace(name)
+		if !aliased {
+			alias = name[strings.LastIndex(name, "\\")+1:]
+		}
+		if name != "" && strings.TrimSpace(alias) == typeName {
+			return prefix + name, true
+		}
+	}
+	return "", false
+}
+
 // lookupImport resolves a class name or alias through the "use" imports of the current file.
 func (v *PHPVisitor) lookupImport(typeName string) (string, bool) {
 	for _, line := range v.lines {
@@ -1696,6 +1714,13 @@ func (v *PHPVisitor) lookupImport(typeName string) (string, bool) {
 			importPart = strings.TrimSpace(importPart)
 			// Function and constant imports never name a class
 			if strings.HasPrefix(importPart, "function ") || strings.HasPrefix(importPart, "const ") {
+				continue
+			}
+			// Grouped import on one line: use Vendor\Package\{Foo, Bar as Baz};
+			if prefix, group, ok := strings.Cut(importPart, "{"); ok {
+				if fqcn, found := lookupGroupedImport(strings.TrimSpace(prefix), strings.TrimSuffix(strings.TrimSpace(group), "}"), typeName); found {
+					return fqcn, true
+				}
 				continue
 			}
 			if strings.Contains(importPart, " as ") {
