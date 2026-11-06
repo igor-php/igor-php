@@ -1951,8 +1951,8 @@ class Hinted {
 	}
 }
 
-func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "unsafe_restore.php"))
+func TestPHPVisitor_DoctrineFlushState(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "doctrine_flush_state.php"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
@@ -1962,16 +1962,14 @@ func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
 	tree := p.Parse(content, nil)
 	defer tree.Close()
 
-	v := NewVisitor(content, &mockEngine{})
+	engine := &mockEngine{}
+	v := NewVisitor(content, engine)
 	v.Walk(tree.RootNode())
 
-	reported := make(map[int]string)
+	reported := make(map[int]symbol.Finding)
 	for _, f := range v.Findings() {
-		if strings.Contains(f.Message, " is restored ") {
-			if _, dup := reported[f.Line]; dup {
-				t.Errorf("line %d reported twice", f.Line)
-			}
-			reported[f.Line] = f.Message
+		if strings.Contains(f.Message, "postFlush()") {
+			reported[f.Line] = f
 		}
 	}
 
@@ -1983,31 +1981,19 @@ func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
 				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
 			}
 		case strings.Contains(line, "// not reported"):
-			if msg, ok := reported[i+1]; ok {
-				t.Errorf("line %d must not be reported (%s): %s", i+1, msg, strings.TrimSpace(line))
+			if f, ok := reported[i+1]; ok {
+				t.Errorf("line %d must not be reported (%s): %s", i+1, f.Message, strings.TrimSpace(line))
 			}
-		}
-	}
-	for line := range reported {
-		if !strings.Contains(lines[line-1], "// reported") {
-			t.Errorf("unexpected finding on line %d: %s", line, reported[line])
 		}
 	}
 
-	want := map[string]bool{
-		"Property 'running' is restored in catch (\\Exception): an \\Error leaves it set for the next requests.":                       true,
-		"Property 'appendNewline' is restored without finally: an exception thrown after line 32 leaves it set for the next requests.": true,
+	f := reported[19]
+	wantMsg := "Property 'pending' collected in onFlush() is only cleared in postFlush(), which Doctrine skips when the commit fails: the next flush of the worker processes it."
+	if f.Message != wantMsg || f.Severity != "ERROR" || f.ContextMethod != "onFlush" || f.ContextClass != "App\\EventListener\\PublishListener" {
+		t.Errorf("unexpected finding on line 17: %+v", f)
 	}
-	for msg := range want {
-		found := false
-		for _, got := range reported {
-			if got == msg {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("missing message %q in %v", msg, reported)
-		}
+	if want := "Implement ResetInterface (tagged kernel.reset) to clear it between requests, or clear it at the start of onFlush()."; f.Remediation != want {
+		t.Errorf("remediation = %q, want %q", f.Remediation, want)
 	}
 }
 
@@ -2215,6 +2201,147 @@ class Rewinder implements ResetInterface
 	for _, f := range v.Findings() {
 		if strings.Contains(f.Message, "kernel.reset") {
 			t.Errorf("unexpected finding: %s", f.Message)
+		}
+	}
+}
+
+func TestPHPVisitor_DoctrineFlushState_ShadowedCallbackFunction(t *testing.T) {
+	code := `<?php
+namespace App\EventListener;
+
+use function Vendor\defer as array_map;
+
+class DeferredListener
+{
+    private array $pending = [];
+
+    public function onFlush($args): void
+    {
+        try {
+            array_map(fn ($entity) => $this->pending[] = $entity, [$args]);
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}`
+	content := []byte(code)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "postFlush()") && f.Line == 13 {
+			return
+		}
+	}
+	t.Errorf("an imported array_map() may defer its callback: expected a finding on line 13, got %v", v.Findings())
+}
+
+func TestPHPVisitor_DoctrineFlushState_ImportedBuiltinCallback(t *testing.T) {
+	code := `<?php
+namespace App\EventListener;
+
+use function array_map;
+use function \array_filter;
+
+class ImportedBuiltinListener
+{
+    private array $pending = [];
+
+    public function onFlush($args): void
+    {
+        try {
+            array_map(fn ($entity) => $this->pending[] = $entity, [$args]);
+            array_filter([$args], fn ($entity) => $this->pending[] = $entity);
+        } finally {
+            $this->pending = [];
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}`
+	content := []byte(code)
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "only cleared in postFlush()") {
+			t.Errorf("use function array_map; imports the built-in, its callback runs on the spot: unexpected finding %v", f)
+		}
+	}
+}
+
+func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "unsafe_restore.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	reported := make(map[int]string)
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, " is restored ") {
+			if _, dup := reported[f.Line]; dup {
+				t.Errorf("line %d reported twice", f.Line)
+			}
+			reported[f.Line] = f.Message
+		}
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		switch {
+		case strings.Contains(line, "// reported"):
+			if _, ok := reported[i+1]; !ok {
+				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		case strings.Contains(line, "// not reported"):
+			if msg, ok := reported[i+1]; ok {
+				t.Errorf("line %d must not be reported (%s): %s", i+1, msg, strings.TrimSpace(line))
+			}
+		}
+	}
+	for line := range reported {
+		if !strings.Contains(lines[line-1], "// reported") {
+			t.Errorf("unexpected finding on line %d: %s", line, reported[line])
+		}
+	}
+
+	want := map[string]bool{
+		"Property 'running' is restored in catch (\\Exception): an \\Error leaves it set for the next requests.":                       true,
+		"Property 'appendNewline' is restored without finally: an exception thrown after line 32 leaves it set for the next requests.": true,
+	}
+	for msg := range want {
+		found := false
+		for _, got := range reported {
+			if got == msg {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("missing message %q in %v", msg, reported)
 		}
 	}
 }
