@@ -117,6 +117,13 @@ namespace Symfony\Component\HttpKernel\Bundle {
         public function build(\Symfony\Component\DependencyInjection\ContainerBuilder $container): void {}
     }
 }
+namespace Symfony\Contracts\Service {
+    interface ResetInterface { public function reset(); }
+}
+namespace App\Service {
+    class BundleCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+    class TaggedCollector implements \Symfony\Contracts\Service\ResetInterface { public function reset() {} }
+}
 namespace {
     require __DIR__ . '/../../src/php/IgorPhpBundle.php';
     require __DIR__ . '/../../src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php';
@@ -177,6 +184,12 @@ namespace {
     $cb->definitions['App\Service\ExcludedService'] = $excludedDef;
     $cb->definitions['App\Service\SyntheticService'] = $syntheticDef;
 
+    // A bundle service implementing ResetInterface without kernel.reset is never reset
+    $cb->definitions['app.bundle_collector'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\BundleCollector');
+    $taggedDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\TaggedCollector');
+    $taggedDef->tags['kernel.reset'] = [['method' => 'reset']];
+    $cb->definitions['app.tagged_collector'] = $taggedDef;
+
     // Private interface aliases exist before the removing passes...
     $resettableDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ResettableCache');
     $cb->definitions['App\Service\ResettableCache'] = $resettableDef;
@@ -215,6 +228,14 @@ namespace {
     }
     if (isset($data['aliases']['App\Service\DeadInterface'])) {
         fwrite(STDERR, "Alias to a pruned service must not be exported\n");
+        exit(1);
+    }
+    if (($data['definitions']['app.bundle_collector']['resettable'] ?? null) !== false) {
+        fwrite(STDERR, "A ResetInterface service without the kernel.reset tag must not be resettable\n");
+        exit(1);
+    }
+    if (($data['definitions']['app.tagged_collector']['resettable'] ?? null) !== true) {
+        fwrite(STDERR, "A service tagged kernel.reset must be resettable\n");
         exit(1);
     }
     if (isset($data['definitions']['App\Service\ExcludedService'])) {
