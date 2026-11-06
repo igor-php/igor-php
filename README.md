@@ -691,6 +691,20 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 >             - '../src/Kernel.php'
 > ```
 
+### 🗂️ Grouped findings: keyed caches and incomplete resets
+
+The CLI output lists two kinds of findings apart from the others. Nothing is removed: they keep their severity, count in the summary and exit code, and still get one GitHub annotation each.
+
+```
+  [VENDOR] ⚠️  Twig\Environment (resettable) — 2 properties mutated but not reset in reset():
+      globals (addGlobal, line 12), loadedTemplates (load, line 40)
+  [VENDOR] 🗄️  Cache  Symfony\Component\Serializer\Serializer::$normalizerCache  key: [$format][$type]
+```
+
+- **Incomplete reset**: the "mutated but not reset in reset()" findings of a resettable class are grouped in one block per class, with the method that mutates each property.
+- **Keyed cache**: a write to `$this->prop[$key]` or `self::$prop[$key]` whose property is named after a cache (`cache`, `memo`), or that memoizes a computed value with `??=`, is shown with its key. Such caches are usually bounded (keyed by class, format or route), but a key derived from the request (URI, user, query) makes them grow with every request: the key is there to tell them apart.
+- The JSON and LLM exports carry the same information in `category` (`cache`, `not-reset`), `property` and `cache_key`.
+
 ### 📥 Folded findings: code that never runs during a request
 
 Some services are audited but never run while the worker serves a request. In the CLI output, their findings are folded into one line instead of being listed:

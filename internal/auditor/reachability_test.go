@@ -290,3 +290,80 @@ abstract class BaseKernel extends Kernel
 		t.Errorf("a class outside the class map must not extend the Symfony kernel")
 	}
 }
+
+func TestMarkReachability_NotResetPropertyWrittenInSeveralMethods(t *testing.T) {
+	dir := t.TempDir()
+	appPath := filepath.Join(dir, "app.php")
+	vendorPath := filepath.Join(dir, "vendor.php")
+	if err := os.WriteFile(appPath, []byte(`<?php
+namespace App\Controller;
+
+use Vendor\Lib\Tracker;
+
+class TrackController
+{
+    private Tracker $tracker;
+
+    public function run(): void
+    {
+        $this->tracker->track('hello');
+    }
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// track() is called, then neverCalled() writes the same property last
+	if err := os.WriteFile(vendorPath, []byte(`<?php
+namespace Vendor\Lib;
+
+use Symfony\Contracts\Service\ResetInterface;
+
+class Tracker implements ResetInterface
+{
+    private array $seen = [];
+
+    public function track(string $value): void
+    {
+        $this->seen[] = $value;
+    }
+
+    public function neverCalled(): void
+    {
+        $this->seen[] = 'x';
+    }
+
+    public function reset(): void
+    {
+    }
+}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	auditor := NewAuditor(config.Config{})
+	appFindings, err := auditor.Audit(appPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vendorFindings, err := auditor.Audit(vendorPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auditor.recordProjectClass(`App\Controller\TrackController`)
+	results := []symbol.AuditStatus{{FilePath: appPath, Findings: appFindings}, {FilePath: vendorPath, Findings: vendorFindings}}
+	auditor.MarkReachability(results)
+
+	found := false
+	for _, f := range results[1].Findings {
+		if f.Category != symbol.CategoryNotReset {
+			continue
+		}
+		found = true
+		if f.Reachability != "HIGH" {
+			t.Errorf("a property also written by the called track() must be HIGH, got %q (method %s, also %v)", f.Reachability, f.ContextMethod, f.AlsoMethods)
+		}
+	}
+	if !found {
+		t.Fatalf("expected a not-reset finding, got %+v", results[1].Findings)
+	}
+}

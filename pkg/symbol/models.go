@@ -17,13 +17,29 @@ type Finding struct {
 	Dependencies  []string `json:"dependencies"`
 	ContextClass  string   `json:"context_class,omitempty"`
 	ContextMethod string   `json:"context_method,omitempty"`
-	Reachability  string   `json:"reachability,omitempty"`
-	Ignored       bool     `json:"ignored,omitempty"`
-	IgnoreReason  string   `json:"ignore_reason,omitempty"`
+	// AlsoMethods are the other methods that lead to the finding (an unreset property written in
+	// several methods): the finding is reachable as soon as one of them is called
+	AlsoMethods  []string `json:"also_methods,omitempty"`
+	Reachability string   `json:"reachability,omitempty"`
+	Ignored      bool     `json:"ignored,omitempty"`
+	IgnoreReason string   `json:"ignore_reason,omitempty"`
 	// OutOfRequest names why the code never runs while the worker serves a request
 	// (console, profiler, kernel boot...): the CLI folds these findings unless --show-all is set.
 	OutOfRequest string `json:"out_of_request,omitempty"`
+	// Category groups findings the CLI presents together: CategoryCache or CategoryNotReset.
+	Category string `json:"category,omitempty"`
+	// Property is the property a cache or not-reset finding is about.
+	Property string `json:"property,omitempty"`
+	// CacheKey is the key expression of a keyed cache write, e.g. [$format][$type].
+	CacheKey string `json:"cache_key,omitempty"`
 }
+
+const (
+	// CategoryCache marks a write to a keyed memoization cache ($this->cache[$key] = ...).
+	CategoryCache = "cache"
+	// CategoryNotReset marks a property of a resettable service that reset() leaves as is.
+	CategoryNotReset = "not-reset"
+)
 
 // Result groups findings by file.
 type Result struct {
