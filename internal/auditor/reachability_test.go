@@ -236,3 +236,29 @@ class SymlinkedService
 		t.Error("expected symlinked vendor class to be excluded from projectClasses")
 	}
 }
+
+func TestAuditor_Extends(t *testing.T) {
+	a := NewAuditor(config.Config{NoAgent: true})
+	a.RecordClassParent(`App\Kernel`, `\Symfony\Component\HttpKernel\Kernel`)
+	a.RecordClassParent(`App\TestKernel`, `App\Kernel`)
+	// A cycle in a malformed hierarchy must not loop
+	a.RecordClassParent(`App\A`, `App\B`)
+	a.RecordClassParent(`App\B`, `App\A`)
+
+	kernel := `Symfony\Component\HttpKernel\Kernel`
+	tests := []struct {
+		class string
+		want  bool
+	}{
+		{kernel, true},
+		{`App\Kernel`, true},
+		{`\App\TestKernel`, true},
+		{`App\Rendering\Kernel`, false},
+		{`App\A`, false},
+	}
+	for _, tt := range tests {
+		if got := a.Extends(tt.class, kernel); got != tt.want {
+			t.Errorf("Extends(%q, Kernel) = %v, want %v", tt.class, got, tt.want)
+		}
+	}
+}

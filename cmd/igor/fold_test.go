@@ -47,7 +47,7 @@ func TestOutOfRequestCategory(t *testing.T) {
 	}
 }
 
-func TestOutOfRequestClasses_KeepsClassesThatAlsoRunDuringARequest(t *testing.T) {
+func TestOutOfRequestFiles_KeepsFilesThatAlsoRunDuringARequest(t *testing.T) {
 	cfg := config.Config{NoAgent: true}
 	aud := auditor.NewAuditor(cfg)
 	bridge := auditor.NewSymfonyBridge(t.TempDir(), "bin/console", cfg)
@@ -58,13 +58,27 @@ func TestOutOfRequestClasses_KeepsClassesThatAlsoRunDuringARequest(t *testing.T)
 		"app.shared_service": {Class: `App\SharedCommand`, Shared: true},
 		// A skipped (non-shared) definition must not keep its class in the request
 		"app.prototype": {Class: `App\ReportCommand`, Shared: false},
+		// A file declaring a command and a request service is not folded
+		"app.mixed_command": {Class: `App\MixedCommand`, Shared: true, Tags: tagged("console.command")},
+		"app.mixed_service": {Class: `App\MixedService`, Shared: true},
+		// Several reasons for one file: the choice does not depend on the map order
+		"app.warmer":  {Class: `App\Warmer`, Shared: true, Tags: tagged("kernel.cache_warmer")},
+		"app.clearer": {Class: `App\Clearer`, Shared: true, Tags: tagged("kernel.cache_clearer")},
 	}}
+	bridge.ClassToFile = map[string]string{
+		`App\ReportCommand`: "/app/src/ReportCommand.php",
+		`App\SharedCommand`: "/app/src/SharedCommand.php",
+		`App\MixedCommand`:  "/app/src/Mixed.php",
+		`App\MixedService`:  "/app/src/Mixed.php",
+		`App\Warmer`:        "/app/src/Cache.php",
+		`App\Clearer`:       "/app/src/Cache.php",
+	}
 	aud.Symfony = bridge
 
-	got := outOfRequestClasses(aud)
-	want := map[string]string{`App\ReportCommand`: "console"}
+	got := outOfRequestFiles(aud)
+	want := map[string]string{"/app/src/ReportCommand.php": "console", "/app/src/Cache.php": "cache clearer"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("outOfRequestClasses() = %v, want %v", got, want)
+		t.Errorf("outOfRequestFiles() = %v, want %v", got, want)
 	}
 }
 
@@ -95,6 +109,9 @@ func TestCollectFiles_MarksOutOfRequestServices(t *testing.T) {
 
 func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 	kernel := `Symfony\Component\HttpKernel\Kernel`
+	extends := func(class, ancestor string) bool {
+		return class == ancestor || (class == `App\Kernel` && ancestor == kernel)
+	}
 	results := []symbol.AuditStatus{
 		{ServiceID: "app.command", OutOfRequest: "console", Findings: []symbol.Finding{{ContextClass: `App\ReportCommand`, ContextMethod: "execute"}}},
 		{ServiceID: "Inherited/" + kernel, Findings: []symbol.Finding{
@@ -107,9 +124,13 @@ func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 			{ContextClass: kernel, ContextMethod: "shutdown"},
 			// A method of the same name in another class is not the kernel boot
 			{ContextClass: `App\Container`, ContextMethod: "initializeContainer"},
+			// The application kernel extends the Symfony one
+			{ContextClass: `App\Kernel`, ContextMethod: "configureContainer"},
+			// Another class named Kernel is not the Symfony kernel
+			{ContextClass: `App\Rendering\Kernel`, ContextMethod: "build"},
 		}},
 	}
-	markOutOfRequest(results, true)
+	markOutOfRequest(results, extends)
 
 	var got []string
 	for _, res := range results {
@@ -123,6 +144,8 @@ func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 		"registerContainerConfiguration=kernel boot",
 		"boot=", "handle=", "reboot=", "shutdown=",
 		"initializeContainer=",
+		"configureContainer=kernel boot",
+		"build=",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("marked findings = %v, want %v", got, want)
@@ -130,7 +153,7 @@ func TestMarkOutOfRequest_KernelBootMethodsOnly(t *testing.T) {
 
 	// The kernel rule only applies to Symfony
 	laravel := []symbol.AuditStatus{{Findings: []symbol.Finding{{ContextClass: kernel, ContextMethod: "initializeContainer"}}}}
-	markOutOfRequest(laravel, false)
+	markOutOfRequest(laravel, nil)
 	if laravel[0].Findings[0].OutOfRequest != "" {
 		t.Errorf("kernel boot rule applied outside Symfony")
 	}

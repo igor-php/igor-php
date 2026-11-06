@@ -131,7 +131,11 @@ func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]sym
 	aud.MarkReachability(results)
 
 	// 6c. Flag the findings of code that never runs during a request; the CLI folds them
-	markOutOfRequest(results, bridge != nil && bridge.Framework == auditor.FrameworkSymfony)
+	var extends func(class, ancestor string) bool
+	if bridge != nil && bridge.Framework == auditor.FrameworkSymfony {
+		extends = aud.Extends
+	}
+	markOutOfRequest(results, extends)
 	if foldsOutOfRequest(*cfg) {
 		foldOutOfRequest(results)
 	}

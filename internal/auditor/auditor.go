@@ -868,3 +868,20 @@ func resolveFQCNInFile(typeName string, lines []string, namespace string) string
 	}
 	return typeName
 }
+
+// Extends reports whether class is ancestor or inherits from it through the `extends` relationships
+// recorded during the audit.
+func (a *Auditor) Extends(class, ancestor string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	class, ancestor = normalizeClassName(class), normalizeClassName(ancestor)
+	visited := make(map[string]bool)
+	for class != "" && !visited[class] {
+		if strings.EqualFold(class, ancestor) {
+			return true
+		}
+		visited[class] = true
+		class = a.classParents[class]
+	}
+	return false
+}
