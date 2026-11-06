@@ -74,6 +74,9 @@ class IgorDiscoveryPass implements CompilerPassInterface
             'shared' => $isShared,
             'resettable' => $isResettable,
             'arguments' => $this->extractDependencies($definition, $container),
+            // Tag names only, in the format the Laravel map uses: igor folds the services that
+            // never run during a request (console.command, data_collector...) by tag
+            'tags' => array_map(static fn (string $name): array => ['name' => $name], array_keys($definition->getTags())),
         ];
     }
 
