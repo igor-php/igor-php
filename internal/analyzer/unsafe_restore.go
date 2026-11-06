@@ -54,8 +54,8 @@ func (v *PHPVisitor) reachingSaves(saves map[string][]localSave, variable string
 }
 
 // leavesAfter reports whether the block holding a statement always leaves the function without
-// reaching restore. Inside a try statement that holds restore, the return or the throw still runs
-// its catch and finally clauses: the assignment is kept.
+// reaching restore. A throw inside a try statement may be caught and go on to restore, and a
+// return inside a try statement that holds restore still runs its finally: the assignment is kept.
 func leavesAfter(n, restore *sitter.Node) bool {
 	stmt := n.Parent()
 	if stmt == nil || stmt.Kind() != "expression_statement" {
@@ -65,10 +65,11 @@ func leavesAfter(n, restore *sitter.Node) bool {
 	if block == nil || block.Kind() != "compound_statement" || !alwaysLeaves(block) {
 		return false
 	}
+	throws := !returnsDirectly(block)
 	for p := block.Parent(); p != nil; p = p.Parent() {
 		switch p.Kind() {
 		case "try_statement":
-			if restore.StartByte() >= p.StartByte() && restore.EndByte() <= p.EndByte() {
+			if throws || (restore.StartByte() >= p.StartByte() && restore.EndByte() <= p.EndByte()) {
 				return false
 			}
 		case "method_declaration", "function_definition", "anonymous_function", "arrow_function":
@@ -76,6 +77,17 @@ func leavesAfter(n, restore *sitter.Node) bool {
 		}
 	}
 	return true
+}
+
+// returnsDirectly reports whether one of a block's own statements returns or exits.
+func returnsDirectly(block *sitter.Node) bool {
+	for i := uint(0); i < block.NamedChildCount(); i++ {
+		switch block.NamedChild(i).Kind() {
+		case "return_statement", "exit_statement":
+			return true
+		}
+	}
+	return false
 }
 
 // enclosingIf returns the nearest if statement that holds n, or nil.

@@ -515,6 +515,26 @@ class UnsafeRestores
         }
     }
 
+    // Reported: the throw is caught, the save of the temporary value reaches the finally
+    public function caughtThrowOverwrite(object $request, bool $flag): void
+    {
+        $old = $this->current;
+        $this->current = $request;
+        try {
+            if ($flag) {
+                $old = $this->current;
+                throw new \RuntimeException();
+            }
+        } catch (\Throwable $e) {
+        }
+        try {
+            $this->handle($request);
+            $this->current = $old; // reported
+        } finally {
+            $this->current = $old;
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;
