@@ -11,7 +11,6 @@ src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::proce
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::processStateLeak | WARNING | Function 'umask' modifies the global PHP process file creation mask.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::stateful | ERROR | Mutation detected on an injected dependency ($this->statefulService). Risk of State Leak in a worker.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
-src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_ENV is discouraged in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::superglobals | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.

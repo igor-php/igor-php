@@ -763,7 +763,7 @@ func countArguments(n *sitter.Node) int {
 
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
 	name := v.getContent(n)
-	if isSuperglobal(name) {
+	if isSuperglobal(name) && !isEnvRead(n, v.getContent) {
 		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), v.hint("superglobal", "Use the Symfony Request object ($request->query, $request->request, etc.) instead."), "WARNING")
 	}
 }
@@ -845,6 +845,11 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 
 	left := n.ChildByFieldName("left")
 	right := n.ChildByFieldName("right")
+
+	// Writes that cannot carry state from one request to the next (#105)
+	if left != nil && right != nil && (v.isLazyInit(n, left, right) || v.isResetMethodWrite(n, left, right)) {
+		return
+	}
 
 	// Standard mutation detection on left side
 	if left != nil {
