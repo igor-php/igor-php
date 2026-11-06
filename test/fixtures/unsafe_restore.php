@@ -535,6 +535,32 @@ class UnsafeRestores
         }
     }
 
+    // Not reported: the finally restores the saved value, the switch back in the try does not matter
+    public function savedAndSwitchedBack(callable $callback): void
+    {
+        $wasEnabled = $this->enabled;
+        $this->enabled = true;
+        try {
+            $callback();
+            $this->enabled = false; // not reported
+            $this->handle(new \stdClass());
+        } finally {
+            $this->enabled = $wasEnabled;
+        }
+    }
+
+    // Not reported: restore_error_handler() before the cleanup in finally does not throw
+    public function errorHandlerCleanup(object $message): void
+    {
+        $this->current = $message;
+        try {
+            $this->handle($message);
+        } finally {
+            restore_error_handler();
+            $this->current = null; // not reported
+        }
+    }
+
     private function handle(object $message): object
     {
         return $message;

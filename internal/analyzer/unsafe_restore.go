@@ -229,8 +229,13 @@ func (v *PHPVisitor) restoredSafely(writes []propertyWrite, set *propertyWrite, 
 		if w.prop != set.prop || (!w.ctx.inFinally && !(w.ctx.inCatch && w.ctx.catchCoversAll)) {
 			continue
 		}
-		// A restoration of a saved value must restore it on every path
-		if len(saves[w.value]) > 0 && !v.savedOnEveryPath(saves, w, set.node) {
+		// A restoration of a saved value must restore it on every path. It then protects every write
+		// made after the save that it follows, even when another restoration sits in between
+		if len(saves[w.value]) > 0 {
+			if v.savedOnEveryPath(saves, w, set.node) && w.node.StartByte() > set.node.EndByte() &&
+				sameFlow(set.node, w.node) && v.reachedInClause(calls, w.node) {
+				return true
+			}
 			continue
 		}
 		if v.restoredWrite(writes[:i], w, saves) == set && v.reachedInClause(calls, w.node) {
@@ -305,6 +310,32 @@ func (v *PHPVisitor) savedOnEveryPath(saves map[string][]localSave, w propertyWr
 	return len(reach) > 0
 }
 
+// runtimeCleanupFunctions restore the process state without throwing.
+var runtimeCleanupFunctions = map[string]bool{
+	"restore_error_handler": true, "restore_exception_handler": true, "gc_enable": true, "gc_disable": true,
+	"error_reporting": true, "ini_restore": true, "ob_end_clean": true, "ob_get_clean": true,
+}
+
+// isRuntimeCleanup reports a call of a PHP function that restores the process state, unless the
+// name is shadowed by an imported or namespace function.
+func (v *PHPVisitor) isRuntimeCleanup(call *sitter.Node) bool {
+	nameNode := call.ChildByFieldName("function")
+	if nameNode == nil {
+		return false
+	}
+	raw := v.getContent(nameNode)
+	name := strings.ToLower(strings.TrimPrefix(raw, "\\"))
+	if !runtimeCleanupFunctions[name] {
+		return false
+	}
+	if !strings.HasPrefix(raw, "\\") {
+		if shadowed := v.getShadowedFunctions(call.StartByte()); shadowed != nil && shadowed[name] {
+			return false
+		}
+	}
+	return true
+}
+
 // stackFunctions push to or pop from an array without throwing.
 var stackFunctions = map[string]bool{"array_pop": true, "array_push": true, "array_shift": true, "array_unshift": true}
 
@@ -345,8 +376,9 @@ func (v *PHPVisitor) collectRestoreEvents(n *sitter.Node, ctx restoreContext, wr
 	case "finally_clause":
 		ctx.inFinally = true
 	case "function_call_expression":
-		// A cleanup of the service's own stack (array_pop($this->stack)) does not throw
-		if !v.isStackCleanup(n) {
+		// A cleanup of the service's own stack (array_pop($this->stack)) or of the process state
+		// (restore_error_handler()) does not throw
+		if !v.isStackCleanup(n) && !v.isRuntimeCleanup(n) {
 			*calls = append(*calls, n.StartByte())
 		}
 	case "member_call_expression", "nullsafe_member_call_expression",
