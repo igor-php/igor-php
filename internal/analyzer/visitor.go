@@ -23,6 +23,7 @@ type Engine interface {
 }
 
 type mutationInfo struct {
+	method     string // the method that mutates the property
 	line       int
 	code       string
 	snippet    string
@@ -845,7 +846,9 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 
 	// Standard mutation detection on left side
 	if left != nil {
+		before := len(v.findings)
 		v.handleMutation(left)
+		v.tagKeyedCacheWrite(n, left, before)
 	}
 
 	// Dynamic local shared variable tracking
@@ -1047,6 +1050,7 @@ func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop strin
 	switch {
 	case v.isReset && !dynamic:
 		v.mutated[key] = mutationInfo{
+			method:     v.curMethod,
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
 			snippet:    v.getContent(n),
@@ -1084,6 +1088,7 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 			return
 		}
 		v.mutated[key] = mutationInfo{
+			method:     v.curMethod,
 			line:       int(n.StartPosition().Row) + 1,
 			code:       v.lines[n.StartPosition().Row],
 			snippet:    v.getContent(n),
@@ -1121,7 +1126,9 @@ func (v *PHPVisitor) performResetCheck() {
 				Dependencies:  v.dependencies,
 				Remediation:   fmt.Sprintf("Add '$this->%s = ...' in the reset() method.", prop),
 				ContextClass:  fullName,
-				ContextMethod: v.curMethod,
+				ContextMethod: info.method,
+				Category:      symbol.CategoryNotReset,
+				Property:      prop,
 			})
 		}
 	}
@@ -1279,6 +1286,7 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 	if v.isReset {
 		if isDirectProp {
 			v.mutated[propName] = mutationInfo{
+				method:     v.curMethod,
 				line:       int(n.StartPosition().Row) + 1,
 				code:       v.lines[n.StartPosition().Row],
 				snippet:    v.getContent(n),

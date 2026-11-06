@@ -14,7 +14,7 @@ app/Http/Controllers/LeakDemoController.php | App\Http\Controllers\LeakDemoContr
 app/Services/ClosureLeakService.php | App\Services\ClosureLeakService::addListener | ERROR | Mutation of state 'listeners' in ClosureLeakService::addListener()
 app/Services/DestructorLeakService.php | App\Services\DestructorLeakService::__destruct | ERROR | Usage of __destruct() magic method is dangerous in Worker mode.
 app/Services/FakeEntityManager.php | App\Services\FakeFilters::disable | ERROR | Mutation of state 'disabledFilters' in FakeFilters::disable()
-app/Services/IncompleteResetService.php | App\Services\IncompleteResetService | WARNING | Property 'forgotten' of IncompleteResetService is mutated but not reset in reset().
+app/Services/IncompleteResetService.php | App\Services\IncompleteResetService::addData | WARNING | Property 'forgotten' of IncompleteResetService is mutated but not reset in reset().
 app/Services/LocalStaticService.php | App\Services\LocalStaticService::incrementAndGet | ERROR | Usage of local static variable is dangerous in Worker mode.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonCwd | WARNING | Function 'chdir' modifies the global PHP process working directory.
 app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService::poisonEncoding | WARNING | Function 'mb_internal_encoding' modifies the global PHP process multibyte encoding.
@@ -23,5 +23,5 @@ app/Services/ProcessStateLeakService.php | App\Services\ProcessStateLeakService:
 app/Services/StaleConfigService.php | App\Services\StaleConfigService::__construct | ERROR | Property 'config' of StaleConfigService keeps the configuration repository (Illuminate\Contracts\Config\Repository) across requests.
 app/Services/StaleContainerService.php | App\Services\StaleContainerService::__construct | ERROR | Property 'app' of StaleContainerService keeps the application container (Illuminate\Contracts\Foundation\Application) across requests.
 app/Services/StaleRequestService.php | App\Services\StaleRequestService::__construct | ERROR | Property 'request' of StaleRequestService keeps the HTTP request (Illuminate\Http\Request) across requests.
-app/Services/StatefulService.php | App\Services\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData()
+app/Services/StatefulService.php | App\Services\StatefulService::addData | ERROR | Mutation of state 'cache' in StatefulService::addData() | cache key: [$k]
 app/Services/StaticLeakService.php | App\Services\StaticLeakService::touch | ERROR | Mutation of state 'static::$hist' in StaticLeakService::touch()

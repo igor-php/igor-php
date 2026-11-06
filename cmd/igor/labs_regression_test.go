@@ -126,6 +126,9 @@ func formatLabFinding(file string, f symbol.Finding) string {
 		context += "::" + f.ContextMethod
 	}
 	line := fmt.Sprintf("%s | %s | %s | %s", file, context, f.Severity, f.Message)
+	if f.Category == symbol.CategoryCache {
+		line += " | cache key: " + f.CacheKey
+	}
 	if f.OutOfRequest != "" {
 		line += " | folded: " + f.OutOfRequest
 	}

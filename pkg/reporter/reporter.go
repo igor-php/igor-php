@@ -123,65 +123,157 @@ func (r *CLIReporter) PrintFindings(res symbol.AuditStatus, projectRoot string, 
 		return findings[i].Reachability == "HIGH" && findings[j].Reachability != "HIGH"
 	})
 
+	sourceIndicator := "\033[34m[PROJECT]\033[0m"
+	if isVendor {
+		sourceIndicator = "\033[33m[VENDOR]\033[0m"
+	}
+
+	// Keyed caches and the properties reset() forgets are listed together after the other findings
+	var caches []symbol.Finding
+	notReset := make(map[string][]symbol.Finding)
+	var notResetClasses []string
 	for _, f := range findings {
-		severity := "error"
-		color := "\033[31m" // Red for Error
-		if f.Severity == "WARNING" {
-			severity = "warning"
-			color = "\033[33m" // Yellow for Warning
-		}
-
-		// Source indicator
-		sourceIndicator := "\033[34m[PROJECT]\033[0m"
-		if isVendor {
-			sourceIndicator = "\033[33m[VENDOR]\033[0m"
-		}
-
-		rankTag := ""
-		switch f.Reachability {
-		case "HIGH":
-			rankTag = " \033[1;31m[HIGH]\033[0m"
-		case "INFO":
-			rankTag = " \033[90m[INFO]\033[0m"
-		}
-		// Only listed with --show-all: the code never runs during a request
-		if f.OutOfRequest != "" {
-			rankTag += fmt.Sprintf(" \033[90m[OUT OF REQUEST: %s]\033[0m", f.OutOfRequest)
-		}
-
-		// Baseline-exempt findings (--include-ignored) are shown dimmed and never annotated
-		if f.Ignored {
-			fmt.Printf("  %s \033[90m[IGNORED] %s\033[0m\n", sourceIndicator, f.Message)
-			fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
-			if f.IgnoreReason != "" {
-				fmt.Printf("  \033[90m🛡️  Baseline reason: %s\033[0m\n", f.IgnoreReason)
+		switch {
+		case f.Ignored:
+			r.printFinding(f, sourceIndicator)
+			continue
+		case f.Category == symbol.CategoryCache:
+			caches = append(caches, f)
+		case f.Category == symbol.CategoryNotReset:
+			if _, seen := notReset[f.ContextClass]; !seen {
+				notResetClasses = append(notResetClasses, f.ContextClass)
 			}
+			notReset[f.ContextClass] = append(notReset[f.ContextClass], f)
+		default:
+			r.printFinding(f, sourceIndicator)
+		}
+		r.annotate(f, relPath, isVendor)
+	}
+	for _, class := range notResetClasses {
+		printNotResetGroup(class, notReset[class], sourceIndicator)
+	}
+	if len(caches) > 0 {
+		printCaches(caches, sourceIndicator)
+	}
+}
+
+// printFinding prints one finding with its code line and hint.
+func (r *CLIReporter) printFinding(f symbol.Finding, sourceIndicator string) {
+	// Baseline-exempt findings (--include-ignored) are shown dimmed and never annotated
+	if f.Ignored {
+		fmt.Printf("  %s \033[90m[IGNORED] %s\033[0m\n", sourceIndicator, f.Message)
+		fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
+		if f.IgnoreReason != "" {
+			fmt.Printf("  \033[90m🛡️  Baseline reason: %s\033[0m\n", f.IgnoreReason)
+		}
+		return
+	}
+
+	fmt.Printf("  %s%s %s%s\033[0m\n", sourceIndicator, findingTags(f), severityColor(f), f.Message)
+	fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
+	if f.Remediation != "" {
+		fmt.Printf("  %s💡 Hint: %s\033[0m\n", "\033[36m", f.Remediation)
+	}
+}
+
+// printNotResetGroup prints in one block the properties of a resettable class that reset() forgets.
+func printNotResetGroup(class string, findings []symbol.Finding, sourceIndicator string) {
+	noun := "properties"
+	if len(findings) == 1 {
+		noun = "property"
+	}
+	fmt.Printf("  %s%s \033[33m⚠️  %s (resettable) — %d %s mutated but not reset in reset():\033[0m\n",
+		sourceIndicator, findingTags(findings[0]), class, len(findings), noun)
+	items := make([]string, 0, len(findings))
+	for _, f := range findings {
+		item := fmt.Sprintf("%s (line %d)", f.Property, f.Line)
+		if f.ContextMethod != "" {
+			item = fmt.Sprintf("%s (%s, line %d)", f.Property, f.ContextMethod, f.Line)
+		}
+		items = append(items, item)
+	}
+	for _, line := range wrapList(items, 96) {
+		fmt.Printf("      %s\n", line)
+	}
+	fmt.Printf("  \033[36m💡 Hint: Clear these properties in the reset() method.\033[0m\n")
+}
+
+// printCaches prints the keyed cache writes with their key, so the reviewer can tell whether one derives from the request.
+func printCaches(caches []symbol.Finding, sourceIndicator string) {
+	for _, f := range caches {
+		fmt.Printf("  %s%s \033[36m🗄️  Cache\033[0m  %s::$%s  key: %s\n", sourceIndicator, findingTags(f), f.ContextClass, f.Property, f.CacheKey)
+		fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
+	}
+	fmt.Printf("  \033[36m💡 Hint: Keyed caches are usually bounded (keyed by class, format or route). Check that no key derives from the request (URI, user, query): such a cache grows with every request.\033[0m\n")
+}
+
+// annotate prints the GitHub Actions annotation of a finding, one per finding even when the text output groups them.
+func (r *CLIReporter) annotate(f symbol.Finding, relPath string, isVendor bool) {
+	if !r.IsGitHub {
+		return
+	}
+	severity := "error"
+	if f.Severity == "WARNING" {
+		severity = "warning"
+	}
+	msg := fmt.Sprintf("[Igor] %s", f.Message)
+	if f.Remediation != "" {
+		msg += fmt.Sprintf(" %%0A 💡 Hint: %s", f.Remediation)
+	}
+	if isVendor {
+		msg += " %0A 💡 Hint: This is third-party code. If you can't fix it, consider setting a 'max_requests' limit in your Worker configuration to mitigate memory leaks. Determine whether the issue is simply a memory leak or the result of a critical data exchange between two requests."
+	} else {
+		msg += " %0A 💡 Hint: Since this is your code, you should refactor this service to be stateless, or clear its state between requests (Symfony ResetInterface, or a reset() called by an Octane request listener on Laravel)."
+	}
+	// Format: ::error file={name},line={line},col={col}::{message}
+	fmt.Printf("::%s file=%s,line=%d::%s\n", severity, relPath, f.Line, msg)
+}
+
+func severityColor(f symbol.Finding) string {
+	if f.Severity == "WARNING" {
+		return "\033[33m" // Yellow for Warning
+	}
+	return "\033[31m" // Red for Error
+}
+
+// findingTags returns the reachability and out-of-request tags shown before a finding.
+func findingTags(f symbol.Finding) string {
+	tags := ""
+	switch f.Reachability {
+	case "HIGH":
+		tags = " \033[1;31m[HIGH]\033[0m"
+	case "INFO":
+		tags = " \033[90m[INFO]\033[0m"
+	}
+	// Only listed with --show-all: the code never runs during a request
+	if f.OutOfRequest != "" {
+		tags += fmt.Sprintf(" \033[90m[OUT OF REQUEST: %s]\033[0m", f.OutOfRequest)
+	}
+	return tags
+}
+
+// wrapList joins items with commas into lines of at most width characters.
+func wrapList(items []string, width int) []string {
+	var lines []string
+	current := ""
+	for i, item := range items {
+		if i < len(items)-1 {
+			item += ","
+		}
+		if current != "" && len(current)+1+len(item) > width {
+			lines = append(lines, current)
+			current = item
 			continue
 		}
-
-		// Standard CLI output
-		fmt.Printf("  %s%s %s%s\033[0m\n", sourceIndicator, rankTag, color, f.Message)
-		fmt.Printf("  \033[90m%d | %s\033[0m\n", f.Line, strings.TrimSpace(f.Code))
-
-		if f.Remediation != "" {
-			fmt.Printf("  %s💡 Hint: %s\033[0m\n", "\033[36m", f.Remediation)
+		if current != "" {
+			current += " "
 		}
-
-		// GitHub Action Annotation (Keeps all hints)
-		if r.IsGitHub {
-			msg := fmt.Sprintf("[Igor] %s", f.Message)
-			if f.Remediation != "" {
-				msg += fmt.Sprintf(" %%0A 💡 Hint: %s", f.Remediation)
-			}
-			if isVendor {
-				msg += " %0A 💡 Hint: This is third-party code. If you can't fix it, consider setting a 'max_requests' limit in your Worker configuration to mitigate memory leaks. Determine whether the issue is simply a memory leak or the result of a critical data exchange between two requests."
-			} else {
-				msg += " %0A 💡 Hint: Since this is your code, you should refactor this service to be stateless, or clear its state between requests (Symfony ResetInterface, or a reset() called by an Octane request listener on Laravel)."
-			}
-			// Format: ::error file={name},line={line},col={col}::{message}
-			fmt.Printf("::%s file=%s,line=%d::%s\n", severity, relPath, f.Line, msg)
-		}
+		current += item
 	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
 }
 
 // PrintFolded prints how many findings were left out because their code never runs during a request.
