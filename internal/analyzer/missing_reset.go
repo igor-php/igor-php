@@ -11,8 +11,8 @@ import (
 // requests, but that the container never resets: it implements ResetInterface, or has a public
 // reset() or clear() method rewriting properties that its other methods mutate, and none of its
 // definitions (nor the decorator that took over their tags) is tagged kernel.reset.
-func (v *PHPVisitor) checkMissingResetTag(n *sitter.Node, fullName, classHeader string) {
-	if v.engine == nil || !v.engine.MissingResetTag(fullName) {
+func (v *PHPVisitor) checkMissingResetTag(n *sitter.Node, fullName string) {
+	if v.isWorkerSafeClass || v.engine == nil || !v.engine.MissingResetTag(fullName) {
 		return
 	}
 	body := v.getClassBody(n)
@@ -20,41 +20,7 @@ func (v *PHPVisitor) checkMissingResetTag(n *sitter.Node, fullName, classHeader 
 		return
 	}
 
-	cleared := make(map[string]map[string]bool) // reset method (lowercase) => properties it rewrites
-	written := make(map[string]bool)            // properties mutated by the other methods
-	resetMethods := make(map[string]string)     // lowercase => declared name
-	for i := uint(0); i < body.NamedChildCount(); i++ {
-		member := body.NamedChild(i)
-		if member.Kind() != "method_declaration" {
-			continue
-		}
-		nameNode := member.ChildByFieldName("name")
-		if nameNode == nil {
-			continue
-		}
-		name := v.getContent(nameNode)
-		lower := strings.ToLower(name)
-		switch {
-		case (lower == "reset" || lower == "clear") && v.isPublicMethod(member):
-			resetMethods[lower] = name
-			cleared[lower] = make(map[string]bool)
-			v.collectThisWrites(member, cleared[lower])
-		case lower != "__construct":
-			v.collectThisWrites(member, written)
-		}
-	}
-
-	method := ""
-	if implementsReset := strings.Contains(classHeader, "resetinterface"); implementsReset && resetMethods["reset"] != "" {
-		method = resetMethods["reset"]
-	} else {
-		for _, candidate := range []string{"reset", "clear"} {
-			if resetMethods[candidate] != "" && intersects(cleared[candidate], written) {
-				method = resetMethods[candidate]
-				break
-			}
-		}
-	}
+	method := v.unwiredResetMethod(n, body)
 	if method == "" {
 		return
 	}
@@ -70,19 +36,67 @@ func (v *PHPVisitor) checkMissingResetTag(n *sitter.Node, fullName, classHeader 
 		"ERROR")
 }
 
+// unwiredResetMethod returns the reset() or clear() method that shows the intent to reset the class,
+// or "" when it has none.
+func (v *PHPVisitor) unwiredResetMethod(class, body *sitter.Node) string {
+	cleared := make(map[string]map[string]bool) // reset method (lowercase) => properties it rewrites
+	written := make(map[string]bool)            // properties mutated by the other methods
+	resetMethods := make(map[string]string)     // lowercase => declared name
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		member := body.NamedChild(i)
+		nameNode := member.ChildByFieldName("name")
+		if member.Kind() != "method_declaration" || nameNode == nil {
+			continue
+		}
+		name := v.getContent(nameNode)
+		lower := strings.ToLower(name)
+		switch {
+		case lower == "reset" || lower == "clear":
+			// services_resetter calls the method without arguments
+			if v.isPublicMethod(member) && callableWithoutArguments(member) {
+				resetMethods[lower] = name
+				cleared[lower] = make(map[string]bool)
+				v.collectThisWrites(member, cleared[lower])
+			}
+		case lower != "__construct" && !v.hasAttribute(member, "WorkerSafe"):
+			v.collectThisWrites(member, written)
+		}
+	}
+	// The properties excluded from the mutation checks do not need a reset either
+	for prop := range written {
+		if v.workerSafeProps[prop] || v.readonlyProps[prop] {
+			delete(written, prop)
+		}
+	}
+
+	if v.implementsResetInterface(class) && resetMethods["reset"] != "" {
+		return resetMethods["reset"]
+	}
+	for _, candidate := range []string{"reset", "clear"} {
+		if resetMethods[candidate] != "" && intersects(cleared[candidate], written) {
+			return resetMethods[candidate]
+		}
+	}
+	return ""
+}
+
 // collectThisWrites records the $this properties a method assigns, appends to or increments.
+// Nested classes and functions are skipped: $this is another object there, or none. So are the
+// lines marked @igor-ignore.
 func (v *PHPVisitor) collectThisWrites(n *sitter.Node, props map[string]bool) {
 	if n == nil {
 		return
 	}
 	switch n.Kind() {
+	case "anonymous_class", "class_declaration", "function_definition":
+		return
 	case "assignment_expression", "augmented_assignment_expression":
-		if prop, ok := v.thisWriteTarget(n.ChildByFieldName("left")); ok {
+		if prop, ok := v.thisWriteTarget(n.ChildByFieldName("left")); ok && !v.isIgnoredLine(n) {
 			props[prop] = true
 		}
 	case "update_expression":
 		for i := uint(0); i < n.NamedChildCount(); i++ {
-			if prop, ok := v.thisWriteTarget(n.NamedChild(i)); ok {
+			if prop, ok := v.thisWriteTarget(n.NamedChild(i)); ok && !v.isIgnoredLine(n) {
 				props[prop] = true
 			}
 		}
@@ -119,6 +133,46 @@ func (v *PHPVisitor) isPublicMethod(method *sitter.Node) bool {
 		}
 	}
 	return true
+}
+
+// callableWithoutArguments reports whether every parameter of a method has a default value.
+func callableWithoutArguments(method *sitter.Node) bool {
+	params := method.ChildByFieldName("parameters")
+	if params == nil {
+		return true
+	}
+	for i := uint(0); i < params.NamedChildCount(); i++ {
+		param := params.NamedChild(i)
+		switch param.Kind() {
+		case "simple_parameter", "property_promotion_parameter":
+			if param.ChildByFieldName("default_value") == nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// resetInterface is the contract services_resetter calls when a service is tagged kernel.reset.
+const resetInterface = `Symfony\Contracts\Service\ResetInterface`
+
+// implementsResetInterface resolves the interfaces a class implements through the file imports,
+// so that an alias (use ...\ResetInterface as ResetContract) does not hide the contract.
+func (v *PHPVisitor) implementsResetInterface(class *sitter.Node) bool {
+	for i := uint(0); i < class.NamedChildCount(); i++ {
+		clause := class.NamedChild(i)
+		if clause.Kind() != "class_interface_clause" {
+			continue
+		}
+		for j := uint(0); j < clause.NamedChildCount(); j++ {
+			name := v.getContent(clause.NamedChild(j))
+			resolved := v.resolveFQCN(name)
+			if strings.EqualFold(resolved, resetInterface) || strings.EqualFold(strings.TrimPrefix(name, `\`), "ResetInterface") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func intersects(a, b map[string]bool) bool {

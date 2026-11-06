@@ -98,6 +98,7 @@ namespace Symfony\Component\DependencyInjection {
         public function isPublic(): bool { return $this->public; }
         public function isSynthetic(): bool { return $this->synthetic; }
         public function hasTag(string $name): bool { return isset($this->tags[$name]); }
+        public function getTag(string $name): array { return $this->tags[$name] ?? []; }
         public function getArguments(): array { return $this->arguments; }
         public function getMethodCalls(): array { return $this->methodCalls; }
         public function getProperties(): array { return $this->properties; }
@@ -193,6 +194,13 @@ namespace {
     $taggedDef->tags['kernel.reset'] = [['method' => 'reset']];
     $cb->definitions['app.tagged_collector'] = $taggedDef;
 
+    // A decorator carries the reset tag of the service it decorates, renamed by decoration_inner_name
+    $cb->definitions['app.original'] = new \Symfony\Component\DependencyInjection\Definition('App\Service\DecoratedCollector');
+    $decoratorDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\CollectorDecorator');
+    $decoratorDef->tags['kernel.reset'] = [['method' => 'reset']];
+    $decoratorDef->tags['container.decorator'] = [['id' => 'app.collector', 'inner' => 'app.original']];
+    $cb->definitions['app.collector'] = $decoratorDef;
+
     // Private interface aliases exist before the removing passes...
     $resettableDef = new \Symfony\Component\DependencyInjection\Definition('App\Service\ResettableCache');
     $cb->definitions['App\Service\ResettableCache'] = $resettableDef;
@@ -239,6 +247,14 @@ namespace {
     }
     if (($data['definitions']['app.tagged_collector']['resettable'] ?? null) !== true) {
         fwrite(STDERR, "A service tagged kernel.reset must be resettable\n");
+        exit(1);
+    }
+    if (($data['definitions']['app.collector']['decorates'] ?? null) !== 'app.original') {
+        fwrite(STDERR, "A decorator must export the id of the service it decorates\n");
+        exit(1);
+    }
+    if (isset($data['definitions']['app.tagged_collector']['decorates'])) {
+        fwrite(STDERR, "A service that decorates nothing must not export decorates\n");
         exit(1);
     }
     if (isset($data['definitions']['App\Service\ExcludedService'])) {

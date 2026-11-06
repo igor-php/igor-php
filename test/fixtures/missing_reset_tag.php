@@ -2,7 +2,9 @@
 
 namespace App\Service;
 
+use Igor\WorkerSafe;
 use Symfony\Contracts\Service\ResetInterface;
+use Symfony\Contracts\Service\ResetInterface as ResetContract;
 
 // Reported: clear() empties what log() fills, but nothing calls it
 class BufferingLogger
@@ -102,5 +104,74 @@ class WiredLogger
     public function clear(): void
     {
         $this->logs = [];
+    }
+}
+
+// Not reported: the only property clear() rewrites is marked worker-safe
+class SafeCounter
+{
+    #[WorkerSafe]
+    private int $count = 0;
+
+    public function increment(): void
+    {
+        $this->count++;
+    }
+
+    public function clear(): void
+    {
+        $this->count = 0;
+    }
+}
+
+// Not reported: clear() needs an argument, so services_resetter cannot call it
+class KeyedStore
+{
+    private array $items = [];
+
+    public function set(string $key, mixed $value): void
+    {
+        $this->items[$key] = $value;
+    }
+
+    public function clear(string $key): void
+    {
+        $this->items[$key] = null;
+    }
+}
+
+// Not reported: the writes of make() belong to the anonymous class, not to the service
+class ItemsFactory
+{
+    private array $items = [];
+
+    public function make(): object
+    {
+        return new class {
+            private array $items = [];
+
+            public function add(string $item): void
+            {
+                $this->items[] = $item;
+            }
+        };
+    }
+
+    public function clear(): void
+    {
+        $this->items = [];
+    }
+}
+
+// Reported: implements ResetInterface through an alias and delegates its reset
+class AliasedReset implements ResetContract
+{
+    public function __construct(private object $pool)
+    {
+    }
+
+    public function reset(): void
+    {
+        $this->pool->reset();
     }
 }

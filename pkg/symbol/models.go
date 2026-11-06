@@ -51,6 +51,8 @@ type SymfonyService struct {
 	Arguments  []any  `json:"arguments"`
 	Resettable bool   `json:"resettable"`
 	Tags       any    `json:"tags"`
+	// Decorates is the id of the service this decorator decorates, from its container.decorator tag
+	Decorates string `json:"decorates,omitempty"`
 }
 
 // HasTag checks if this service has a specific tag in any supported format.

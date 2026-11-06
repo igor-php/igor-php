@@ -75,6 +75,13 @@ class IgorDiscoveryPass implements CompilerPassInterface
             'resettable' => $isResettable,
             'arguments' => $this->extractDependencies($definition, $container),
         ];
+
+        // DecoratorServicePass moves kernel.reset to the outermost decorator and names the service it
+        // decorates in its container.decorator tag, whatever decoration_inner_name renamed it to
+        $decorates = $definition->hasTag('container.decorator') ? ($definition->getTag('container.decorator')[0]['inner'] ?? null) : null;
+        if (is_string($decorates)) {
+            $serviceMap['definitions'][$id]['decorates'] = $decorates;
+        }
     }
 
     private function collectInlinedDefinitions(Definition $definition, ContainerBuilder $container, array &$serviceMap, bool $parentShared): void

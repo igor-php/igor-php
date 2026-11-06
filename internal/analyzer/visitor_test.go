@@ -1963,7 +1963,7 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 	defer tree.Close()
 
 	unreset := map[string]bool{}
-	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup"} {
+	for _, class := range []string{"BufferingLogger", "SkolemConverter", "ConfiguredRegistry", "CacheFacade", "PrivateCleanup", "SafeCounter", "KeyedStore", "ItemsFactory", "AliasedReset"} {
 		unreset["App\\Service\\"+class] = true
 	}
 	v := NewVisitor(content, &mockEngine{unresetServices: unreset})
@@ -1978,8 +1978,9 @@ func TestPHPVisitor_MissingResetTag(t *testing.T) {
 	hint := "Tag the service so services_resetter calls it after each request: ->tag('kernel.reset', ['method' => '%s', 'on_invalid' => 'ignore']). " +
 		"on_invalid: ignore keeps the container valid when a decorator replaces the service, since the resetter calls the outermost one."
 	want := []string{
-		"ERROR 8 BufferingLogger has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
-		"ERROR 24 SkolemConverter has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+		"ERROR 10 BufferingLogger has clear() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "clear"),
+		"ERROR 26 SkolemConverter has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
+		"ERROR 167 AliasedReset has reset() but its service is never reset between requests (missing kernel.reset tag). | " + fmt.Sprintf(hint, "reset"),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("missing kernel.reset findings:\n got: %q\nwant: %q", got, want)

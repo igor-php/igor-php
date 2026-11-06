@@ -591,9 +591,15 @@ func (a *Auditor) MissingResetTag(className string) bool {
 	return found
 }
 
-// isResetByDecorator reports whether a decorated service ("<decorator>.inner") is reset through
-// one of its decorators.
+// isResetByDecorator reports whether a decorated service is reset through its decorator:
+// DecoratorServicePass moves kernel.reset to the outermost decorator, which names the service
+// it decorates. Maps that predate that export are matched through the "<decorator>.inner" ids.
 func (a *Auditor) isResetByDecorator(id string) bool {
+	for _, def := range a.Symfony.Container.Definitions {
+		if def.Decorates == id && def.IsResettable() {
+			return true
+		}
+	}
 	for strings.HasSuffix(id, ".inner") {
 		id = strings.TrimSuffix(id, ".inner")
 		if def, exists := a.Symfony.Container.Definitions[id]; exists && def.IsResettable() {

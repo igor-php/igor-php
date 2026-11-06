@@ -454,20 +454,24 @@ func TestAuditor_MissingResetTag(t *testing.T) {
 		"app.outer.inner.inner": {Class: `App\DeepDecorated`, Shared: true},
 		"app.plain.inner":       {Class: `App\PlainDecorated`, Shared: true},
 		"app.plain":             {Class: `App\PlainDecorator`, Shared: true},
+		// decoration_inner_name renamed the decorated service: only the decorator tag names it
+		"app.original":  {Class: `App\RenamedDecorated`, Shared: true},
+		"app.collector": {Class: `App\CollectorDecorator`, Shared: true, Resettable: true, Decorates: "app.original"},
 	}
 	a := newAuditor(FrameworkSymfony, defs)
 	tests := map[string]bool{
-		`App\Logger`:         true,
-		`\App\Logger`:        true,
-		`App\Tagged`:         false,
-		`App\Mapped`:         false,
-		`App\Prototype`:      false,
-		`App\Excluded`:       false,
-		`App\Twice`:          false, // one of its services is reset
-		`App\Decorated`:      false, // its decorator took over the kernel.reset tag
-		`App\DeepDecorated`:  false,
-		`App\PlainDecorated`: true,
-		`App\Unknown`:        false,
+		`App\Logger`:           true,
+		`\App\Logger`:          true,
+		`App\Tagged`:           false,
+		`App\Mapped`:           false,
+		`App\Prototype`:        false,
+		`App\Excluded`:         false,
+		`App\Twice`:            false, // one of its services is reset
+		`App\Decorated`:        false, // its decorator took over the kernel.reset tag
+		`App\DeepDecorated`:    false,
+		`App\PlainDecorated`:   true,
+		`App\RenamedDecorated`: false,
+		`App\Unknown`:          false,
 	}
 	for class, want := range tests {
 		if got := a.MissingResetTag(class); got != want {
