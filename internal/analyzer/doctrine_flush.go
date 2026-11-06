@@ -123,25 +123,31 @@ func isCollectEvent(lowerName string) bool {
 }
 
 // clearedByEvent reports whether the event itself leaves nothing behind for a failed commit: it
-// starts by clearing the property on every path, or clears it in a finally block.
+// starts by clearing the property on every path, or clears it on every path of a finally block.
 func clearedByEvent(writes []flushWrite, method *sitter.Node) bool {
-	if writes[0].clear && unconditional(writes[0].node, method) {
+	if writes[0].clear && unconditional(writes[0].node, method.ChildByFieldName("body")) {
 		return true
 	}
 	for _, w := range writes {
-		if w.clear && inFinally(w.node, method) {
+		if !w.clear {
+			continue
+		}
+		// A clear in finally must run whenever the finally block does: no condition inside it either
+		if finally := enclosingFinally(w.node, method); finally != nil && unconditional(w.node, finally) {
 			return true
 		}
 	}
 	return false
 }
 
-// unconditional reports whether a statement of a method runs on every path: only plain blocks
-// separate it from the method body, no condition, loop or catch.
-func unconditional(n, method *sitter.Node) bool {
-	body := method.ChildByFieldName("body")
+// unconditional reports whether a statement runs whenever the enclosing scope does: only plain
+// blocks separate it from the scope, no condition, loop or catch.
+func unconditional(n, scope *sitter.Node) bool {
+	if scope == nil {
+		return false
+	}
 	for p := n.Parent(); p != nil; p = p.Parent() {
-		if body != nil && sameNode(p, body) {
+		if sameNode(p, scope) {
 			return true
 		}
 		switch p.Kind() {
@@ -153,13 +159,14 @@ func unconditional(n, method *sitter.Node) bool {
 	return false
 }
 
-func inFinally(n, method *sitter.Node) bool {
+// enclosingFinally returns the innermost finally clause of the method that holds n, or nil.
+func enclosingFinally(n, method *sitter.Node) *sitter.Node {
 	for p := n.Parent(); p != nil && !sameNode(p, method); p = p.Parent() {
 		if p.Kind() == "finally_clause" {
-			return true
+			return p
 		}
 	}
-	return false
+	return nil
 }
 
 func firstCollectingWrite(writes []flushWrite) *flushWrite {

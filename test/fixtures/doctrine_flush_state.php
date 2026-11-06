@@ -234,3 +234,26 @@ class HelperListener
         $this->pending = [];
     }
 }
+
+// Reported: the finally only clears the collection when $discard is set
+class ConditionalFinallyListener
+{
+    private array $pending = [];
+    private bool $discard = false;
+
+    public function onFlush(OnFlushEventArgs $args): void
+    {
+        try {
+            $this->pending[] = $args; // reported
+        } finally {
+            if ($this->discard) {
+                $this->pending = [];
+            }
+        }
+    }
+
+    public function postFlush(): void
+    {
+        $this->pending = [];
+    }
+}
