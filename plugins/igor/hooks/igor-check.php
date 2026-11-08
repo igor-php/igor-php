@@ -262,7 +262,9 @@ function formatContext(array $findings, string $relativePath): string
 
 function relativePath(string $file, string $projectDir): string
 {
-    $projectDir = rtrim($projectDir, '/\\');
+    // Windows paths use backslashes: compare and report with forward slashes.
+    $file = str_replace('\\', '/', $file);
+    $projectDir = rtrim(str_replace('\\', '/', $projectDir), '/');
     if ($projectDir !== '' && str_starts_with($file, $projectDir.'/')) {
         return substr($file, strlen($projectDir) + 1);
     }

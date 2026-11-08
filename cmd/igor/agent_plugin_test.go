@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -31,7 +32,8 @@ func frontmatter(t *testing.T, path string) map[string]string {
 	if err != nil {
 		t.Fatalf("cannot read %s: %v", path, err)
 	}
-	parts := strings.SplitN(string(data), "---\n", 3)
+	// Git may check the file out with CRLF line endings (Windows).
+	parts := strings.SplitN(strings.ReplaceAll(string(data), "\r\n", "\n"), "---\n", 3)
 	if len(parts) < 3 || parts[0] != "" {
 		t.Fatalf("%s has no frontmatter", path)
 	}
@@ -132,13 +134,18 @@ func TestAgentPluginCoversEveryRule(t *testing.T) {
 	}
 }
 
-// runIgorCheckHook runs the PostToolUse hook with a fake igor-php that prints the given audit,
-// and returns the context the hook hands to Claude ("" when it stays silent).
-func runIgorCheckHook(t *testing.T, project string, payload map[string]any, audit string, env ...string) string {
+// runIgorCheckHook runs the PostToolUse hook with a fake igor-php (a PHP script, so it runs on every OS)
+// that prints the given audit, only when called with --no-agent if noAgentOnly is set. It returns the
+// context the hook hands to Claude ("" when it stays silent).
+func runIgorCheckHook(t *testing.T, project string, payload map[string]any, audit string, noAgentOnly bool, env ...string) string {
 	t.Helper()
-	fake := filepath.Join(t.TempDir(), "igor")
-	script := "#!/bin/sh\n" + audit + "\n"
-	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+	fake := filepath.Join(t.TempDir(), "igor-fake.php")
+	script := "<?php\n"
+	if noAgentOnly {
+		script += "if (!in_array('--no-agent', $argv, true)) { fwrite(STDERR, 'could not load symfony container'); exit(1); }\n"
+	}
+	script += "echo base64_decode('" + base64.StdEncoding.EncodeToString([]byte(audit)) + "');\n"
+	if err := os.WriteFile(fake, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,14 +203,14 @@ func TestAgentPluginHook(t *testing.T) {
 	}
 
 	project, service, vendorFile, source := hookProject(t)
-	audit := `cat <<'JSON'
-[{"file_path": "` + service + `", "findings": [
-  {"message": "Mutation of state 'lines' in Cart::add()", "remediation": "State mutations persist across requests in Worker mode.", "severity": "ERROR", "line": 4},
-  {"message": "Baselined finding", "remediation": "", "severity": "ERROR", "line": 4, "ignored": true}
-]}]
-JSON`
-	// The fake igor only answers with --no-agent, like a Symfony project whose cache is not warmed up.
-	needsNoAgent := "case \"$*\" in *--no-agent*) ;; *) echo 'could not load symfony container' >&2; exit 1;; esac\n" + audit
+	auditJSON, err := json.Marshal([]map[string]any{{"file_path": service, "findings": []map[string]any{
+		{"message": "Mutation of state 'lines' in Cart::add()", "remediation": "State mutations persist across requests in Worker mode.", "severity": "ERROR", "line": 4},
+		{"message": "Baselined finding", "remediation": "", "severity": "ERROR", "line": 4, "ignored": true},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := string(auditJSON)
 	edit := func(file, newString string) map[string]any {
 		return map[string]any{"cwd": project, "tool_name": "Edit", "tool_input": map[string]any{"file_path": file, "old_string": "x", "new_string": newString}}
 	}
@@ -214,23 +221,23 @@ JSON`
 		name    string
 		watch   string // value of IGOR_WATCH; empty: the .claude/igor-watch file decides
 		payload map[string]any
-		audit   string
+		noAgent bool   // the fake igor only answers with --no-agent, like a Symfony project whose cache is not warmed up
 		want    string // expected substring of the context; empty: the hook stays silent
 	}{
-		{"reports the findings on the edited lines", "", edit(service, leakingLine), audit, "1 finding(s) on the lines you just changed in src/Service/Cart.php:\n- " + report},
-		{"silent when the edited lines have no finding", "", edit(service, "return count($this->lines);"), audit, ""},
-		{"a written file counts as fully changed", "", map[string]any{"cwd": project, "tool_name": "Write", "tool_input": map[string]any{"file_path": service, "content": source}}, audit, report},
+		{"reports the findings on the edited lines", "", edit(service, leakingLine), false, "1 finding(s) on the lines you just changed in src/Service/Cart.php:\n- " + report},
+		{"silent when the edited lines have no finding", "", edit(service, "return count($this->lines);"), false, ""},
+		{"a written file counts as fully changed", "", map[string]any{"cwd": project, "tool_name": "Write", "tool_input": map[string]any{"file_path": service, "content": source}}, false, report},
 		{"MultiEdit reports the lines of every edit", "", map[string]any{"cwd": project, "tool_name": "MultiEdit", "tool_input": map[string]any{"file_path": service, "edits": []map[string]string{
 			{"old_string": "a", "new_string": "return count($this->lines);"},
 			{"old_string": "b", "new_string": leakingLine},
-		}}}, audit, report},
-		{"falls back to --no-agent when the deep audit cannot start", "", edit(service, leakingLine), needsNoAgent, report},
-		{"skips vendor files", "", edit(vendorFile, leakingLine), audit, ""},
-		{"skips non-PHP files", "", edit(filepath.Join(project, "README.md"), leakingLine), audit, ""},
-		{"IGOR_WATCH=0 overrides the watch file", "0", edit(service, leakingLine), audit, ""},
+		}}}, false, report},
+		{"falls back to --no-agent when the deep audit cannot start", "", edit(service, leakingLine), true, report},
+		{"skips vendor files", "", edit(vendorFile, leakingLine), false, ""},
+		{"skips non-PHP files", "", edit(filepath.Join(project, "README.md"), leakingLine), false, ""},
+		{"IGOR_WATCH=0 overrides the watch file", "0", edit(service, leakingLine), false, ""},
 	}
 
-	if got := runIgorCheckHook(t, project, edit(service, leakingLine), audit); got != "" {
+	if got := runIgorCheckHook(t, project, edit(service, leakingLine), audit, false); got != "" {
 		t.Fatalf("the hook must stay silent while the watch is off, got %q", got)
 	}
 	if err := os.MkdirAll(filepath.Join(project, ".claude"), 0o755); err != nil {
@@ -242,7 +249,7 @@ JSON`
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := runIgorCheckHook(t, project, tc.payload, tc.audit, "IGOR_WATCH="+tc.watch)
+			got := runIgorCheckHook(t, project, tc.payload, audit, tc.noAgent, "IGOR_WATCH="+tc.watch)
 			if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
 				t.Fatalf("want context containing %q, got %q", tc.want, got)
 			}
