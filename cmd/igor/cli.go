@@ -47,6 +47,7 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		fmt.Fprintf(os.Stderr, "  %s review <json_file>       Review an audit JSON export with an LLM\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s explain [directory] [filter] Display semantic diagnostics explanation matrix for services\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s rule [rule_id]           Explain a rule (its rule_id in --output json) and how to fix it\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s mcp [directory]          Run the MCP server (stdio) for AI agents\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s debug-external-baseline [directory] List all discovered vendor baselines in the project\n\n", binName)
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
@@ -130,6 +131,8 @@ func dispatchSubcommand(parsedArgs []string, configPath string) (bool, error) {
 		return true, handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
 	case "rule":
 		return true, handleRuleSubcommand(parsedArgs, os.Stdout)
+	case "mcp":
+		return true, handleMCPSubcommand(parsedArgs, configPath)
 	}
 	return false, nil
 }
