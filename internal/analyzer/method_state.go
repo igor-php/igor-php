@@ -120,13 +120,22 @@ type stateSummarizer struct {
 	params map[string]int
 	// self are local variables holding $this itself ($self = $this): calls on them are self calls.
 	self map[string]bool
+	// aliases are local variables holding a parameter, or a collection it was stored in
+	// ($items->push($index)), with the indexes of those parameters.
+	aliases map[string][]int
+	// containers are local variables created as a collection (collect(), new \ArrayObject(), []):
+	// storing an object in them does not change it.
+	containers map[string]bool
 }
 
 // summarizeMethodState walks a method declaration. It errs on the side of Mutates: anything
 // it cannot follow (dynamic calls, references, objects reached from $this through a local
 // variable) counts as a mutation.
 func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
-	s := &stateSummarizer{v: v, tainted: map[string]bool{}, params: map[string]int{}, self: map[string]bool{}}
+	s := &stateSummarizer{
+		v: v, tainted: map[string]bool{}, params: map[string]int{}, self: map[string]bool{},
+		aliases: map[string][]int{}, containers: map[string]bool{},
+	}
 	s.st.VariadicFrom = -1
 	if list := method.ChildByFieldName("parameters"); list != nil {
 		index := 0
@@ -220,17 +229,86 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 		if s.holdsOwnState(right) {
 			s.tainted[name] = true
 		}
+		if s.isContainerCreation(right) {
+			s.containers[name] = true
+		}
+		// $local = $index: a change through $local is a change to the parameter
+		s.alias(name, s.paramIndexes(right))
 	} else {
 		s.mutateParam(rootVariable(v, left))
 	}
 	return false
 }
 
-// mutateParam records a change to the parameter named name, if it is one.
+// mutateParam records a change to the parameter named name, or to those a local holds.
 func (s *stateSummarizer) mutateParam(name string) {
 	if index, ok := s.params[name]; ok {
 		s.mutateParamIndex(index)
 	}
+	for _, index := range s.aliases[name] {
+		s.mutateParamIndex(index)
+	}
+}
+
+// paramIndexes gives the parameters a value holds: a parameter or an object reached from one, or
+// a local holding some.
+func (s *stateSummarizer) paramIndexes(n *sitter.Node) []int {
+	if n != nil && n.Kind() == "variadic_unpacking" {
+		n = lastNamedChild(n)
+	}
+	root := s.paramRoot(n)
+	if root == "" {
+		return nil
+	}
+	out := append([]int(nil), s.aliases[root]...)
+	if index, ok := s.params[root]; ok {
+		out = append(out, index)
+	}
+	return out
+}
+
+// alias records that the local name holds the given parameters.
+func (s *stateSummarizer) alias(name string, indexes []int) {
+	for _, index := range indexes {
+		if _, ok := s.params[name]; ok {
+			return
+		}
+		s.aliases[name] = append(s.aliases[name], index)
+	}
+}
+
+// containerClasses are the classes whose instances only store what they are given.
+var containerClasses = map[string]bool{
+	"arrayobject": true, "splobjectstorage": true, "splqueue": true, "splstack": true,
+	"spldoublylinkedlist": true, "splfixedarray": true, "arraycollection": true, "collection": true,
+}
+
+// isContainerCreation reports a value that is a new collection: collect(...), an array literal,
+// or a new \ArrayObject, \SplObjectStorage or collection class.
+func (s *stateSummarizer) isContainerCreation(n *sitter.Node) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Kind() {
+	case "array_creation_expression":
+		return true
+	case "function_call_expression":
+		fn := n.ChildByFieldName("function")
+		return fn != nil && strings.EqualFold(strings.TrimPrefix(s.v.getContent(fn), "\\"), "collect")
+	case "object_creation_expression":
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			c := n.NamedChild(i)
+			if c.Kind() != "name" && c.Kind() != "qualified_name" {
+				continue
+			}
+			class := strings.ToLower(s.v.getContent(c))
+			if j := strings.LastIndex(class, "\\"); j >= 0 {
+				class = class[j+1:]
+			}
+			return containerClasses[class] || strings.HasSuffix(class, "collection")
+		}
+	}
+	return false
 }
 
 // mutateParamIndex records a change to the parameter at index.
@@ -301,11 +379,8 @@ func (s *stateSummarizer) callArgs(call *sitter.Node) CallArgs {
 		// A parameter, or an object reached from one ($holder->index): a change made there by
 		// the callee is a change to what the caller was given
 		param := -1
-		if value != nil && value.Kind() == "variadic_unpacking" {
-			value = lastNamedChild(value)
-		}
-		if index, ok := s.params[s.paramRoot(value)]; ok {
-			param = index
+		if indexes := s.paramIndexes(value); len(indexes) > 0 {
+			param = indexes[0]
 		}
 		out.Params = append(out.Params, param)
 	}
@@ -367,25 +442,27 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 		return
 	}
 	if mutator {
-		s.localCall(obj, method, args)
+		s.localCall(n, obj, method, args)
 	}
 }
 
 // localCall handles a mutator-named call on a receiver the summary does not follow: a
 // parameter, a local variable or a longer chain.
-func (s *stateSummarizer) localCall(obj *sitter.Node, method string, args CallArgs) {
+func (s *stateSummarizer) localCall(call, obj *sitter.Node, method string, args CallArgs) {
 	v, st := s.v, &s.st
 	root := rootVariable(v, obj)
 	_, onParam := s.params[root]
-	s.mutateParam(root)
-	if storageMethods[strings.ToLower(method)] && !onParam && !s.holdsOwnState(obj) {
+	onParam = onParam || len(s.aliases[root]) > 0
+	if s.containers[root] && obj.Kind() == "variable_name" && storageMethods[strings.ToLower(method)] {
 		// $items = collect([]); $items->push($index): storing an object does not change it, but
-		// the local now holds what it was given
-		if root != "" && len(args.Shared) > 0 {
+		// the collection now holds what it was given, and a change through it counts
+		if len(args.Shared) > 0 {
 			s.tainted[root] = true
 		}
+		s.storeArgs(call, root)
 		return
 	}
+	s.mutateParam(root)
 	// A mutating call on an object reached from $this through a longer chain or a local
 	// variable, or a local given the object's own state ($helper->rename($this->index)): the
 	// summary cannot tell whose state it changes. A helper's result (session()->forget($this->key))
@@ -401,6 +478,17 @@ func (s *stateSummarizer) localCall(obj *sitter.Node, method string, args CallAr
 		if param >= 0 && !onParam {
 			s.mutateParamIndex(param)
 		}
+	}
+}
+
+// storeArgs links a collection to the parameters stored in it.
+func (s *stateSummarizer) storeArgs(call *sitter.Node, root string) {
+	args := call.ChildByFieldName("arguments")
+	if args == nil {
+		return
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		s.alias(root, s.paramIndexes(lastNamedChild(args.NamedChild(i))))
 	}
 }
 

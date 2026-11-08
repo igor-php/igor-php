@@ -299,6 +299,39 @@ class IndexCollector
     }
 }
 
+class NameSetter
+{
+    public function set(Index $index): void
+    {
+        $index->setName('renamed');
+    }
+}
+
+class LocalSetHelper
+{
+    public function setWithHelper(Index $index): void
+    {
+        $helper = new NameSetter();
+        $helper->set($index);
+    }
+}
+
+class StoredIndexRenamer
+{
+    public function setFirstName(Index $index): void
+    {
+        $items = collect([]);
+        $items->push($index);
+        $items->first()->setName('renamed');
+    }
+
+    public function setAliasName(Index $index): void
+    {
+        $alias = $index;
+        $alias->setName('renamed');
+    }
+}
+
 class EncodingReader
 {
     public function setEncodingCheck(): string
@@ -338,6 +371,8 @@ final class StatelessCallsController
         private FactoryIndexRenamer $factoryRenamer,
         private IndexFactory $indexFactory,
         private IndexCollector $indexCollector,
+        private LocalSetHelper $localSetHelper,
+        private StoredIndexRenamer $storedRenamer,
     ) {
     }
 
@@ -474,5 +509,20 @@ final class StatelessCallsController
     public function collectSharedIndex(): void
     {
         $this->indexCollector->setItems($this->index);
+    }
+
+    public function setSharedIndexWithHelper(): void
+    {
+        $this->localSetHelper->setWithHelper($this->index);
+    }
+
+    public function renameStoredSharedIndex(): void
+    {
+        $this->storedRenamer->setFirstName($this->index);
+    }
+
+    public function renameAliasedSharedIndex(): void
+    {
+        $this->storedRenamer->setAliasName($this->index);
     }
 }
