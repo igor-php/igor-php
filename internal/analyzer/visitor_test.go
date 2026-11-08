@@ -2345,3 +2345,38 @@ func TestPHPVisitor_UnsafeStateRestore(t *testing.T) {
 		}
 	}
 }
+
+func TestPHPVisitor_FreshLocalsAndClosureStatics(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "test", "fixtures", "fresh_locals_and_closure_statics.php"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	p := sitter.NewParser()
+	_ = p.SetLanguage(sitter.NewLanguage(php.LanguagePHP()))
+	tree := p.Parse(content, nil)
+	defer tree.Close()
+
+	v := NewVisitor(content, &mockEngine{})
+	v.Walk(tree.RootNode())
+
+	reported := make(map[int]bool)
+	for _, f := range v.Findings() {
+		if strings.Contains(f.Message, "local static variable") || strings.Contains(f.Message, "local reference to a shared service") {
+			reported[f.Line] = true
+		}
+	}
+
+	for i, line := range strings.Split(string(content), "\n") {
+		switch {
+		case strings.Contains(line, "// not reported"):
+			if reported[i+1] {
+				t.Errorf("line %d must not be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		case strings.Contains(line, "// reported"):
+			if !reported[i+1] {
+				t.Errorf("line %d must be reported: %s", i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}

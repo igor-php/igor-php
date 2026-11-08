@@ -29,6 +29,8 @@ type Auditor struct {
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
 	FileContentOverrides map[string][]byte
+	classShapes          map[string]analyzer.ClassShape
+	methodStates         map[string]map[string]analyzer.MethodState
 	mu                   sync.Mutex
 }
 

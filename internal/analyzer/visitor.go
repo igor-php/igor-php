@@ -138,7 +138,10 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	case "variable_name":
 		v.handleVariable(n)
 	case "static_variable_declaration":
-		v.addFinding(n, symbol.RuleLocalStaticVariable, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
+		// A closure returned to the caller gets its own static variables each time it is created
+		if !inReturnedClosure(n) {
+			v.addFinding(n, symbol.RuleLocalStaticVariable, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
+		}
 	}
 
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -179,6 +182,9 @@ func (v *PHPVisitor) handleMethodOrFunction(n *sitter.Node, nodeType string) {
 	v.recordMethodDeclaration(nodeType)
 	if nodeType == "method_declaration" {
 		v.checkUnsafeRestores(n)
+		if v.engine != nil {
+			v.recordMethodState(n)
+		}
 	}
 
 	if nodeType == "method_declaration" && strings.ToLower(v.curMethod) == "__destruct" {
@@ -222,6 +228,9 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 
 	if n.Kind() == "class_declaration" {
 		v.recordClassParent(n, fullName)
+		if v.engine != nil {
+			v.recordClassShape(n, fullName)
+		}
 	}
 
 	classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
@@ -894,7 +903,7 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 				return
 			}
 
-			if v.isRightSideShared(rightContent) {
+			if v.isRightSideShared(right) {
 				v.localSharedVars[leftContent] = true
 			}
 		}
@@ -995,20 +1004,34 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 	return ""
 }
 
-func (v *PHPVisitor) isRightSideShared(rightContent string) bool {
-	// Scenario 1: RHS contains $this or self/static (which represents properties, methods or dependencies of the shared service class)
-	if strings.Contains(rightContent, "$this") || strings.Contains(strings.ToLower(rightContent), "self::") || strings.Contains(strings.ToLower(rightContent), "static::") {
+// isRightSideShared reports whether an assigned value is the shared service's own state: $this,
+// an object reached from it or from a static property, a self::/static:: call, or a local variable
+// already tracked as shared, or a static call given any of these. A value built by a function call,
+// new, clone or an array literal is a fresh value, even when $this appears in its arguments
+// (collect([$this->a, $this->b])).
+func (v *PHPVisitor) isRightSideShared(right *sitter.Node) bool {
+	if right == nil {
+		return false
+	}
+	switch right.Kind() {
+	case "parenthesized_expression", "conditional_expression", "binary_expression":
+		for i := uint(0); i < right.ChildCount(); i++ {
+			if v.isRightSideShared(right.Child(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	if v.derivesFromOwnState(right) {
 		return true
 	}
-
-	// Scenario 2: RHS contains another already tracked local shared variable
-	for trackedVar := range v.localSharedVars {
-		if strings.Contains(rightContent, trackedVar) {
-			return true
-		}
+	// Helper::get($this->requestStack) may hand back what it was given: a static call taking
+	// shared state stays shared, unlike a function call (collect(), array_map()) or new
+	if right.Kind() == "scoped_call_expression" && v.passesSharedState(right) {
+		return true
 	}
-
-	return false
+	root := rootVariable(v, right)
+	return root != "" && v.localSharedVars[root]
 }
 
 func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
@@ -1379,7 +1402,14 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 		} else {
 			msg = fmt.Sprintf("Mutation detected on an injected dependency ($this->%s). Risk of State Leak in a worker.", propName)
 		}
+		before := len(v.findings)
 		v.addFinding(n, symbol.RuleSingletonMutation, msg, v.hint("dependency_mutation", "Avoid modifying injected dependencies at runtime, or use a ResetInterface."), "ERROR")
+		// The method name is only a guess: let the auditor drop the finding once it has read that method
+		if len(v.findings) > before && isDirectProp && !v.localSharedVars["$"+propName] {
+			if class := v.propertyClass(propName); class != "" {
+				v.findings[before].Callee = &symbol.CallRef{Class: class, Method: methodName, SharedArgs: v.passesSharedState(n)}
+			}
+		}
 	}
 }
 
