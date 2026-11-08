@@ -195,11 +195,11 @@ func (s *mcpServer) baselinePruneTool(_ context.Context, _ *mcp.CallToolRequest,
 // --- baseline_add
 
 type baselineAddInput struct {
-	Path   string `json:"path" jsonschema:"the file of the finding, absolute or relative to the project root"`
-	Line   int    `json:"line" jsonschema:"the line of the finding"`
+	Path    string `json:"path" jsonschema:"the file of the finding, absolute or relative to the project root"`
+	Line    int    `json:"line" jsonschema:"the line of the finding"`
 	RuleID  string `json:"rule_id,omitempty" jsonschema:"the rule_id of the finding, needed when several findings share the line"`
 	Message string `json:"message,omitempty" jsonschema:"the message of the finding, needed when several findings of the same rule share the line"`
-	Reason string `json:"reason" jsonschema:"why this state cannot leak between requests, e.g. bounded cache keyed by class, reset by kernel.reset"`
+	Reason  string `json:"reason" jsonschema:"why this state cannot leak between requests, e.g. bounded cache keyed by class, reset by kernel.reset"`
 }
 
 type baselineAddOutput struct {
