@@ -76,6 +76,10 @@ archives:
       - goos: windows
         format: zip
 
+release:
+  # A tag such as v0.11.0-beta.1 is published as a GitHub pre-release
+  prerelease: auto
+
 checksum:
   name_template: "checksums.txt"
 
