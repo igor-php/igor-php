@@ -86,6 +86,52 @@ The skill follows the open Agent Skills format, so `plugins/igor/skills/frankenp
 
 `igor-php mcp` runs Igor as an [MCP](https://modelcontextprotocol.io) server over stdio, so any agent that speaks MCP can audit the project and check its fixes. It loads the project once (the Symfony or Laravel service map, the container dump) and answers each call from it.
 
+Run it from the project root, or pass the directory: `igor-php mcp [--no-agent] [--read-only] [directory]`. With the [Claude Code plugin](#-claude-code-plugin), the server is declared already: nothing to configure. For the other agents, declare it in the project (the commands assume Igor is installed with Composer, and a client that starts the server from the project root):
+
+<details>
+<summary><b>Claude Code</b> (without the plugin)</summary>
+
+```bash
+claude mcp add --scope project igor -- vendor/bin/igor-php mcp
+```
+
+This writes `.mcp.json` at the root of the project, to commit for the team.
+</details>
+
+<details>
+<summary><b>Cursor</b> (<code>.cursor/mcp.json</code>)</summary>
+
+```json
+{
+  "mcpServers": {
+    "igor": {
+      "command": "vendor/bin/igor-php",
+      "args": ["mcp", "${workspaceFolder}"]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>VS Code / GitHub Copilot</b> (<code>.vscode/mcp.json</code>)</summary>
+
+```json
+{
+  "servers": {
+    "igor": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/vendor/bin/igor-php",
+      "args": ["mcp", "${workspaceFolder}"]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Google Antigravity</b> (<code>.agents/mcp_config.json</code>)</summary>
+
 ```json
 {
   "mcpServers": {
@@ -97,7 +143,20 @@ The skill follows the open Agent Skills format, so `plugins/igor/skills/frankenp
 }
 ```
 
-Run it from the project root, or pass the directory: `igor-php mcp [--no-agent] [directory]`.
+The workspace file applies to this project only; `~/.gemini/config/mcp_config.json` applies to all of them, with an absolute path to the binary and the project.
+</details>
+
+<details>
+<summary><b>OpenAI Codex</b> (<code>.codex/config.toml</code>, trusted projects)</summary>
+
+```toml
+[mcp_servers.igor]
+command = "vendor/bin/igor-php"
+args = ["mcp"]
+```
+</details>
+
+If a client starts the server from another directory, give absolute paths: `"command": "/path/to/project/vendor/bin/igor-php", "args": ["mcp", "/path/to/project"]`. On Windows, use `vendor/bin/igor-php.bat`.
 
 | Tool | What it does |
 | :--- | :--- |
@@ -106,8 +165,11 @@ Run it from the project root, or pass the directory: `igor-php mcp [--no-agent] 
 | `audit_file` | Audits one file with the project context. `content` audits an unsaved version, to check a fix before writing it. |
 | `explain_service` | How Igor sees the services matching a name: shared or not, dependencies, verdict, findings. |
 | `get_rule` | The [rule reference](#-rule-reference) of a `rule_id`: why it leaks, the Symfony and Laravel fix, the false positives. |
+| `baseline_check` | Lists the entries of `igor-baseline.json` that Igor no longer detects. |
+| `baseline_add` ✏️ | Accepts one finding (`path`, `line`, `rule_id`) in the baseline, with a `reason`. A placeholder (`TODO`...) or a too-short reason is refused. |
+| `baseline_prune` ✏️ | Removes the stale entries from the baseline file. |
 
-The tools are read-only, and the paths they take must be inside the project root. A whole-project audit covers the same files as `igor-php .`, so it also reads and returns the code the project links from outside its root (symlinks, Composer `path` repositories). The server also offers the `audit-worker` prompt (audit and fix, the framework way) and the rules as `igor://rules/{rule_id}` resources.
+The ✏️ tools write the baseline file, and agents ask before calling them; `--read-only` leaves them out. The other tools are read-only. The paths the tools take must be inside the project root. A whole-project audit covers the same files as `igor-php .`, so it also reads and returns the code the project links from outside its root (symlinks, Composer `path` repositories). The server also offers the `audit-worker` prompt (audit and fix, the framework way) and the rules as `igor://rules/{rule_id}` resources.
 
 Igor never updates itself: `project_info` gives the command and the agent proposes it. The latest release is read from Packagist at most once a day, with a 2 s timeout; set `IGOR_NO_UPDATE_CHECK=1` to skip it.
 

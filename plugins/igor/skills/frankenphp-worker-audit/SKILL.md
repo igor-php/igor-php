@@ -35,6 +35,12 @@ Work in this order and keep the user informed in plain words at each step.
 
 ## 2. Run the audit
 
+When the tools of the `igor` MCP server are available (`project_info`, `audit_project`,
+`audit_file`, `explain_service`, `get_rule`, `baseline_*`), use them instead of the CLI: the project
+is loaded once, `audit_file` takes the unsaved `content` of a file to check a fix before writing it,
+and `project_info` tells whether igor is up to date (propose its `update_command`, never run it
+without approval). Otherwise, run the CLI:
+
 ```bash
 vendor/bin/igor-php --output json .        # whole project
 vendor/bin/igor-php --output json src/Service/Foo.php   # one file
@@ -93,6 +99,8 @@ For a finding that is safe on purpose, choose the narrowest tool and always writ
 - `#[WorkerSafe(reason: '...')]` on the property, method or class
   (`use IgorPhp\IgorBundle\Attribute\WorkerSafe;`, works for Laravel too).
 - `// @igor-ignore - <reason>` on one line.
+- A baseline entry for one finding, once the developer agreed it is safe: the `baseline_add` tool
+  of the MCP server, with the reason.
 - A baseline entry for legacy code you will not touch now: `vendor/bin/igor-php --generate-baseline .`
   then replace every `TODO` reason in `igor-baseline.json` with a real one. Never leave a
   generated baseline unreviewed: it would hide real leaks.

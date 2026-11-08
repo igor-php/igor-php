@@ -27,7 +27,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 ## 📂 Key Components & File Paths
 
 - **CLI Entry point**: `cmd/igor/main.go`
-- **MCP Server**: `cmd/igor/mcp.go` (`igor mcp`: stdio server on the official Go SDK, read-only tools over a project loaded once) and `cmd/igor/mcp_version.go` (latest release from Packagist, cached for a day, and the update command to propose).
+- **MCP Server**: `cmd/igor/mcp.go` (`igor mcp`: stdio server on the official Go SDK, read-only tools over a project loaded once) `cmd/igor/mcp_version.go` (latest release from Packagist, cached for a day, and the update command to propose) and `cmd/igor/mcp_baseline.go` (baseline tools, left out by `--read-only`). The Claude Code plugin starts it through `plugins/igor/.mcp.json` and `plugins/igor/mcp/igor-mcp.php`.
 - **AST Visitor & Detection Rules**: `internal/analyzer/visitor.go` (traverses PHP AST nodes to flag mutations, static state, execution terminators, superglobals, and closure leaks).
 - **Symfony Service Finder**: `internal/auditor/symfony.go` and `internal/auditor/find_class_files.php` (calls Symfony commands to dump container configuration).
 - **Symfony Discovery Bundle**: `src/php/IgorPhpBundle.php` and `src/php/DependencyInjection/Compiler/IgorDiscoveryPass.php`.

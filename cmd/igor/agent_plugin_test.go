@@ -82,6 +82,21 @@ func TestAgentPluginManifests(t *testing.T) {
 	if len(post) != 1 || post[0].Matcher != "Edit|Write|MultiEdit" || !strings.Contains(post[0].Hooks[0].Command, "${CLAUDE_PLUGIN_ROOT}/hooks/igor-check.php") {
 		t.Fatalf("unexpected PostToolUse hook: %+v", post)
 	}
+
+	var mcpConfig struct {
+		Servers map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	readJSONFile(t, filepath.Join(pluginDir, ".mcp.json"), &mcpConfig)
+	igor := mcpConfig.Servers["igor"]
+	if igor.Command != "php" || len(igor.Args) != 1 || igor.Args[0] != "${CLAUDE_PLUGIN_ROOT}/mcp/igor-mcp.php" {
+		t.Fatalf("unexpected MCP server: %+v", mcpConfig)
+	}
+	if _, err := os.Stat(filepath.Join(pluginDir, "mcp/igor-mcp.php")); err != nil {
+		t.Fatalf("the MCP launcher is missing: %v", err)
+	}
 }
 
 func TestAgentPluginMarkdownFiles(t *testing.T) {
@@ -267,5 +282,50 @@ func TestAgentPluginHook(t *testing.T) {
 				t.Fatalf("baseline-ignored findings must not be reported: %q", got)
 			}
 		})
+	}
+}
+
+// TestAgentPluginMCPLauncher checks that the launcher of the plugin starts `igor-php mcp <project>` from the
+// project, with stdin and stdout handed over as they are.
+func TestAgentPluginMCPLauncher(t *testing.T) {
+	requirePHP(t)
+	launcher := filepath.Join(pluginDir, "mcp/igor-mcp.php")
+	if out, err := exec.Command("php", "-l", launcher).CombinedOutput(); err != nil {
+		t.Fatalf("PHP syntax check failed:\n%s", out)
+	}
+
+	project := t.TempDir()
+	fake := filepath.Join(t.TempDir(), "igor-php")
+	script := "#!/usr/bin/env php\n<?php\necho json_encode(['args' => array_slice($argv, 1), 'stdin' => stream_get_contents(STDIN), 'cwd' => getcwd()]);\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("php", launcher)
+	cmd.Env = append(os.Environ(), "IGOR_BIN="+fake, "CLAUDE_PROJECT_DIR="+project)
+	cmd.Stdin = strings.NewReader(`{"jsonrpc":"2.0","id":1}` + "\n")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("launcher failed: %v", err)
+	}
+	var got struct {
+		Args  []string `json:"args"`
+		Stdin string   `json:"stdin"`
+		Cwd   string   `json:"cwd"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("stdout must only carry the server output, got %q: %v", out, err)
+	}
+	realProject, _ := filepath.EvalSymlinks(project)
+	realCwd, _ := filepath.EvalSymlinks(got.Cwd)
+	if strings.Join(got.Args, " ") != "mcp "+project || got.Stdin != `{"jsonrpc":"2.0","id":1}`+"\n" || realCwd != realProject {
+		t.Fatalf("unexpected launch: %+v", got)
+	}
+
+	// Without igor, the launcher says how to install it and fails
+	cmd = exec.Command("php", launcher)
+	cmd.Env = append(os.Environ(), "IGOR_BIN="+filepath.Join(project, "missing"), "CLAUDE_PROJECT_DIR="+project)
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "composer require --dev igor-php/igor-php") {
+		t.Fatalf("expected an install hint, got %v: %s", err, out)
 	}
 }

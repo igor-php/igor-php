@@ -1,6 +1,6 @@
 {
   "name": "igor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Audit a Symfony or Laravel project for FrankenPHP worker mode with igor-php, then fix the state leaks it finds.",
   "author": {
     "name": "Kevin MARTINS",
