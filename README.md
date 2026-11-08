@@ -82,6 +82,37 @@ The skill follows the open Agent Skills format, so `plugins/igor/skills/frankenp
 
 ---
 
+## 🔗 MCP Server
+
+`igor-php mcp` runs Igor as an [MCP](https://modelcontextprotocol.io) server over stdio, so any agent that speaks MCP can audit the project and check its fixes. It loads the project once (the Symfony or Laravel service map, the container dump) and answers each call from it.
+
+```json
+{
+  "mcpServers": {
+    "igor": {
+      "command": "vendor/bin/igor-php",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Run it from the project root, or pass the directory: `igor-php mcp [--no-agent] [directory]`.
+
+| Tool | What it does |
+| :--- | :--- |
+| `project_info` | Framework (Symfony, Laravel, Octane), whether the Deep Audit runs and why not, and the Igor version: whether it is the latest release on Packagist and the command to update it (`composer update` or `composer require` when the constraint is too narrow). `refresh` reloads the container. |
+| `audit_project` | Audits the whole project. Findings sorted by severity and reachability, paginated, filtered by `severity`, `rule_id` or `path`. Findings in code that never runs during a request are hidden unless `include_out_of_request`. |
+| `audit_file` | Audits one file with the project context. `content` audits an unsaved version, to check a fix before writing it. |
+| `explain_service` | How Igor sees the services matching a name: shared or not, dependencies, verdict, findings. |
+| `get_rule` | The [rule reference](#-rule-reference) of a `rule_id`: why it leaks, the Symfony and Laravel fix, the false positives. |
+
+The tools are read-only, and the paths they take must be inside the project root. A whole-project audit covers the same files as `igor-php .`, so it also reads and returns the code the project links from outside its root (symlinks, Composer `path` repositories). The server also offers the `audit-worker` prompt (audit and fix, the framework way) and the rules as `igor://rules/{rule_id}` resources.
+
+Igor never updates itself: `project_info` gives the command and the agent proposes it. The latest release is read from Packagist at most once a day, with a 2 s timeout; set `IGOR_NO_UPDATE_CHECK=1` to skip it.
+
+---
+
 ## 🔍 What Igor Tracks
 
 During its static analysis of shared/singleton services, Igor recursively scans the AST to detect and flag several dangerous patterns that can lead to memory leaks or state pollution across requests:
@@ -252,7 +283,7 @@ igor-php rule                      # list the rules
 igor-php rule UnsafeStateRestore   # why it leaks in worker mode, the Symfony and Laravel fix, the false positives
 ```
 
-The reference is the one the [Claude Code plugin](#-claude-code-plugin) uses (`plugins/igor/skills/frankenphp-worker-audit/references/rules.md`), embedded in the binary.
+The reference is the one the [Claude Code plugin](#-claude-code-plugin) and the [MCP server](#-mcp-server) use (`plugins/igor/skills/frankenphp-worker-audit/references/rules.md`), embedded in the binary.
 
 ### 🧠 Semantic Explanation Matrix (Diagnostic Mode)
 If you want to understand the exact semantics and diagnostic criteria that led Igor to flag or approve a service, you can run the `explain` command:
