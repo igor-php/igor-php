@@ -229,9 +229,8 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 		if s.holdsOwnState(right) {
 			s.tainted[name] = true
 		}
-		if s.isContainerCreation(right) {
-			s.containers[name] = true
-		}
+		// A local reassigned to anything else ($items = $this->queue) is no longer a fresh collection
+		s.containers[name] = s.isContainerCreation(right)
 		// $local = $index: a change through $local is a change to the parameter
 		s.alias(name, s.paramIndexes(right))
 	} else {

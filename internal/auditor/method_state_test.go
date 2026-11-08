@@ -70,6 +70,7 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"setSharedIndexWithHelper", true, "setWithHelper() hands the shared index to a helper's set(), which is not a collection"},
 		{"renameStoredSharedIndex", true, "setFirstName() renames the shared index through the collection it stored it in"},
 		{"renameAliasedSharedIndex", true, "setAliasName() renames the shared index through a local alias"},
+		{"pushThroughReusedLocal", true, "setQueued() appends to its own queue through a local that held a collection"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
 	for _, c := range cases {

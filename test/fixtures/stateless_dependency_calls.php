@@ -332,6 +332,20 @@ class StoredIndexRenamer
     }
 }
 
+class ReusedLocal
+{
+    public function __construct(private \ArrayObject $queue)
+    {
+    }
+
+    public function setQueued(): void
+    {
+        $items = collect([]);
+        $items = $this->queue;
+        $items->append(1);
+    }
+}
+
 class EncodingReader
 {
     public function setEncodingCheck(): string
@@ -373,6 +387,7 @@ final class StatelessCallsController
         private IndexCollector $indexCollector,
         private LocalSetHelper $localSetHelper,
         private StoredIndexRenamer $storedRenamer,
+        private ReusedLocal $reusedLocal,
     ) {
     }
 
@@ -524,5 +539,10 @@ final class StatelessCallsController
     public function renameAliasedSharedIndex(): void
     {
         $this->storedRenamer->setAliasName($this->index);
+    }
+
+    public function pushThroughReusedLocal(): void
+    {
+        $this->reusedLocal->setQueued();
     }
 }
