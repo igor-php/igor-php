@@ -16,7 +16,7 @@ value stays for the next requests.
 1. Make the value local: return it, or pass it as a method argument instead of storing it.
 2. Read request data when needed (current request, security token, locale) instead of storing it.
 3. Per-request state on purpose: reset it between requests (Symfony `ResetInterface` +
-   `kernel.reset`; Laravel `scoped()` or a `reset()` called from an Octane listener).
+   `kernel.reset`; Laravel `scoped()` under Octane, or a `reset()` called from an Octane listener).
 4. Cache (`category: cache`): keep it only if the key space is bounded and does not depend on the
    user (formats, class names, config keys). Otherwise bound it (LRU, max size) or move it to a
    real cache (PSR-6/PSR-16, APCu, Redis) and reset it.
@@ -61,8 +61,9 @@ event or a request attribute. If a per-request callback is needed, remove it in 
 at boot keeps the first request's copy for the whole worker life.
 
 **Fix**: `request()`, `app()` or `config()` when the value is needed, pass the request to the
-method that uses it, or inject a closure (`fn () => app('request')`). Or make the service
-`scoped()` so it is rebuilt for each request.
+method that uses it, or inject a closure (`fn () => app('request')`). With Octane, making the
+service `scoped()` also works, but only if no persistent singleton keeps it: see
+`laravel-octane.md`.
 
 ## IncompleteReset
 
@@ -111,7 +112,9 @@ in `onClear`, or make the listener resettable (`ResetInterface` + `kernel.reset`
 
 **Fix**: pass the value explicitly (`new \DateTimeZone(...)`, `mb_strlen($s, 'UTF-8')`, absolute
 paths, `chmod()`), set it once in configuration (`php.ini`, FrankenPHP `php_ini`), or restore
-the previous value in `finally` (`restore_error_handler()`, `ini_restore()`).
+the previous value in `finally`: `restore_error_handler()` after `set_error_handler()`, and for
+`ini_set()` the value it returned (`$previous = ini_set('x', $v); try { ... } finally { if ($previous !== false) { ini_set('x', $previous); } }`).
+Not `ini_restore()`: it goes back to the startup value, not to the value set before.
 
 **False positive**: the call runs only at boot (kernel boot, service provider `register()`) with a
 constant value.

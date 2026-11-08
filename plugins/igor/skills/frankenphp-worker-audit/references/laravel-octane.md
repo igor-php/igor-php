@@ -20,8 +20,12 @@ The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the frame
 
 ## Fix toolbox
 
-**Per-request service**: replace `singleton()` with `scoped()`, so the instance is rebuilt for
-each request. The simplest fix when the service needs the request, the user or the config.
+**Per-request service** (Octane only): replace `singleton()` with `scoped()`, so the instance is
+rebuilt for each request. The simplest fix when the service needs the request, the user or the
+config, with two limits:
+- a persistent singleton that receives it (constructor, property) keeps the first instance
+  anyway: fix that parent too (resolve the service at call time, inject a closure, or reset it);
+- without Octane, `scoped()` persists like `singleton()`: resolve the value at call time instead.
 
 **Reset a persistent service** (Octane's `kernel.reset`): give it a `reset()` method and call it
 from a listener on `RequestReceived` in `config/octane.php`:

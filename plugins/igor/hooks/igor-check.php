@@ -46,7 +46,8 @@ function main(): int
     }
 
     $content = (string) @file_get_contents($file);
-    $lines = changedLines((string) ($input['tool_name'] ?? ''), $toolInput, $content);
+    $toolResponse = is_array($input['tool_response'] ?? null) ? $input['tool_response'] : [];
+    $lines = patchedLines($toolResponse) ?? changedLines((string) ($input['tool_name'] ?? ''), $toolInput, $content);
     $findings = findingsOnLines($results, $lines);
     if ($findings === []) {
         return 0;
@@ -166,6 +167,44 @@ function run(array $command, string $cwd): string
 }
 
 /**
+ * Returns the lines the edit added, read from the diff Claude Code reports with the tool result
+ * (structuredPatch hunks: " " context, "-" removed, "+" added), or null when there is no diff.
+ *
+ * @param array<string, mixed> $toolResponse
+ *
+ * @return array<int, true>|null
+ */
+function patchedLines(array $toolResponse): ?array
+{
+    $hunks = $toolResponse['structuredPatch'] ?? null;
+    if (!is_array($hunks) || $hunks === []) {
+        return null;
+    }
+
+    $lines = [];
+    foreach ($hunks as $hunk) {
+        if (!is_array($hunk) || !isset($hunk['newStart']) || !is_array($hunk['lines'] ?? null)) {
+            return null;
+        }
+        $line = (int) $hunk['newStart'];
+        foreach ($hunk['lines'] as $diffLine) {
+            $marker = substr((string) $diffLine, 0, 1);
+            if ($marker === '+') {
+                $lines[$line] = true;
+            }
+            if ($marker !== '-' && $marker !== '\\') {
+                ++$line;
+            }
+        }
+    }
+
+    return $lines;
+}
+
+/**
+ * Fallback without a diff: finds the edited text in the file. Text that occurs several times
+ * selects all its occurrences.
+ *
  * Returns the lines Claude just wrote, or null when every line counts (a whole file was written,
  * or the edited text cannot be found any more).
  *
