@@ -379,31 +379,50 @@ type auditProjectOutput struct {
 	Degraded           string       `json:"degraded,omitempty"`
 }
 
-func (s *mcpServer) auditProjectTool(_ context.Context, _ *mcp.CallToolRequest, in auditProjectInput) (*mcp.CallToolResult, auditProjectOutput, error) {
-	severity := strings.ToUpper(strings.TrimSpace(in.Severity))
-	if severity != "" && severity != "ERROR" && severity != "WARNING" {
-		return nil, auditProjectOutput{}, fmt.Errorf("severity must be ERROR or WARNING, got %q", in.Severity)
+// findingFilter keeps the findings audit_project returns.
+type findingFilter struct {
+	severity string
+	ruleID   string
+	prefix   string
+}
+
+func (s *mcpServer) newFindingFilter(in auditProjectInput) (findingFilter, error) {
+	f := findingFilter{severity: strings.ToUpper(strings.TrimSpace(in.Severity)), ruleID: in.RuleID}
+	if f.severity != "" && f.severity != "ERROR" && f.severity != "WARNING" {
+		return f, fmt.Errorf("severity must be ERROR or WARNING, got %q", in.Severity)
 	}
-	if in.RuleID != "" {
-		if _, ok := igorphp.RuleDoc(in.RuleID); !ok {
-			return nil, auditProjectOutput{}, fmt.Errorf("unknown rule %q, expected one of: %s", in.RuleID, strings.Join(igorphp.RuleIDs(), ", "))
+	if f.ruleID != "" {
+		if _, ok := igorphp.RuleDoc(f.ruleID); !ok {
+			return f, fmt.Errorf("unknown rule %q, expected one of: %s", f.ruleID, strings.Join(igorphp.RuleIDs(), ", "))
 		}
 	}
-	prefix := ""
 	if in.Path != "" {
 		abs, err := s.resolvePath(in.Path)
 		if err != nil {
-			return nil, auditProjectOutput{}, err
+			return f, err
 		}
-		prefix = s.relative(abs)
+		if rel := s.relative(abs); rel != "." {
+			f.prefix = strings.TrimSuffix(rel, "/")
+		}
 	}
-	limit := in.Limit
-	if limit <= 0 {
-		limit = defaultFindingsLimit
-	}
-	limit = min(limit, maxFindingsLimit)
-	offset := max(in.Offset, 0)
+	return f, nil
+}
 
+func (f findingFilter) matches(finding mcpFinding) bool {
+	if f.severity != "" && finding.Severity != f.severity {
+		return false
+	}
+	if f.ruleID != "" && !strings.EqualFold(finding.RuleID, f.ruleID) {
+		return false
+	}
+	return f.prefix == "" || finding.File == f.prefix || strings.HasPrefix(finding.File, f.prefix+"/")
+}
+
+func (s *mcpServer) auditProjectTool(_ context.Context, _ *mcp.CallToolRequest, in auditProjectInput) (*mcp.CallToolResult, auditProjectOutput, error) {
+	filter, err := s.newFindingFilter(in)
+	if err != nil {
+		return nil, auditProjectOutput{}, err
+	}
 	results, project, err := s.run("", nil)
 	if err != nil {
 		return nil, auditProjectOutput{}, err
@@ -414,37 +433,40 @@ func (s *mcpServer) auditProjectTool(_ context.Context, _ *mcp.CallToolRequest, 
 	for _, res := range results {
 		for _, f := range res.Findings {
 			finding := s.toFinding(res.FilePath, f)
-			if severity != "" && finding.Severity != severity {
-				continue
-			}
-			if in.RuleID != "" && !strings.EqualFold(finding.RuleID, in.RuleID) {
-				continue
-			}
-			if prefix != "" && prefix != "." && finding.File != prefix && !strings.HasPrefix(finding.File, strings.TrimSuffix(prefix, "/")+"/") {
-				continue
-			}
-			if finding.OutOfRequest != "" && !in.IncludeOutOfRequest {
+			switch {
+			case !filter.matches(finding):
+			case finding.OutOfRequest != "" && !in.IncludeOutOfRequest:
 				out.HiddenOutOfRequest++
-				continue
-			}
-			if finding.Severity == "ERROR" {
+			case finding.Severity == "ERROR":
 				out.Errors++
-			} else {
+				all = append(all, finding)
+			default:
 				out.Warnings++
+				all = append(all, finding)
 			}
-			all = append(all, finding)
 		}
 	}
 	sortFindings(all)
 	out.Total = len(all)
-	if offset < len(all) {
-		end := min(offset+limit, len(all))
-		out.Findings = all[offset:end]
-		if end < len(all) {
-			out.NextOffset = end
-		}
-	}
+	out.Findings, out.NextOffset = paginate(all, in.Offset, in.Limit)
 	return nil, out, nil
+}
+
+// paginate returns the page of findings starting at offset, and the offset of the next page (0 on the last).
+func paginate(all []mcpFinding, offset, limit int) ([]mcpFinding, int) {
+	if limit <= 0 {
+		limit = defaultFindingsLimit
+	}
+	limit = min(limit, maxFindingsLimit)
+	offset = max(offset, 0)
+	if offset >= len(all) {
+		return []mcpFinding{}, 0
+	}
+	end := min(offset+limit, len(all))
+	if end < len(all) {
+		return all[offset:end], end
+	}
+	return all[offset:end], 0
 }
 
 // --- audit_file

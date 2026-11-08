@@ -216,18 +216,9 @@ func constraintAllows(constraint string, version []int) (allows bool, known bool
 		}
 	}
 	wildcard := strings.HasSuffix(c, ".*")
-	c = strings.TrimSuffix(c, ".*")
-	fields := strings.Split(c, ".")
-	if len(fields) == 0 || len(fields) > 3 {
+	base, fields, ok := parseConstraintVersion(strings.TrimSuffix(c, ".*"))
+	if !ok {
 		return false, false
-	}
-	base := make([]int, 3)
-	for i, f := range fields {
-		n, err := strconv.Atoi(f)
-		if err != nil {
-			return false, false
-		}
-		base[i] = n
 	}
 
 	switch {
@@ -235,44 +226,51 @@ func constraintAllows(constraint string, version []int) (allows bool, known bool
 		return compareVersions(version, base) >= 0, true
 	case wildcard:
 		// X.* or X.Y.*: the given fields must match
-		for i := range fields {
-			if version[i] != base[i] {
-				return false, true
-			}
-		}
-		return true, true
+		return samePrefix(version, base, fields), true
 	case operator == "^":
-		if compareVersions(version, base) < 0 {
-			return false, true
-		}
-		// The first non-zero field is fixed (^0.10 allows 0.10.x only)
-		for i := range len(fields) {
-			if base[i] != 0 || i == len(fields)-1 {
-				for j := 0; j <= i; j++ {
-					if version[j] != base[j] {
-						return false, true
-					}
-				}
-				return true, true
+		// The first non-zero field is fixed (^1.2 allows 1.x, ^0.10 allows 0.10.x only)
+		fixed := fields
+		for i := range fields {
+			if base[i] != 0 {
+				fixed = i + 1
+				break
 			}
 		}
-		return true, true
+		return compareVersions(version, base) >= 0 && samePrefix(version, base, fixed), true
 	case operator == "~":
-		if compareVersions(version, base) < 0 {
-			return false, true
-		}
 		// ~X.Y allows X.*, ~X.Y.Z allows X.Y.*
-		fixed := max(len(fields)-1, 1)
-		for i := range fixed {
-			if version[i] != base[i] {
-				return false, true
-			}
-		}
-		return true, true
+		return compareVersions(version, base) >= 0 && samePrefix(version, base, max(fields-1, 1)), true
 	default:
 		// Exact version
-		return len(fields) == 3 && compareVersions(version, base) == 0, true
+		return fields == 3 && compareVersions(version, base) == 0, true
 	}
+}
+
+// parseConstraintVersion parses X, X.Y or X.Y.Z, missing fields being 0, and returns how many were given.
+func parseConstraintVersion(v string) ([]int, int, bool) {
+	fields := strings.Split(v, ".")
+	if len(fields) > 3 {
+		return nil, 0, false
+	}
+	base := make([]int, 3)
+	for i, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil {
+			return nil, 0, false
+		}
+		base[i] = n
+	}
+	return base, len(fields), true
+}
+
+// samePrefix tells whether the first n fields of two versions are equal.
+func samePrefix(a, b []int, n int) bool {
+	for i := range n {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // checkVersion compares the running igor with the latest release and builds the command that updates it

@@ -147,7 +147,10 @@ func TestMCPAuditProject(t *testing.T) {
 		t.Fatalf("expected findings in Cart, Clock and Registry, got %v", files)
 	}
 
-	// Pagination
+}
+
+func TestMCPAuditProjectPages(t *testing.T) {
+	_, session := mcpTestProject(t)
 	var page auditProjectOutput
 	callTool(t, session, "audit_project", map[string]any{"limit": 2}, &page)
 	if len(page.Findings) != 2 || page.NextOffset != 2 || page.Total != 3 {
@@ -159,7 +162,12 @@ func TestMCPAuditProject(t *testing.T) {
 		t.Fatalf("last page: %+v", last)
 	}
 
-	// Filters
+}
+
+func TestMCPAuditProjectFilters(t *testing.T) {
+	_, session := mcpTestProject(t)
+	var all auditProjectOutput
+	callTool(t, session, "audit_project", nil, &all)
 	var src auditProjectOutput
 	callTool(t, session, "audit_project", map[string]any{"path": "src"}, &src)
 	if src.Total != 2 {
