@@ -61,6 +61,7 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"clearStaticCache", true, "clearCache() flushes a static registry it cannot read"},
 		{"addSongsForSharedUser", false, "addSongs() changes the playlist it is given, not the shared user"},
 		{"addSongsToSharedPlaylist", true, "addSongs() changes the shared playlist it is given"},
+		{"switchTenant", true, "setTenant() writes $_ENV"},
 	}
 	for _, c := range cases {
 		if reported[c.method] != c.kept {

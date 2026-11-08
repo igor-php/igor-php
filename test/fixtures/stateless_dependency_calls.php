@@ -215,6 +215,14 @@ class CacheWrapper
     }
 }
 
+class TenantSwitcher
+{
+    public function setTenant(string $tenant): void
+    {
+        $_ENV['TENANT'] = $tenant;
+    }
+}
+
 class PlaylistAdder
 {
     public function addSongs(Playlist $playlist, User $user): void
@@ -246,6 +254,7 @@ final class StatelessCallsController
         private PlaylistAdder $playlistAdder,
         private Playlist $playlist,
         private User $user,
+        private TenantSwitcher $tenantSwitcher,
     ) {
     }
 
@@ -347,5 +356,10 @@ final class StatelessCallsController
     public function addSongsToSharedPlaylist(): void
     {
         $this->playlistAdder->addSongs($this->playlist, $this->user);
+    }
+
+    public function switchTenant(): void
+    {
+        $this->tenantSwitcher->setTenant('acme');
     }
 }

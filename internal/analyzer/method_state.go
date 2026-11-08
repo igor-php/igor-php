@@ -431,7 +431,7 @@ func (v *PHPVisitor) propertyClass(propName string) string {
 }
 
 // writesOwnState reports whether an assignment target (or unset/increment argument) is a
-// property of $this, a static property, $GLOBALS, or contains one in a list destructuring.
+// property of $this, a static property, a superglobal, or contains one in a list destructuring.
 func (v *PHPVisitor) writesOwnState(n *sitter.Node) bool {
 	if n == nil {
 		return false
@@ -445,7 +445,17 @@ func (v *PHPVisitor) writesOwnState(n *sitter.Node) bool {
 		}
 		return false
 	}
+	if superglobals[rootVariable(v, n)] {
+		// $_SESSION['user'] = $user, $_ENV['TENANT'] = $tenant: process-wide state
+		return true
+	}
 	return v.derivesFromOwnState(n)
+}
+
+// superglobals are written as global state; reading them is left to the superglobal rule.
+var superglobals = map[string]bool{
+	"$GLOBALS": true, "$_SERVER": true, "$_GET": true, "$_POST": true, "$_FILES": true,
+	"$_COOKIE": true, "$_SESSION": true, "$_REQUEST": true, "$_ENV": true,
 }
 
 // callWritesOwnState reports a function call that changes state of the object or of the process:
