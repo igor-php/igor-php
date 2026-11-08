@@ -91,7 +91,7 @@ igor-php mcp examples/demo-leak-laravel
 
 - `project_info` reports Laravel with Octane and whether the Deep Audit runs.
 - `audit_project` returns the findings of the table above, with their `rule_id`.
-- `explain_service` on `App\Services\StatefulService` tells why it persists (warmed in `config/octane.php`), and on a service Igor skips, why it is skipped.
+- `explain_service` on `App\Services\StatefulService` shows that it is shared, its dependencies, its findings and its verdict (it persists because `config/octane.php` warms it). On a service Igor does not audit, it says why it is skipped.
 - `audit_file` checks a fix before it is written, from the unsaved content of the file.
 
 ## 🧹 Cleanup
