@@ -46,6 +46,7 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		fmt.Fprintf(os.Stderr, "  %s init [options] [directory] Initialize a new igor.json config\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s review <json_file>       Review an audit JSON export with an LLM\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s explain [directory] [filter] Display semantic diagnostics explanation matrix for services\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s rule [rule_id]           Explain a rule (its rule_id in --output json) and how to fix it\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s debug-external-baseline [directory] List all discovered vendor baselines in the project\n\n", binName)
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fs.PrintDefaults()
@@ -58,6 +59,7 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		fmt.Fprintf(os.Stderr, "  %s init\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s review igor-export.json\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s explain . SuperService\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s rule StateMutation\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s debug-external-baseline .\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s --env stage --verbose ./my-project\n", binName)
 	}
@@ -126,6 +128,8 @@ func dispatchSubcommand(parsedArgs []string, configPath string) (bool, error) {
 		return true, handleExplainSubcommand(parsedArgs, configPath)
 	case "debug-external-baseline":
 		return true, handleDebugExternalBaselineSubcommand(parsedArgs, configPath)
+	case "rule":
+		return true, handleRuleSubcommand(parsedArgs, os.Stdout)
 	}
 	return false, nil
 }

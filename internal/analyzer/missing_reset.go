@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -29,7 +30,7 @@ func (v *PHPVisitor) checkMissingResetTag(n *sitter.Node, fullName string) {
 	if target == nil {
 		target = n
 	}
-	v.addFinding(target,
+	v.addFinding(target, symbol.RuleMissingResetTag,
 		fmt.Sprintf("%s has %s() but its service is never reset between requests (missing kernel.reset tag).", v.curClass, method),
 		fmt.Sprintf("Tag the service so services_resetter calls it after each request: ->tag('kernel.reset', ['method' => '%s', 'on_invalid' => 'ignore']). "+
 			"on_invalid: ignore keeps the container valid when a decorator replaces the service, since the resetter calls the outermost one.", method),

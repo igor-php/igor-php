@@ -206,7 +206,7 @@ func TestAgentPluginHook(t *testing.T) {
 
 	project, service, vendorFile, source := hookProject(t)
 	auditJSON, err := json.Marshal([]map[string]any{{"file_path": service, "findings": []map[string]any{
-		{"message": "Mutation of state 'lines' in Cart::add()", "remediation": "State mutations persist across requests in Worker mode.", "severity": "ERROR", "line": 4},
+		{"rule_id": "StateMutation", "message": "Mutation of state 'lines' in Cart::add()", "remediation": "State mutations persist across requests in Worker mode.", "severity": "ERROR", "line": 4},
 		{"message": "Baselined finding", "remediation": "", "severity": "ERROR", "line": 4, "ignored": true},
 	}}})
 	if err != nil {
@@ -217,7 +217,7 @@ func TestAgentPluginHook(t *testing.T) {
 		return map[string]any{"cwd": project, "tool_name": "Edit", "tool_input": map[string]any{"file_path": file, "old_string": "x", "new_string": newString}}
 	}
 	leakingLine := "$this->lines[] = $l;"
-	report := "line 4 [ERROR] Mutation of state 'lines' in Cart::add()"
+	report := "line 4 [ERROR StateMutation] Mutation of state 'lines' in Cart::add()"
 
 	cases := []struct {
 		name    string

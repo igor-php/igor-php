@@ -54,7 +54,8 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - Define the node matching and analysis logic inside `internal/analyzer/visitor.go`.
 - Create a new PHP file under `test/fixtures/` demonstrating the correct detection and ignore cases.
 - Update `internal/analyzer/visitor_test.go` or `cmd/igor/integration_test.go` with your test assertions using the new fixture.
-- Add the rule to the README catalog and give it a section (`## <RuleId>`: messages, why, fix, false positives) in `plugins/igor/skills/frankenphp-worker-audit/references/rules.md`. `TestAgentPluginCoversEveryRule` fails otherwise.
+- Give the rule a stable identifier: a `Rule*` constant in `pkg/symbol/models.go`, added to `symbol.Rules` and passed to `addFinding` (it becomes `rule_id` in the JSON output). `TestEveryFindingHasARuleID` fails on a finding without one.
+- Add the rule to the README catalog and give it a section (`## <RuleId>`: messages, why, fix, false positives) in `plugins/igor/skills/frankenphp-worker-audit/references/rules.md`, which `igor rule <RuleId>` prints. `TestAgentPluginCoversEveryRule` and `TestEveryRuleHasADoc` fail otherwise.
 - **Ideally**, update the Docker laboratory under `examples/demo-leak/` (services, controller, and instructions) to showcase this new pattern and its impacts under persistent FrankenPHP worker runtime.
 
 ### 2. No External PHP Dependencies

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -52,7 +53,7 @@ func (v *PHPVisitor) checkDoctrineFlushState(n *sitter.Node) {
 			reported[prop] = true
 			saved := v.curMethod
 			v.curMethod = event
-			v.addFinding(first.node,
+			v.addFinding(first.node, symbol.RuleDoctrineFlushState,
 				fmt.Sprintf("Property '%s' collected in %s() is only cleared in postFlush(), which Doctrine skips when the commit fails: the next flush of the worker processes it.", prop, event),
 				fmt.Sprintf("Implement ResetInterface (tagged kernel.reset) to clear it between requests, or clear it at the start of %s().", event),
 				"ERROR")

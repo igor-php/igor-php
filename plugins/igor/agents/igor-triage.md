@@ -19,8 +19,8 @@ For each finding, open the code at `file_path:line` and classify it:
 - **out-of-request**: console, profiler, boot only (`out_of_request` set).
 - **vendor**: in `vendor/`, cannot be fixed in place.
 
-Use the `references/rules.md` file of the `frankenphp-worker-audit` skill for what each
-message means and its usual fix.
+Use the `## <rule_id>` section of the `references/rules.md` file of the `frankenphp-worker-audit`
+skill, or `vendor/bin/igor-php rule <rule_id>`, for what each finding means and its usual fix.
 
 Return, grouped by service and most urgent first (ERROR reachable from a request first):
 1. a table `file:line | rule | class | verdict | one-line fix`;

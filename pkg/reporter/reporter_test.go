@@ -327,6 +327,7 @@ func TestReporter_PrintFindings_GitHub(t *testing.T) {
 		FilePath:  "/tmp/project/vendor/bundle/Service.php",
 		Findings: []symbol.Finding{
 			{
+				Rule:        symbol.RuleStateMutation,
 				Message:     "State mutation in vendor",
 				Code:        "self::$cache = [];",
 				Remediation: "",
@@ -348,7 +349,7 @@ func TestReporter_PrintFindings_GitHub(t *testing.T) {
 	_, _ = io.Copy(&buf2, rOut2)
 	output2 := stripANSI(buf2.String())
 
-	if !strings.Contains(output2, "::warning file=vendor/bundle/Service.php,line=20::[Igor] State mutation in vendor %0A 💡 Hint: This is third-party code.") {
+	if !strings.Contains(output2, "::warning file=vendor/bundle/Service.php,line=20,title=Igor StateMutation::[Igor] State mutation in vendor %0A 💡 Hint: This is third-party code.") {
 		t.Errorf("Expected GitHub actions warning annotation, got: %q", output2)
 	}
 }

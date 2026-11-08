@@ -236,8 +236,12 @@ func (r *CLIReporter) annotate(f symbol.Finding, relPath string, isVendor bool) 
 	} else {
 		msg += " %0A 💡 Hint: Since this is your code, you should refactor this service to be stateless, or clear its state between requests (Symfony ResetInterface, or a reset() called by an Octane request listener on Laravel)."
 	}
-	// Format: ::error file={name},line={line},col={col}::{message}
-	fmt.Printf("::%s file=%s,line=%d::%s\n", severity, relPath, f.Line, msg)
+	// Format: ::error file={name},line={line},title={title}::{message}
+	title := ""
+	if f.Rule != "" {
+		title = ",title=Igor " + f.Rule
+	}
+	fmt.Printf("::%s file=%s,line=%d%s::%s\n", severity, relPath, f.Line, title, msg)
 }
 
 func severityColor(f symbol.Finding) string {
