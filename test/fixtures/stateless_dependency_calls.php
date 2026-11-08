@@ -478,6 +478,12 @@ class BranchCursor
         $cursor->advance();
     }
 
+    public function setFluent(): void
+    {
+        $cursor = $this->mutable;
+        $cursor = $cursor->advance();
+    }
+
     public function setQuiet(): void
     {
         $cursor = $this->mutable;
@@ -758,5 +764,10 @@ final class StatelessCallsController
     public function advanceReplacedCursor(): void
     {
         $this->branchCursor->setQuiet();
+    }
+
+    public function advanceFluentCursor(): void
+    {
+        $this->branchCursor->setFluent();
     }
 }

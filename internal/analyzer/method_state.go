@@ -191,6 +191,9 @@ func (s *stateSummarizer) walk(n *sitter.Node) {
 		s.memberCall(n)
 	case "scoped_call_expression":
 		s.scopedCall(n)
+	case "assignment_expression", "augmented_assignment_expression":
+		s.assignmentInOrder(n)
+		return
 	default:
 		if s.writes(n) {
 			s.st.Mutates = true
@@ -199,6 +202,27 @@ func (s *stateSummarizer) walk(n *sitter.Node) {
 	}
 	for i := uint(0); i < n.ChildCount(); i++ {
 		s.walk(n.Child(i))
+	}
+}
+
+// assignmentInOrder reads the right side of an assignment before recording what the variable now
+// holds, as PHP evaluates it: in $cursor = $cursor->advance(), the call is on the old $cursor.
+func (s *stateSummarizer) assignmentInOrder(n *sitter.Node) {
+	right := n.ChildByFieldName("right")
+	s.walk(right)
+	if s.st.Mutates {
+		return
+	}
+	if s.writes(n) {
+		s.st.Mutates = true
+		return
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		c := n.Child(i)
+		if right != nil && c.StartByte() == right.StartByte() && c.EndByte() == right.EndByte() {
+			continue
+		}
+		s.walk(c)
 	}
 }
 

@@ -81,6 +81,7 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"renameClone", false, "setCopy() only changes the clone itself"},
 		{"advanceBranchCursor", true, "setNext() calls advance() on either cursor, one of which moves"},
 		{"advanceReplacedCursor", false, "setQuiet() replaces the moving cursor before calling advance()"},
+		{"advanceFluentCursor", true, "setFluent() calls advance() on the moving cursor before reassigning the local"},
 		{"trimSharedOptions", false, "setOptions() only changes its own copy of the array"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
