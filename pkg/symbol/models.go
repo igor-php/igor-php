@@ -34,6 +34,20 @@ type Finding struct {
 	Property string `json:"property,omitempty"`
 	// CacheKey is the key expression of a keyed cache write, e.g. [$format][$type].
 	CacheKey string `json:"cache_key,omitempty"`
+	// Callee is the method called on an injected dependency for a dependency mutation finding.
+	// The auditor drops the finding once it knows that method leaves the dependency's state as is.
+	Callee *CallRef `json:"-"`
+}
+
+// CallRef names a method of a class.
+type CallRef struct {
+	Class  string
+	Method string
+	// SharedArgs lists the positions of the arguments holding the caller's own state ($this->x,
+	// or a local holding it).
+	SharedArgs []int
+	// UnknownArgs is true when a shared argument is named or spread: any parameter may receive it.
+	UnknownArgs bool
 }
 
 const (

@@ -57,8 +57,11 @@ type PHPVisitor struct {
 	dependencies       []string
 	nonSharedServices  NonSharedServiceMap
 	localSharedVars    map[string]bool
-	namespaceScopes    []namespaceScope
-	framework          string
+	// localWrapperVars are locals holding a new object built around shared state (clone, new,
+	// collect()): the local itself is fresh, the objects reached through it may not be.
+	localWrapperVars map[string]bool
+	namespaceScopes  []namespaceScope
+	framework        string
 }
 
 type namespaceScope struct {
@@ -70,18 +73,19 @@ type namespaceScope struct {
 // NewVisitor creates a new instance of the PHPVisitor.
 func NewVisitor(content []byte, engine Engine) *PHPVisitor {
 	return &PHPVisitor{
-		content:         content,
-		lines:           strings.Split(string(content), "\n"),
-		mutated:         make(map[string]mutationInfo),
-		resetted:        make(map[string]bool),
-		readonlyProps:   make(map[string]bool),
-		workerSafeProps: make(map[string]bool),
-		propertyTypes:   make(map[string]string),
-		localVarTypes:   make(map[string]string),
-		declaredProps:   make(map[string]bool),
-		finallyCleaned:  make(map[string]bool),
-		localSharedVars: make(map[string]bool),
-		engine:          engine,
+		content:          content,
+		lines:            strings.Split(string(content), "\n"),
+		mutated:          make(map[string]mutationInfo),
+		resetted:         make(map[string]bool),
+		readonlyProps:    make(map[string]bool),
+		workerSafeProps:  make(map[string]bool),
+		propertyTypes:    make(map[string]string),
+		localVarTypes:    make(map[string]string),
+		declaredProps:    make(map[string]bool),
+		finallyCleaned:   make(map[string]bool),
+		localSharedVars:  make(map[string]bool),
+		localWrapperVars: make(map[string]bool),
+		engine:           engine,
 	}
 }
 
@@ -138,7 +142,10 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	case "variable_name":
 		v.handleVariable(n)
 	case "static_variable_declaration":
-		v.addFinding(n, symbol.RuleLocalStaticVariable, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
+		// A closure returned to the caller gets its own static variables each time it is created
+		if !inReturnedClosure(n) {
+			v.addFinding(n, symbol.RuleLocalStaticVariable, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
+		}
 	}
 
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -175,10 +182,14 @@ func (v *PHPVisitor) handleMethodOrFunction(n *sitter.Node, nodeType string) {
 	v.isWorkerSafeMethod = v.hasAttribute(n, "WorkerSafe")
 	v.finallyCleaned = make(map[string]bool)
 	v.localSharedVars = make(map[string]bool)
+	v.localWrapperVars = make(map[string]bool)
 	v.preScanFinallyCleanups(n)
 	v.recordMethodDeclaration(nodeType)
 	if nodeType == "method_declaration" {
 		v.checkUnsafeRestores(n)
+		if v.engine != nil {
+			v.recordMethodState(n)
+		}
 	}
 
 	if nodeType == "method_declaration" && strings.ToLower(v.curMethod) == "__destruct" {
@@ -222,6 +233,9 @@ func (v *PHPVisitor) handleClass(n *sitter.Node) {
 
 	if n.Kind() == "class_declaration" {
 		v.recordClassParent(n, fullName)
+		if v.engine != nil {
+			v.recordClassShape(n, fullName)
+		}
 	}
 
 	classText := strings.ToLower(string(v.content[n.StartByte():n.EndByte()]))
@@ -550,22 +564,34 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 		return
 	}
 
-	rule, exists := dangerousFunctions[name]
+	rule, exists := v.processStateRule(n, name, isFullyQualified)
 	if !exists {
 		return
+	}
+
+	v.addFinding(n, symbol.RuleProcessStateMutation, rule.msg, v.hint(name, rule.hint), "WARNING")
+}
+
+// processStateRule returns the rule of a call to a function that changes the PHP process
+// (ini_set(), date_default_timezone_set()). name is the lowercased function name without its
+// leading backslash. An unqualified call shadowed by a function of the current namespace, or a
+// getter call such as mb_internal_encoding() with no argument, does not match.
+func (v *PHPVisitor) processStateRule(n *sitter.Node, name string, isFullyQualified bool) (dangerousFuncRule, bool) {
+	rule, exists := dangerousFunctions[name]
+	if !exists {
+		return rule, false
 	}
 
 	// Unqualified call shadowed by use function or local function definition in the current namespace scope
 	shadowed := v.getShadowedFunctions(n.StartByte())
 	if !isFullyQualified && shadowed != nil && shadowed[name] {
-		return
+		return rule, false
 	}
 
 	if rule.needsArgs && countArguments(n) == 0 {
-		return
+		return rule, false
 	}
-
-	v.addFinding(n, symbol.RuleProcessStateMutation, rule.msg, v.hint(name, rule.hint), "WARNING")
+	return rule, true
 }
 
 func (v *PHPVisitor) getShadowedFunctions(pos uint) map[string]bool {
@@ -894,8 +920,10 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 				return
 			}
 
-			if v.isRightSideShared(rightContent) {
+			if v.isRightSideShared(right) {
 				v.localSharedVars[leftContent] = true
+			} else if v.wrapsSharedState(right, v.isRightSideShared) {
+				v.localWrapperVars[leftContent] = true
 			}
 		}
 	}
@@ -995,20 +1023,40 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 	return ""
 }
 
-func (v *PHPVisitor) isRightSideShared(rightContent string) bool {
-	// Scenario 1: RHS contains $this or self/static (which represents properties, methods or dependencies of the shared service class)
-	if strings.Contains(rightContent, "$this") || strings.Contains(strings.ToLower(rightContent), "self::") || strings.Contains(strings.ToLower(rightContent), "static::") {
+// isRightSideShared reports whether an assigned value is the shared service's own state: $this,
+// an object reached from it or from a static property, a self::/static:: call, or a local variable
+// already tracked as shared, a call given any of these (current($this->queues) may return one of
+// them), or an array holding one. A value built by new, clone or a known builder is a fresh
+// value, even when $this appears in its arguments (collect([$this->a, $this->b])): it is
+// tracked as a wrapper instead.
+func (v *PHPVisitor) isRightSideShared(right *sitter.Node) bool {
+	if right == nil {
+		return false
+	}
+	switch right.Kind() {
+	case "parenthesized_expression", "conditional_expression", "binary_expression",
+		"array_creation_expression", "array_element_initializer", "pair":
+		// [$this->queue] is a new array, but the queue in it is still shared
+		for i := uint(0); i < right.ChildCount(); i++ {
+			if v.isRightSideShared(right.Child(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	if v.derivesFromOwnState(right) {
 		return true
 	}
-
-	// Scenario 2: RHS contains another already tracked local shared variable
-	for trackedVar := range v.localSharedVars {
-		if strings.Contains(rightContent, trackedVar) {
-			return true
-		}
+	// Helper::get($this->requestStack) may hand back what it was given: a static call taking
+	// shared state stays shared, unlike a function call (collect(), array_map()) or new
+	if right.Kind() == "scoped_call_expression" && v.passesSharedState(right) {
+		return true
 	}
-
-	return false
+	if v.returnsArgument(right, v.isRightSideShared) {
+		return true
+	}
+	root := rootVariable(v, right)
+	return root != "" && v.localSharedVars[root]
 }
 
 func (v *PHPVisitor) handleScopedAccess(n *sitter.Node) {
@@ -1318,6 +1366,15 @@ func (v *PHPVisitor) handleMethodCall(n *sitter.Node) {
 	v.detectClosureStateLeak(n)
 }
 
+// dependencyMutationMessage names the changed object: a local holding shared state, or an
+// injected dependency.
+func (v *PHPVisitor) dependencyMutationMessage(propName string) string {
+	if v.isTrackedLocal("$"+propName, true) {
+		return fmt.Sprintf("Mutation detected on a local reference to a shared service ($%s). Risk of State Leak in a worker.", propName)
+	}
+	return fmt.Sprintf("Mutation detected on an injected dependency ($this->%s). Risk of State Leak in a worker.", propName)
+}
+
 // detectSingletonMutation flags runtime mutations on injected dependencies unless they are resettable.
 func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodName string, isDirectProp bool) {
 	if !hasMutationPrefix(methodName) {
@@ -1373,13 +1430,16 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 	}
 
 	if !isResettable {
-		var msg string
-		if v.localSharedVars["$"+propName] {
-			msg = fmt.Sprintf("Mutation detected on a local reference to a shared service ($%s). Risk of State Leak in a worker.", propName)
-		} else {
-			msg = fmt.Sprintf("Mutation detected on an injected dependency ($this->%s). Risk of State Leak in a worker.", propName)
-		}
+		msg := v.dependencyMutationMessage(propName)
+		before := len(v.findings)
 		v.addFinding(n, symbol.RuleSingletonMutation, msg, v.hint("dependency_mutation", "Avoid modifying injected dependencies at runtime, or use a ResetInterface."), "ERROR")
+		// The method name is only a guess: let the auditor drop the finding once it has read that method
+		if len(v.findings) > before && isDirectProp && !v.localSharedVars["$"+propName] {
+			if class := v.propertyClass(propName); class != "" {
+				shared, unknown := v.sharedArgPositions(n)
+				v.findings[before].Callee = &symbol.CallRef{Class: class, Method: methodName, SharedArgs: shared, UnknownArgs: unknown}
+			}
+		}
 	}
 }
 
@@ -1507,9 +1567,10 @@ func (v *PHPVisitor) resolveRootProperty(n *sitter.Node) (string, bool) {
 				curr = nil
 			}
 		default:
-			// If we reached a variable node, check if it's a tracked local shared variable
+			// If we reached a variable node, check if it's a tracked local shared variable, or a
+			// wrapper reached through ($copy->queue->push(), not $copy->push())
 			content := v.getContent(curr)
-			if strings.HasPrefix(content, "$") && v.localSharedVars[content] {
+			if v.isTrackedLocal(content, curr != n) {
 				return strings.TrimPrefix(content, "$"), true
 			}
 			curr = nil
@@ -1523,6 +1584,15 @@ func (v *PHPVisitor) resolveRootProperty(n *sitter.Node) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isTrackedLocal reports a local variable holding shared state, or a wrapper of it ($copy = clone
+// $this->holder) when the change goes through it (reached) rather than to it.
+func (v *PHPVisitor) isTrackedLocal(content string, reached bool) bool {
+	if !strings.HasPrefix(content, "$") {
+		return false
+	}
+	return v.localSharedVars[content] || (reached && v.localWrapperVars[content])
 }
 
 // isChainBrokenByMemberCall checks if a member call expression breaks the taint chain.

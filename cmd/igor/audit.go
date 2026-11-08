@@ -25,6 +25,16 @@ func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg conf
 		finalResults = append(finalResults, res)
 	}
 
+	// Drop the dependency mutation findings whose called method turns out to change nothing:
+	// it can only be read once every file is audited
+	if aud.DropStatelessDependencyCalls(finalResults) {
+		for i := range finalResults {
+			if finalResults[i].Status != "❌ ERROR" {
+				finalResults[i].Status = calculateAuditStatus(finalResults[i].Findings)
+			}
+		}
+	}
+
 	return finalResults
 }
 
