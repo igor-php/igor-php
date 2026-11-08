@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "igor": {
+      "command": "php",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/igor-mcp.php"]
+    }
+  }
+}

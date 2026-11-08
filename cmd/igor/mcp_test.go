@@ -19,6 +19,11 @@ import (
 // clean Price, then connects an MCP client to an igor server for it.
 func mcpTestProject(t *testing.T) (string, *mcp.ClientSession) {
 	t.Helper()
+	return mcpTestProjectWith(t, false)
+}
+
+func mcpTestProjectWith(t *testing.T, readOnly bool) (string, *mcp.ClientSession) {
+	t.Helper()
 	t.Setenv(noUpdateCheckEnv, "1")
 	root := t.TempDir()
 	files := map[string]string{
@@ -42,6 +47,7 @@ func mcpTestProject(t *testing.T) (string, *mcp.ClientSession) {
 	cfg.NoAgent = true
 	server := newMCPServer(root, cfg)
 	server.checker.cacheFile = ""
+	server.readOnly = readOnly
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -93,25 +99,31 @@ func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[st
 	return ""
 }
 
-func TestMCPListsReadOnlyTools(t *testing.T) {
-	_, session := mcpTestProject(t)
-	res, err := session.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, tool := range res.Tools {
-		names = append(names, tool.Name)
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Errorf("%s must be marked read-only", tool.Name)
+func TestMCPListsTools(t *testing.T) {
+	writers := map[string]bool{"baseline_add": true, "baseline_prune": true}
+	for _, readOnly := range []bool{false, true} {
+		_, session := mcpTestProjectWith(t, readOnly)
+		res, err := session.ListTools(context.Background(), nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if tool.Description == "" {
-			t.Errorf("%s has no description", tool.Name)
+		var names []string
+		for _, tool := range res.Tools {
+			names = append(names, tool.Name)
+			if tool.Annotations == nil || tool.Annotations.ReadOnlyHint == writers[tool.Name] {
+				t.Errorf("%s: wrong read-only hint", tool.Name)
+			}
+			if tool.Description == "" {
+				t.Errorf("%s has no description", tool.Name)
+			}
 		}
-	}
-	want := "audit_file,audit_project,explain_service,get_rule,project_info"
-	if strings.Join(names, ",") != want {
-		t.Fatalf("tools %v, want %s", names, want)
+		want := "audit_file,audit_project,baseline_add,baseline_check,baseline_prune,explain_service,get_rule,project_info"
+		if readOnly {
+			want = "audit_file,audit_project,baseline_check,explain_service,get_rule,project_info"
+		}
+		if strings.Join(names, ",") != want {
+			t.Fatalf("read-only %v: tools %v, want %s", readOnly, names, want)
+		}
 	}
 }
 

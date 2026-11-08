@@ -32,7 +32,8 @@ their state between requests, so a property written during a request leaks into 
 Start with project_info, then audit_project. For each finding, get_rule explains why it leaks and how to fix
 it with the framework of the project. After a fix, audit_file checks the file, even before it is saved.
 Prefer the framework fix (ResetInterface / kernel.reset on Symfony, scoped() or a RequestReceived listener
-on Laravel Octane) over silencing a finding.`
+on Laravel Octane) over silencing a finding. baseline_add accepts a finding only with a real reason, and only
+once the developer agreed it is safe.`
 
 // mcpServer serves igor over MCP for one project. It loads the project once (container dump, Symfony or
 // Laravel service map) and audits it as many times as the agent asks.
@@ -40,6 +41,8 @@ type mcpServer struct {
 	root    string
 	cfg     config.Config
 	checker *updateChecker
+	// readOnly leaves out the tools that write the baseline.
+	readOnly bool
 
 	mu      sync.Mutex
 	project *auditProject
@@ -59,6 +62,7 @@ func handleMCPSubcommand(args []string, configPath string) error {
 	noAgent := fs.Bool("no-agent", false, "Disable the Symfony/Laravel Deep Audit and scan the directory")
 	consolePath := fs.String("console", "", "Custom path to Symfony console")
 	env := fs.String("env", "", "Symfony environment (default: dev)")
+	readOnly := fs.Bool("read-only", false, "Leave out the tools that write the baseline (baseline_add, baseline_prune)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s mcp [options] [directory]\n\nRuns igor as an MCP server (stdio) for AI agents.\n\nOptions:\n", binName)
 		fs.PrintDefaults()
@@ -94,7 +98,9 @@ func handleMCPSubcommand(args []string, configPath string) error {
 	defer func() { os.Stdout = protocolOut }()
 
 	fmt.Fprintf(os.Stderr, "🧟 igor %s MCP server for %s\n", Version, root)
-	server := newMCPServer(root, cfg).server()
+	s := newMCPServer(root, cfg)
+	s.readOnly = *readOnly
+	server := s.server()
 	return server.Run(context.Background(), &mcp.IOTransport{Reader: os.Stdin, Writer: nopWriteCloser{protocolOut}})
 }
 
@@ -104,7 +110,7 @@ func (nopWriteCloser) Close() error { return nil }
 
 func boolPtr(b bool) *bool { return &b }
 
-// server builds the MCP server: read-only tools, the audit-worker prompt and the rule resources.
+// server builds the MCP server: the audit and baseline tools, the audit-worker prompt and the rule resources.
 func (s *mcpServer) server() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "igor", Title: "igor-php", Version: Version}, &mcp.ServerOptions{Instructions: mcpInstructions})
 
@@ -148,6 +154,8 @@ func (s *mcpServer) server() *mcp.Server {
 			"and its known false positives. Without rule_id, lists the rules.",
 		Annotations: readOnly("Get rule"),
 	}, s.getRuleTool)
+
+	s.addBaselineTools(server)
 
 	server.AddPrompt(&mcp.Prompt{
 		Name:        "audit-worker",

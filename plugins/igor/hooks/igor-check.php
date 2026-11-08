@@ -101,11 +101,15 @@ function findIgorBinary(string $projectDir): ?string
         return $local;
     }
 
+    // On Windows, the release binary is igor-php.exe and Composer adds .bat proxies
+    $suffixes = PHP_OS_FAMILY === 'Windows' ? ['', '.exe', '.bat'] : [''];
     foreach (['igor-php', 'igor'] as $name) {
         foreach (explode(PATH_SEPARATOR, (string) getenv('PATH')) as $directory) {
-            $candidate = $directory.DIRECTORY_SEPARATOR.$name;
-            if ($directory !== '' && is_file($candidate) && is_executable($candidate)) {
-                return $candidate;
+            foreach ($suffixes as $suffix) {
+                $candidate = $directory.DIRECTORY_SEPARATOR.$name.$suffix;
+                if ($directory !== '' && is_file($candidate) && is_executable($candidate)) {
+                    return $candidate;
+                }
             }
         }
     }

@@ -24,7 +24,8 @@ missing.
 | `/igor:watch [on\|off]` | Turns on the hook below for this project (creates `.claude/igor-watch`). |
 | Hook `PostToolUse` | Once the watch is on: after each edit of a PHP file, audits it and tells Claude about the findings on the lines it just wrote. It never blocks, and stays silent if igor-php is not installed. |
 | Agent `igor-triage` | Sorts a large audit (real leak, cache, false positive...) without filling the main context. |
+| MCP server `igor` | Declared in `.mcp.json`: starts `igor-php mcp` for the project, so Claude audits files, checks a fix before writing it and manages the baseline through tools (`audit_project`, `audit_file`, `explain_service`, `get_rule`, `baseline_*`, `project_info`). The project is loaded once, so each call is fast. |
 
-The hook needs `php` on the PATH. It uses `vendor/bin/igor-php`, then `igor-php` or `igor` on the
+The hook and the MCP server need `php` on the PATH. They use `vendor/bin/igor-php`, then `igor-php` or `igor` on the
 PATH; set `IGOR_BIN` to use another binary, and `IGOR_WATCH=1` (or `0`) to override
 `.claude/igor-watch`.
