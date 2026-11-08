@@ -31,6 +31,7 @@ type Auditor struct {
 	FileContentOverrides map[string][]byte
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
+	subclasses           map[string][]string
 	mu                   sync.Mutex
 }
 

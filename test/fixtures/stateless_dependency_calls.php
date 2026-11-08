@@ -146,6 +146,83 @@ class Index
     }
 }
 
+class AliasWriter
+{
+    private mixed $value = null;
+
+    public function setValue(mixed $value): void
+    {
+        $self = $this;
+        $other = $self;
+        $other->value = $value;
+    }
+}
+
+class RootRenamer
+{
+    public function __construct(private IndexRenamer $renamer, private Index $index)
+    {
+    }
+
+    public function setRoot(): void
+    {
+        $this->renamer->setRootName($this->index);
+    }
+}
+
+class TimezoneSetter
+{
+    public function setTimezone(string $timezone): void
+    {
+        date_default_timezone_set($timezone);
+    }
+}
+
+class DynamicOptions
+{
+    public function __construct(private Options $options)
+    {
+    }
+
+    public function setOption(string $method): void
+    {
+        $this->options->{$method}();
+    }
+}
+
+class BaseValue
+{
+    public function setValue(mixed $value): void
+    {
+    }
+}
+
+class StoredValue extends BaseValue
+{
+    private mixed $value = null;
+
+    public function setValue(mixed $value): void
+    {
+        $this->value = $value;
+    }
+}
+
+class CacheWrapper
+{
+    public function clearCache(): void
+    {
+        Registry::flush();
+    }
+}
+
+class PlaylistAdder
+{
+    public function addSongs(Playlist $playlist, User $user): void
+    {
+        $playlist->addSongs([1, 2], $user);
+    }
+}
+
 final class StatelessCallsController
 {
     public function __construct(
@@ -160,6 +237,15 @@ final class StatelessCallsController
         private IndexRenamer $renamer,
         private Index $index,
         private UnknownService $unknown,
+        private AliasWriter $aliasWriter,
+        private RootRenamer $rootRenamer,
+        private TimezoneSetter $timezoneSetter,
+        private DynamicOptions $dynamicOptions,
+        private BaseValue $baseValue,
+        private CacheWrapper $cacheWrapper,
+        private PlaylistAdder $playlistAdder,
+        private Playlist $playlist,
+        private User $user,
     ) {
     }
 
@@ -221,5 +307,45 @@ final class StatelessCallsController
     public function callUnknown(): void
     {
         $this->unknown->setValue(1);
+    }
+
+    public function writeThroughAlias(): void
+    {
+        $this->aliasWriter->setValue(1);
+    }
+
+    public function renameNestedSharedIndex(): void
+    {
+        $this->rootRenamer->setRoot();
+    }
+
+    public function changeTimezone(): void
+    {
+        $this->timezoneSetter->setTimezone('UTC');
+    }
+
+    public function setDynamicOption(): void
+    {
+        $this->dynamicOptions->setOption('enableDebug');
+    }
+
+    public function setOverriddenValue(): void
+    {
+        $this->baseValue->setValue(1);
+    }
+
+    public function clearStaticCache(): void
+    {
+        $this->cacheWrapper->clearCache();
+    }
+
+    public function addSongsForSharedUser(Playlist $playlist): void
+    {
+        $this->playlistAdder->addSongs($playlist, $this->user);
+    }
+
+    public function addSongsToSharedPlaylist(): void
+    {
+        $this->playlistAdder->addSongs($this->playlist, $this->user);
     }
 }

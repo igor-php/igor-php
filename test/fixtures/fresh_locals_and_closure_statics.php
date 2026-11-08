@@ -55,6 +55,10 @@ final class LibraryStatisticsService
         $kernel = self::getKernel()->getContainer();
         $kernel->set('id', new \stdClass()); // reported
 
+        $refs = [$this->items];
+        $queue = $refs[0];
+        $queue->push(1); // reported
+
         $handler = HandlerProvider::forRegistry($this->registry);
         $handler->setDefault('x'); // reported
 

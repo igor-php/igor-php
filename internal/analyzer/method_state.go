@@ -13,6 +13,20 @@ type MethodCallRef struct {
 	Method string
 	// Mutator is true when the method name suggests a change: it decides for a class that was not audited.
 	Mutator bool
+	// Args says what the call passes: a callee that changes its arguments changes the object's
+	// own state when it is given some ($this->index).
+	Args CallArgs
+}
+
+// CallArgs describes the arguments of a call by position.
+type CallArgs struct {
+	// Shared lists the positions of arguments holding the caller's own state.
+	Shared []int
+	// Params gives, for each position, the index of the caller's parameter passed there as a
+	// whole, or -1.
+	Params []int
+	// Unknown is true when positions cannot be trusted (named or spread arguments).
+	Unknown bool
 }
 
 // MethodState summarizes whether a method body can change the state of its own
@@ -23,13 +37,17 @@ type MethodState struct {
 	// a global or a static variable, or does something the summary cannot follow.
 	Mutates bool
 	// MutatesArgs is true when the body changes an object passed as an argument (a mutating call
-	// or a property write on a parameter, or a parameter handed to a mutating call). It matters
-	// when the caller passes its own shared state.
+	// or a property write on a parameter). It matters when the caller passes its own shared state;
+	// a parameter handed on to a method the auditor reads is followed through CallArgs.
 	MutatesArgs bool
-	// SelfCalls are the methods called on $this, self:: or static::.
-	SelfCalls []string
-	// ParentCalls are the methods called through parent::.
-	ParentCalls []string
+	// MutatedParams are the indexes of the parameters the body changes.
+	MutatedParams []int
+	// VariadicFrom is the index of a variadic parameter, or -1: it receives every later argument.
+	VariadicFrom int
+	// SelfCalls are the methods called on $this, self:: or static:: (Class is empty).
+	SelfCalls []MethodCallRef
+	// ParentCalls are the methods called through parent:: (Class is empty).
+	ParentCalls []MethodCallRef
 	// DepCalls are the methods called on a property of $this.
 	DepCalls []MethodCallRef
 }
@@ -98,20 +116,31 @@ type stateSummarizer struct {
 	// tainted are local variables holding an object reached from $this (or a static property):
 	// calling a mutating method on them mutates the service's state.
 	tainted map[string]bool
-	// params are the method's parameter names.
-	params map[string]bool
+	// params are the method's parameter names, with their index.
+	params map[string]int
+	// self are local variables holding $this itself ($self = $this): calls on them are self calls.
+	self map[string]bool
 }
 
 // summarizeMethodState walks a method declaration. It errs on the side of Mutates: anything
 // it cannot follow (dynamic calls, references, objects reached from $this through a local
 // variable) counts as a mutation.
 func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
-	s := &stateSummarizer{v: v, tainted: map[string]bool{}, params: map[string]bool{}}
+	s := &stateSummarizer{v: v, tainted: map[string]bool{}, params: map[string]int{}, self: map[string]bool{}}
+	s.st.VariadicFrom = -1
 	if list := method.ChildByFieldName("parameters"); list != nil {
+		index := 0
 		for i := uint(0); i < list.NamedChildCount(); i++ {
-			if name := list.NamedChild(i).ChildByFieldName("name"); name != nil {
-				s.params[v.getContent(name)] = true
+			param := list.NamedChild(i)
+			name := param.ChildByFieldName("name")
+			if name == nil {
+				continue
 			}
+			s.params[v.getContent(name)] = index
+			if param.Kind() == "variadic_parameter" {
+				s.st.VariadicFrom = index
+			}
+			index++
 		}
 	}
 	s.walk(method.ChildByFieldName("body"))
@@ -129,7 +158,7 @@ func (s *stateSummarizer) walk(n *sitter.Node) {
 	case "member_call_expression", "nullsafe_member_call_expression":
 		s.memberCall(n)
 	case "scoped_call_expression":
-		s.v.summarizeScopedCall(n, &s.st)
+		s.scopedCall(n)
 	default:
 		if s.writes(n) {
 			s.st.Mutates = true
@@ -153,17 +182,17 @@ func (s *stateSummarizer) writes(n *sitter.Node) bool {
 		// $x = &$this->prop, or $this->prop = &$x
 		return v.derivesFromOwnState(n.ChildByFieldName("left")) || v.derivesFromOwnState(n.ChildByFieldName("right"))
 	case "update_expression":
-		return v.writesOwnState(n.ChildByFieldName("argument"))
+		return s.writesState(n.ChildByFieldName("argument"))
 	case "unset_statement":
 		for i := uint(0); i < n.ChildCount(); i++ {
-			if v.writesOwnState(n.Child(i)) {
+			if s.writesState(n.Child(i)) {
 				return true
 			}
 		}
 	case "foreach_statement":
 		// foreach ($this->items as $item) $item->setX() mutates objects the service holds,
 		// and foreach ($this->items as &$item) writes the property itself
-		return n.ChildCount() > 2 && v.derivesFromOwnState(n.Child(2)) && v.collectVariables(n, s.tainted)
+		return n.ChildCount() > 2 && s.holdsOwnState(n.Child(2)) && v.collectVariables(n, s.tainted)
 	case "by_ref":
 		// [&$this->prop], fn(&$x) bound to a property
 		return n.ChildCount() > 0 && v.derivesFromOwnState(n.Child(n.ChildCount()-1))
@@ -179,17 +208,107 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 	if left == nil {
 		return false
 	}
-	if v.writesOwnState(left) {
+	if s.writesState(left) {
 		return true
 	}
+	right := n.ChildByFieldName("right")
 	if left.Kind() == "variable_name" {
-		if v.derivesFromOwnState(n.ChildByFieldName("right")) {
-			s.tainted[v.getContent(left)] = true
+		name := v.getContent(left)
+		if right != nil && right.Kind() == "variable_name" && (v.getContent(right) == "$this" || s.self[v.getContent(right)]) {
+			s.self[name] = true
 		}
-	} else if s.params[rootVariable(v, left)] {
-		s.st.MutatesArgs = true
+		if s.holdsOwnState(right) {
+			s.tainted[name] = true
+		}
+	} else {
+		s.mutateParam(rootVariable(v, left))
 	}
 	return false
+}
+
+// mutateParam records a change to the parameter named name, if it is one.
+func (s *stateSummarizer) mutateParam(name string) {
+	index, ok := s.params[name]
+	if !ok {
+		return
+	}
+	s.st.MutatesArgs = true
+	for _, i := range s.st.MutatedParams {
+		if i == index {
+			return
+		}
+	}
+	s.st.MutatedParams = append(s.st.MutatedParams, index)
+}
+
+// writesState reports a write target that is the object's own state, directly or through a
+// local variable holding it ($self = $this; $self->value = 1).
+func (s *stateSummarizer) writesState(target *sitter.Node) bool {
+	if s.v.writesOwnState(target) {
+		return true
+	}
+	if target == nil || target.Kind() == "variable_name" {
+		return false
+	}
+	root := rootVariable(s.v, target)
+	return root != "" && (s.tainted[root] || s.self[root])
+}
+
+// holdsOwnState reports a value that is, or holds, the object's own state: $this->items, a
+// local already holding it, or an array of these ([$this->queue]).
+func (s *stateSummarizer) holdsOwnState(n *sitter.Node) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Kind() {
+	case "array_creation_expression", "array_element_initializer", "pair", "parenthesized_expression",
+		"conditional_expression", "binary_expression":
+		for i := uint(0); i < n.ChildCount(); i++ {
+			if s.holdsOwnState(n.Child(i)) {
+				return true
+			}
+		}
+		return false
+	}
+	if s.v.derivesFromOwnState(n) {
+		return true
+	}
+	root := rootVariable(s.v, n)
+	return root != "" && (s.tainted[root] || s.self[root])
+}
+
+// callArgs describes the arguments of a call: which hold the object's own state, and which
+// pass one of the method's parameters.
+func (s *stateSummarizer) callArgs(call *sitter.Node) CallArgs {
+	var out CallArgs
+	args := call.ChildByFieldName("arguments")
+	if args == nil {
+		return out
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		value := lastNamedChild(arg)
+		if arg.ChildByFieldName("name") != nil || arg.Kind() == "variadic_unpacking" || (value != nil && value.Kind() == "variadic_unpacking") {
+			out.Unknown = true
+		}
+		pos := int(i)
+		if s.holdsOwnState(value) {
+			out.Shared = append(out.Shared, pos)
+		}
+		param := -1
+		if value != nil && value.Kind() == "variable_name" {
+			if index, ok := s.params[s.v.getContent(value)]; ok {
+				param = index
+			}
+		}
+		out.Params = append(out.Params, param)
+	}
+	return out
+}
+
+// isSelf reports $this or a local variable holding it.
+func (s *stateSummarizer) isSelf(n *sitter.Node) bool {
+	return isThisVariable(s.v, n) || (n != nil && n.Kind() == "variable_name" && s.self[s.v.getContent(n)])
 }
 
 func (s *stateSummarizer) memberCall(n *sitter.Node) {
@@ -200,37 +319,38 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 		return
 	}
 	if nameNode.Kind() != "name" {
-		// $this->{$method}(), $this->$method()
-		if isThisVariable(v, obj) {
+		// $this->{$method}(), $this->options->{$method}(): any method, setters included
+		if s.isSelf(obj) || s.holdsOwnState(obj) {
 			st.Mutates = true
 		}
 		return
 	}
 	method := v.getContent(nameNode)
-	if isThisVariable(v, obj) {
-		st.SelfCalls = append(st.SelfCalls, method)
+	if s.isSelf(obj) {
+		st.SelfCalls = append(st.SelfCalls, MethodCallRef{Method: method, Args: s.callArgs(n)})
 		return
 	}
 	mutator := isMutatorName(method)
-	if mutator && passesVariable(v, n.ChildByFieldName("arguments"), s.params) {
-		st.MutatesArgs = true
-	}
+	args := s.callArgs(n)
 	if propName, ok := v.isPropertyFetchOnThis(obj); ok && isThisVariable(v, obj.ChildByFieldName("object")) {
 		// Every call on a property is followed when its class is audited; otherwise only the
 		// method name tells whether it changes the object ($this->queue->insert())
-		st.DepCalls = append(st.DepCalls, MethodCallRef{Class: v.propertyClass(propName), Method: method, Mutator: mutator})
+		st.DepCalls = append(st.DepCalls, MethodCallRef{
+			Class:   v.propertyClass(propName),
+			Method:  method,
+			Mutator: mutator,
+			Args:    args,
+		})
 		return
 	}
 	if !mutator {
 		return
 	}
 	root := rootVariable(v, obj)
-	if s.params[root] {
-		st.MutatesArgs = true
-	}
+	s.mutateParam(root)
 	// A mutating call on an object reached from $this through a longer chain or a local
 	// variable: the summary cannot tell whose state it is
-	if v.derivesFromOwnState(obj) || (root != "" && s.tainted[root]) {
+	if s.holdsOwnState(obj) {
 		st.Mutates = true
 	}
 }
@@ -267,7 +387,8 @@ func isMutatorName(method string) bool {
 	return false
 }
 
-func (v *PHPVisitor) summarizeScopedCall(n *sitter.Node, st *MethodState) {
+func (s *stateSummarizer) scopedCall(n *sitter.Node) {
+	v, st := s.v, &s.st
 	scope := n.ChildByFieldName("scope")
 	nameNode := n.ChildByFieldName("name")
 	if scope == nil || nameNode == nil {
@@ -277,15 +398,15 @@ func (v *PHPVisitor) summarizeScopedCall(n *sitter.Node, st *MethodState) {
 		st.Mutates = true
 		return
 	}
-	method := v.getContent(nameNode)
+	call := MethodCallRef{Method: v.getContent(nameNode), Args: s.callArgs(n)}
 	switch strings.ToLower(v.getContent(scope)) {
 	case "self", "static":
-		st.SelfCalls = append(st.SelfCalls, method)
+		st.SelfCalls = append(st.SelfCalls, call)
 	case "parent":
-		st.ParentCalls = append(st.ParentCalls, method)
+		st.ParentCalls = append(st.ParentCalls, call)
 	default:
-		// Foo::register(...) changes a static registry
-		if hasMutationPrefix(method) {
+		// Foo::register(...), Registry::flush(): a static registry the summary does not read
+		if isMutatorName(call.Method) {
 			st.Mutates = true
 		}
 	}
@@ -327,14 +448,11 @@ func (v *PHPVisitor) writesOwnState(n *sitter.Node) bool {
 	return v.derivesFromOwnState(n)
 }
 
-// callWritesOwnState reports a function call that changes state of the object: a by-reference
-// builtin given one of its properties (array_push($this->items, ...)), or $this handed to a
-// function (call_user_func([$this, 'set']), tap($this, ...)).
+// callWritesOwnState reports a function call that changes state of the object or of the process:
+// a function igor reports as changing the process (ini_set(), date_default_timezone_set()), a
+// by-reference builtin given one of its properties (array_push($this->items, ...)), or $this
+// handed to a function (call_user_func([$this, 'set']), tap($this, ...)).
 func (v *PHPVisitor) callWritesOwnState(n *sitter.Node) bool {
-	args := n.ChildByFieldName("arguments")
-	if args == nil {
-		return false
-	}
 	fn := n.ChildByFieldName("function")
 	name := ""
 	if fn != nil && (fn.Kind() == "name" || fn.Kind() == "qualified_name") {
@@ -342,6 +460,13 @@ func (v *PHPVisitor) callWritesOwnState(n *sitter.Node) bool {
 		if i := strings.LastIndex(name, "\\"); i >= 0 {
 			name = name[i+1:]
 		}
+	}
+	if _, ok := dangerousFunctions[name]; ok {
+		return true
+	}
+	args := n.ChildByFieldName("arguments")
+	if args == nil {
+		return false
 	}
 	_, byRef := envByRefFunctions[name]
 	for i := uint(0); i < args.ChildCount(); i++ {
@@ -491,32 +616,36 @@ func inReturnedClosure(n *sitter.Node) bool {
 	return false
 }
 
-// passesVariable reports an argument list holding one of vars as a whole argument.
-func passesVariable(v *PHPVisitor, args *sitter.Node, vars map[string]bool) bool {
-	if args == nil {
-		return false
-	}
-	for i := uint(0); i < args.NamedChildCount(); i++ {
-		arg := lastNamedChild(args.NamedChild(i))
-		if arg != nil && arg.Kind() == "variable_name" && vars[v.getContent(arg)] {
-			return true
-		}
-	}
-	return false
-}
-
 // passesSharedState reports a call whose arguments hold the caller's own state.
 func (v *PHPVisitor) passesSharedState(call *sitter.Node) bool {
+	positions, unknown := v.sharedArgPositions(call)
+	return len(positions) > 0 || unknown
+}
+
+// sharedArgPositions lists the positions of a call's arguments that hold the caller's own state,
+// and reports named or spread arguments, whose positions cannot be trusted.
+func (v *PHPVisitor) sharedArgPositions(call *sitter.Node) ([]int, bool) {
 	args := call.ChildByFieldName("arguments")
 	if args == nil {
-		return false
+		return nil, false
 	}
+	var positions []int
+	unknown := false
 	for i := uint(0); i < args.NamedChildCount(); i++ {
-		if arg := lastNamedChild(args.NamedChild(i)); arg != nil && v.isRightSideShared(arg) {
-			return true
+		arg := args.NamedChild(i)
+		value := lastNamedChild(arg)
+		if value == nil {
+			continue
+		}
+		if !v.isRightSideShared(value) {
+			continue
+		}
+		positions = append(positions, int(i))
+		if arg.ChildByFieldName("name") != nil || arg.Kind() == "variadic_unpacking" || value.Kind() == "variadic_unpacking" {
+			unknown = true
 		}
 	}
-	return false
+	return positions, unknown
 }
 
 // isOwnStaticCall reports self::getContainer(), static::instance(): the class's own static state,

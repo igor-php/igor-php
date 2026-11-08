@@ -1006,15 +1006,17 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 
 // isRightSideShared reports whether an assigned value is the shared service's own state: $this,
 // an object reached from it or from a static property, a self::/static:: call, or a local variable
-// already tracked as shared, or a static call given any of these. A value built by a function call,
-// new, clone or an array literal is a fresh value, even when $this appears in its arguments
-// (collect([$this->a, $this->b])).
+// already tracked as shared, a static call given any of these, or an array holding one. A value
+// built by a function call, new or clone is a fresh value, even when $this appears in its
+// arguments (collect([$this->a, $this->b])).
 func (v *PHPVisitor) isRightSideShared(right *sitter.Node) bool {
 	if right == nil {
 		return false
 	}
 	switch right.Kind() {
-	case "parenthesized_expression", "conditional_expression", "binary_expression":
+	case "parenthesized_expression", "conditional_expression", "binary_expression",
+		"array_creation_expression", "array_element_initializer", "pair":
+		// [$this->queue] is a new array, but the queue in it is still shared
 		for i := uint(0); i < right.ChildCount(); i++ {
 			if v.isRightSideShared(right.Child(i)) {
 				return true
@@ -1407,7 +1409,8 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 		// The method name is only a guess: let the auditor drop the finding once it has read that method
 		if len(v.findings) > before && isDirectProp && !v.localSharedVars["$"+propName] {
 			if class := v.propertyClass(propName); class != "" {
-				v.findings[before].Callee = &symbol.CallRef{Class: class, Method: methodName, SharedArgs: v.passesSharedState(n)}
+				shared, unknown := v.sharedArgPositions(n)
+				v.findings[before].Callee = &symbol.CallRef{Class: class, Method: methodName, SharedArgs: shared, UnknownArgs: unknown}
 			}
 		}
 	}

@@ -53,6 +53,14 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"renameSharedIndex", true, "setRootName() renames the shared index it is given"},
 		{"renameFreshIndex", false, "setRootName() only renames a new index"},
 		{"callUnknown", true, "an unaudited class keeps the name-based guess"},
+		{"writeThroughAlias", true, "setValue() writes $this->value through local aliases of $this"},
+		{"renameNestedSharedIndex", true, "setRoot() hands its own index to a method that renames it"},
+		{"changeTimezone", true, "setTimezone() changes the process timezone"},
+		{"setDynamicOption", true, "setOption() calls any method on its own options"},
+		{"setOverriddenValue", true, "a subclass overrides the empty setValue() with a write"},
+		{"clearStaticCache", true, "clearCache() flushes a static registry it cannot read"},
+		{"addSongsForSharedUser", false, "addSongs() changes the playlist it is given, not the shared user"},
+		{"addSongsToSharedPlaylist", true, "addSongs() changes the shared playlist it is given"},
 	}
 	for _, c := range cases {
 		if reported[c.method] != c.kept {

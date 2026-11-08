@@ -43,8 +43,11 @@ type Finding struct {
 type CallRef struct {
 	Class  string
 	Method string
-	// SharedArgs is true when the call passes the caller's own state ($this->x, or a local holding it).
-	SharedArgs bool
+	// SharedArgs lists the positions of the arguments holding the caller's own state ($this->x,
+	// or a local holding it).
+	SharedArgs []int
+	// UnknownArgs is true when a shared argument is named or spread: any parameter may receive it.
+	UnknownArgs bool
 }
 
 const (
