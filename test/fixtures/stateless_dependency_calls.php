@@ -456,6 +456,39 @@ class QueueHolder
     }
 }
 
+class QuietCursor
+{
+    public function advance(): void
+    {
+    }
+}
+
+class BranchCursor
+{
+    public function __construct(private Cursor $mutable, private QuietCursor $quiet)
+    {
+    }
+
+    public function setNext(bool $quiet): void
+    {
+        $cursor = $this->mutable;
+        if ($quiet) {
+            $cursor = $this->quiet;
+        }
+        $cursor->advance();
+    }
+}
+
+class OptionsTrimmer
+{
+    public function setOptions(array $options): void
+    {
+        unset($options['temporary']);
+        $options['count']++;
+        $options['name'] = 'trimmed';
+    }
+}
+
 class EncodingReader
 {
     public function setEncodingCheck(): string
@@ -504,6 +537,9 @@ final class StatelessCallsController
         private Counter $counter,
         private CursorUser $cursorUser,
         private QueueHolder $queueHolder,
+        private BranchCursor $branchCursor,
+        private OptionsTrimmer $optionsTrimmer,
+        private array $options,
     ) {
     }
 
@@ -700,5 +736,15 @@ final class StatelessCallsController
     public function renameClone(): void
     {
         $this->queueHolder->setCopy();
+    }
+
+    public function advanceBranchCursor(): void
+    {
+        $this->branchCursor->setNext(true);
+    }
+
+    public function trimSharedOptions(): void
+    {
+        $this->optionsTrimmer->setOptions($this->options);
     }
 }

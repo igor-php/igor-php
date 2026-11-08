@@ -79,6 +79,8 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"pushCurrentQueue", true, "setCurrent() pushes onto a queue current() hands back from its own state"},
 		{"renameClonedChild", true, "setCopyName() renames the index a shallow clone still shares"},
 		{"renameClone", false, "setCopy() only changes the clone itself"},
+		{"advanceBranchCursor", true, "setNext() calls advance() on either cursor, one of which moves"},
+		{"trimSharedOptions", false, "setOptions() only changes its own copy of the array"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
 	for _, c := range cases {

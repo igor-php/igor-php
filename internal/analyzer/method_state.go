@@ -130,9 +130,15 @@ type stateSummarizer struct {
 	// (clone $this->holder, collect([$this->queue])): a change to them is not, a change to what
 	// they hold is.
 	wrappers map[string]bool
-	// sources are local variables holding a property of $this ($cursor = $this->cursor), by name:
-	// calls on them are followed as calls on that property.
-	sources map[string]string
+	// sources are local variables holding a property of $this ($cursor = $this->cursor), with
+	// every property assigned to them: calls on them are followed as calls on each.
+	sources map[string][]string
+	// opaque are local variables also assigned something other than a property of $this: a
+	// mutator call on them is judged as on any local.
+	opaque map[string]bool
+	// arrayParams are the parameters passed by value as arrays: a write to their entries changes
+	// a copy, not what the caller passed.
+	arrayParams map[string]bool
 	// containers are local variables created as a collection (collect(), new \ArrayObject(), []):
 	// storing an object in them does not change it.
 	containers map[string]bool
@@ -145,7 +151,7 @@ func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
 	s := &stateSummarizer{
 		v: v, tainted: map[string]bool{}, params: map[string]int{}, self: map[string]bool{},
 		aliases: map[string][]int{}, containers: map[string]bool{}, wrappers: map[string]bool{},
-		sources: map[string]string{},
+		sources: map[string][]string{}, opaque: map[string]bool{}, arrayParams: map[string]bool{},
 	}
 	s.st.VariadicFrom = -1
 	if list := method.ChildByFieldName("parameters"); list != nil {
@@ -157,6 +163,9 @@ func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
 				continue
 			}
 			s.params[v.getContent(name)] = index
+			if isByValueArray(v, param) {
+				s.arrayParams[v.getContent(name)] = true
+			}
 			if param.Kind() == "variadic_parameter" {
 				s.st.VariadicFrom = index
 			}
@@ -226,10 +235,41 @@ func (s *stateSummarizer) writesTarget(target *sitter.Node) bool {
 	if s.writesState(target) {
 		return true
 	}
-	if target != nil && target.Kind() != "variable_name" {
+	if target != nil && target.Kind() != "variable_name" && !s.copiesParam(target) {
 		s.mutateParam(rootVariable(s.v, target))
 	}
 	return false
+}
+
+// copiesParam reports a write to an entry of an array parameter passed by value
+// (unset($options['tmp'])): it changes the method's own copy.
+func (s *stateSummarizer) copiesParam(target *sitter.Node) bool {
+	n := target
+	for n != nil && n.Kind() == "subscript_expression" && n.ChildCount() > 0 {
+		n = n.Child(0)
+	}
+	return n != target && n != nil && n.Kind() == "variable_name" && s.arrayParams[s.v.getContent(n)]
+}
+
+// isByValueArray reports a parameter typed array (or ?array) and not taken by reference.
+func isByValueArray(v *PHPVisitor, param *sitter.Node) bool {
+	if param.ChildByFieldName("reference_modifier") != nil {
+		return false
+	}
+	t := param.ChildByFieldName("type")
+	if t == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimPrefix(v.getContent(t), "?"), "array")
+}
+
+func appendUnique(list []string, value string) []string {
+	for _, x := range list {
+		if x == value {
+			return list
+		}
+	}
+	return append(list, value)
 }
 
 // foreach tracks the loop variables: foreach ($this->items as $item) $item->setX() mutates
@@ -274,15 +314,17 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 			s.tainted[name] = true
 		}
 		s.wrappers[name] = v.wrapsSharedState(right, s.holdsOwnState)
-		s.sources[name] = ""
 		if prop, ok := v.isPropertyFetchOnThis(right); ok && isThisVariable(v, right.ChildByFieldName("object")) {
-			s.sources[name] = prop
+			// Branches may assign several properties: keep them all
+			s.sources[name] = appendUnique(s.sources[name], prop)
+		} else {
+			s.opaque[name] = true
 		}
 		// A local reassigned to anything else ($items = $this->queue) is no longer a fresh collection
 		s.containers[name] = s.isContainerCreation(right)
 		// $local = $index: a change through $local is a change to the parameter
 		s.alias(name, s.paramIndexes(right))
-	} else {
+	} else if !s.copiesParam(left) {
 		s.mutateParam(rootVariable(v, left))
 	}
 	return false
@@ -486,26 +528,35 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 	}
 	mutator := isMutatorName(method)
 	args := s.callArgs(n)
-	propName, ok := v.isPropertyFetchOnThis(obj)
-	ok = ok && isThisVariable(v, obj.ChildByFieldName("object"))
-	if !ok && obj.Kind() == "variable_name" && s.sources[v.getContent(obj)] != "" {
-		// $cursor = $this->cursor; $cursor->advance(): followed as $this->cursor->advance()
-		propName, ok = s.sources[v.getContent(obj)], true
-	}
-	if ok {
-		// Every call on a property is followed when its class is audited; otherwise only the
-		// method name tells whether it changes the object ($this->queue->insert())
+	props, opaque := s.receiverProperties(obj)
+	// Every call on a property is followed when its class is audited; otherwise only the
+	// method name tells whether it changes the object ($this->queue->insert())
+	for _, propName := range props {
 		st.DepCalls = append(st.DepCalls, MethodCallRef{
 			Class:   v.propertyClass(propName),
 			Method:  method,
 			Mutator: mutator,
 			Args:    args,
 		})
-		return
 	}
-	if mutator {
+	if mutator && (len(props) == 0 || opaque) {
 		s.localCall(n, obj, method, args)
 	}
+}
+
+// receiverProperties gives the properties of $this a call receiver may be: $this->cursor, or a
+// local assigned one or more of them ($cursor = $this->cursor). opaque is true when the local
+// may also hold something else.
+func (s *stateSummarizer) receiverProperties(obj *sitter.Node) ([]string, bool) {
+	v := s.v
+	if prop, ok := v.isPropertyFetchOnThis(obj); ok && isThisVariable(v, obj.ChildByFieldName("object")) {
+		return []string{prop}, false
+	}
+	if obj.Kind() != "variable_name" {
+		return nil, false
+	}
+	name := v.getContent(obj)
+	return s.sources[name], s.opaque[name]
 }
 
 // localCall handles a mutator-named call on a receiver the summary does not follow: a
