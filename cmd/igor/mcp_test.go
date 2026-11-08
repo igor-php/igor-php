@@ -10,7 +10,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/igor-php/igor-php/internal/auditor"
 	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 // mcpTestProject writes a plain PHP project (no framework) with a leaking Cart, a process-state Clock and a
@@ -301,5 +303,76 @@ func TestMCPRuleResourcesAndPrompt(t *testing.T) {
 	text := prompt.Messages[0].Content.(*mcp.TextContent).Text
 	if !strings.Contains(text, "project_info") || !strings.Contains(text, `audit_project with path "src"`) || !strings.Contains(text, "update_command") {
 		t.Fatalf("prompt: %s", text)
+	}
+}
+
+func TestMCPExplainServiceSkippedServices(t *testing.T) {
+	root := t.TempDir()
+	for name, content := range map[string]string{
+		"src/Cart.php":   "<?php\nnamespace App;\nclass Cart {\n    private array $lines = [];\n    public function add(string $l): void { $this->lines[] = $l; }\n}\n",
+		"src/Basket.php": "<?php\nnamespace App;\nclass Basket {\n    private array $items = [];\n    public function add(string $i): void { $this->items[] = $i; }\n}\n",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.LoadConfig(root, "")
+	server := newMCPServer(root, cfg)
+	bridge := auditor.NewSymfonyBridge(root, "", cfg)
+	bridge.Container = &symbol.SymfonyContainer{Definitions: map[string]symbol.SymfonyService{
+		"app.cart":   {Class: "App\\Cart", Shared: true},
+		"app.basket": {Class: "App\\Basket", Shared: false},
+		"app.ghost":  {Class: "App\\Ghost", Shared: true},
+	}}
+	bridge.ClassToFile = map[string]string{
+		"App\\Cart":   filepath.Join(root, "src/Cart.php"),
+		"App\\Basket": filepath.Join(root, "src/Basket.php"),
+	}
+	server.project = &auditProject{rootPath: root, bridge: bridge}
+
+	explain := func(name string) explainServiceOutput {
+		t.Helper()
+		_, out, err := server.explainServiceTool(context.Background(), nil, explainServiceInput{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	if out := explain("cart"); out.Matches != 1 || out.Services[0].Verdict != "KO" {
+		t.Fatalf("the shared Cart is audited: %+v", out)
+	}
+	// Basket is also audited as a class of the project, but its service is not shared
+	var basket *explainedService
+	services := explain("basket").Services
+	for i := range services {
+		if services[i].ServiceID == "app.basket" {
+			basket = &services[i]
+		}
+	}
+	if basket == nil || basket.Verdict != "SKIPPED" || basket.Shared || !strings.Contains(basket.Skipped, "not shared") || basket.File != "src/Basket.php" {
+		t.Fatalf("the non-shared Basket must be explained as skipped: %+v", basket)
+	}
+	if out := explain("ghost"); out.Matches != 1 || !strings.Contains(out.Services[0].Skipped, "could not locate the file") {
+		t.Fatalf("Ghost: %+v", out)
+	}
+}
+
+func TestMCPFailedFilesAreReported(t *testing.T) {
+	root := t.TempDir()
+	server := newMCPServer(root, config.LoadConfig(root, ""))
+	results := []symbol.AuditStatus{
+		{FilePath: filepath.Join(root, "src/Ok.php"), Status: "✅ OK"},
+		{FilePath: filepath.Join(root, "src/Broken.php"), Status: auditFailedStatus},
+	}
+	if failed := server.failedFiles(results); len(failed) != 1 || failed[0] != "src/Broken.php" {
+		t.Fatalf("failed files: %v", failed)
+	}
+	if svc := server.explainAudited(results[1]); svc.Verdict != "ERROR" {
+		t.Fatalf("a file that could not be audited is not clean: %+v", svc)
 	}
 }

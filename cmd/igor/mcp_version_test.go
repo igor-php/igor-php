@@ -74,6 +74,39 @@ func TestUpdateCheckerFallsBackToStaleCache(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckerWaitsAfterAFailure(t *testing.T) {
+	srv, calls := fakePackagist(t, "oops", http.StatusServiceUnavailable)
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	newChecker := func(cacheFile string) *updateChecker {
+		c := testChecker(t, srv.URL)
+		c.cacheFile = cacheFile
+		c.now = func() time.Time { return now }
+		return c
+	}
+
+	for _, cacheFile := range []string{"", filepath.Join(t.TempDir(), "latest-version.json")} {
+		*calls = 0
+		c := newChecker(cacheFile)
+		if _, err := c.latest(context.Background()); err == nil || *calls != 1 {
+			t.Fatalf("first attempt: %v, %d requests", err, *calls)
+		}
+		now = now.Add(10 * time.Minute)
+		if _, err := c.latest(context.Background()); err == nil || !strings.Contains(err.Error(), "next attempt") || *calls != 1 {
+			t.Fatalf("a failure must not be retried before an hour: %v, %d requests", err, *calls)
+		}
+		if cacheFile != "" {
+			// Another server process on the same machine waits too
+			if _, err := newChecker(cacheFile).latest(context.Background()); err == nil || *calls != 1 {
+				t.Fatalf("the failure must be shared through the cache: %v, %d requests", err, *calls)
+			}
+		}
+		now = now.Add(time.Hour)
+		if _, err := c.latest(context.Background()); err == nil || *calls != 2 {
+			t.Fatalf("the check must be retried after an hour: %v, %d requests", err, *calls)
+		}
+	}
+}
+
 func TestUpdateCheckerCanBeDisabled(t *testing.T) {
 	srv, calls := fakePackagist(t, packagistBody, http.StatusOK)
 	c := testChecker(t, srv.URL)

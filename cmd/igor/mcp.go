@@ -374,6 +374,7 @@ type auditProjectOutput struct {
 	Errors             int          `json:"errors"`
 	Warnings           int          `json:"warnings"`
 	HiddenOutOfRequest int          `json:"hidden_out_of_request,omitempty" jsonschema:"findings hidden because their code never runs during a request"`
+	FilesFailed        []string     `json:"files_failed,omitempty" jsonschema:"files igor could not read or parse: they are not checked"`
 	Findings           []mcpFinding `json:"findings"`
 	NextOffset         int          `json:"next_offset,omitempty" jsonschema:"offset of the next page; absent on the last page"`
 	Degraded           string       `json:"degraded,omitempty"`
@@ -428,7 +429,7 @@ func (s *mcpServer) auditProjectTool(_ context.Context, _ *mcp.CallToolRequest, 
 		return nil, auditProjectOutput{}, err
 	}
 
-	out := auditProjectOutput{FilesAudited: len(results), Degraded: project.degraded, Findings: []mcpFinding{}}
+	out := auditProjectOutput{FilesAudited: len(results), Degraded: project.degraded, Findings: []mcpFinding{}, FilesFailed: s.failedFiles(results)}
 	var all []mcpFinding
 	for _, res := range results {
 		for _, f := range res.Findings {
@@ -450,6 +451,20 @@ func (s *mcpServer) auditProjectTool(_ context.Context, _ *mcp.CallToolRequest, 
 	out.Total = len(all)
 	out.Findings, out.NextOffset = paginate(all, in.Offset, in.Limit)
 	return nil, out, nil
+}
+
+// auditFailedStatus is the status of a file the audit could not read or parse.
+const auditFailedStatus = "❌ ERROR"
+
+func (s *mcpServer) failedFiles(results []symbol.AuditStatus) []string {
+	var failed []string
+	for _, res := range results {
+		if res.Status == auditFailedStatus {
+			failed = append(failed, s.relative(res.FilePath))
+		}
+	}
+	sort.Strings(failed)
+	return failed
 }
 
 // paginate returns the page of findings starting at offset, and the offset of the next page (0 on the last).
@@ -501,6 +516,9 @@ func (s *mcpServer) auditFileTool(_ context.Context, _ *mcp.CallToolRequest, in 
 	}
 	out := auditFileOutput{File: s.relative(abs), Findings: []mcpFinding{}}
 	for _, res := range results {
+		if res.Status == auditFailedStatus {
+			return nil, auditFileOutput{}, fmt.Errorf("igor could not audit %s: the file cannot be read or parsed", in.Path)
+		}
 		out.Audited = true
 		out.Shared = out.Shared || res.IsShared
 		for _, f := range res.Findings {
@@ -519,10 +537,11 @@ type explainServiceInput struct {
 
 type explainedService struct {
 	ServiceID    string       `json:"service_id,omitempty"`
-	File         string       `json:"file"`
+	File         string       `json:"file,omitempty"`
 	Shared       bool         `json:"shared"`
 	Public       bool         `json:"public,omitempty"`
-	Verdict      string       `json:"verdict" jsonschema:"OK when igor finds no state leak, KO otherwise"`
+	Verdict      string       `json:"verdict" jsonschema:"OK when igor finds no state leak, KO when it finds one, ERROR when the file cannot be read or parsed, SKIPPED when igor does not audit the service"`
+	Skipped      string       `json:"skipped,omitempty" jsonschema:"why igor does not audit the service"`
 	Dependencies []string     `json:"dependencies,omitempty"`
 	OutOfRequest string       `json:"out_of_request,omitempty"`
 	Findings     []mcpFinding `json:"findings"`
@@ -544,36 +563,99 @@ func (s *mcpServer) explainServiceTool(_ context.Context, _ *mcp.CallToolRequest
 		return nil, explainServiceOutput{}, err
 	}
 	out := explainServiceOutput{Framework: frameworkName(project.bridge), Services: []explainedService{}}
-	sort.SliceStable(results, func(i, j int) bool { return results[i].FilePath < results[j].FilePath })
-	for _, res := range results {
-		file := s.relative(res.FilePath)
-		if !strings.Contains(strings.ToLower(res.ServiceID), name) && !strings.Contains(strings.ToLower(file), name) && !findingsMention(res.Findings, name) {
-			continue
-		}
+	add := func(svc explainedService) {
 		out.Matches++
-		if len(out.Services) >= maxExplainedServices {
-			continue
+		if len(out.Services) < maxExplainedServices {
+			out.Services = append(out.Services, svc)
 		}
-		svc := explainedService{
-			ServiceID:    res.ServiceID,
-			File:         file,
-			Shared:       res.IsShared,
-			Public:       res.IsPublic,
-			Verdict:      "OK",
-			Dependencies: res.Dependencies,
-			OutOfRequest: res.OutOfRequest,
-			Findings:     []mcpFinding{},
+	}
+
+	sort.SliceStable(results, func(i, j int) bool { return results[i].FilePath < results[j].FilePath })
+	audited := map[string]bool{}
+	for _, res := range results {
+		audited[res.ServiceID] = true
+		audited[filepath.Clean(res.FilePath)] = true
+		file := s.relative(res.FilePath)
+		if strings.Contains(strings.ToLower(res.ServiceID), name) || strings.Contains(strings.ToLower(file), name) || findingsMention(res.Findings, name) {
+			add(s.explainAudited(res))
 		}
-		for _, f := range res.Findings {
-			svc.Findings = append(svc.Findings, s.toFinding(res.FilePath, f))
-		}
-		if len(svc.Findings) > 0 {
-			svc.Verdict = "KO"
-		}
-		sortFindings(svc.Findings)
-		out.Services = append(out.Services, svc)
+	}
+	for _, svc := range s.skippedServices(project, name, audited) {
+		add(svc)
 	}
 	return nil, out, nil
+}
+
+func (s *mcpServer) explainAudited(res symbol.AuditStatus) explainedService {
+	svc := explainedService{
+		ServiceID:    res.ServiceID,
+		File:         s.relative(res.FilePath),
+		Shared:       res.IsShared,
+		Public:       res.IsPublic,
+		Verdict:      "OK",
+		Dependencies: res.Dependencies,
+		OutOfRequest: res.OutOfRequest,
+		Findings:     []mcpFinding{},
+	}
+	for _, f := range res.Findings {
+		svc.Findings = append(svc.Findings, s.toFinding(res.FilePath, f))
+	}
+	switch {
+	case res.Status == auditFailedStatus:
+		svc.Verdict = "ERROR"
+	case len(svc.Findings) > 0:
+		svc.Verdict = "KO"
+	}
+	sortFindings(svc.Findings)
+	return svc
+}
+
+// skippedServices explains the services of the container matching name that the audit did not check,
+// such as non-shared services: the container builds a new one each time, so their state cannot leak.
+func (s *mcpServer) skippedServices(project *auditProject, name string, audited map[string]bool) []explainedService {
+	b := project.bridge
+	if b == nil || b.Container == nil {
+		return nil
+	}
+	aud := auditor.NewAuditor(s.cfg)
+	aud.UseFramework(b)
+
+	var skipped []explainedService
+	for id, def := range b.Container.Definitions {
+		if audited[id] || (!strings.Contains(strings.ToLower(id), name) && !strings.Contains(strings.ToLower(def.Class), name)) {
+			continue
+		}
+		path, found := b.ClassToFile[def.Class]
+		if found && def.Shared && audited[filepath.Clean(path)] {
+			// Its file is audited under another service id
+			continue
+		}
+		reason := skipReason(id, def, path, found, s.cfg, aud, s.root)
+		svc := explainedService{ServiceID: id, Shared: def.Shared, Public: def.Public, Verdict: "SKIPPED", Skipped: reason, Findings: []mcpFinding{}}
+		if found {
+			svc.File = s.relative(path)
+		}
+		skipped = append(skipped, svc)
+	}
+	sort.Slice(skipped, func(i, j int) bool { return skipped[i].ServiceID < skipped[j].ServiceID })
+	return skipped
+}
+
+// skipReason tells why the audit leaves a service of the container aside, as collectSymfonyServices does.
+func skipReason(id string, def symbol.SymfonyService, path string, found bool, cfg config.Config, aud *auditor.Auditor, root string) string {
+	if skip, reason := shouldSkipServiceMeta(id, def, aud); skip {
+		if !def.Shared {
+			return "not shared: the container builds a new instance each time, so its state does not persist between requests"
+		}
+		return reason
+	}
+	if !found {
+		return "igor could not locate the file of class " + def.Class
+	}
+	if skip, reason := shouldSkipServicePath(id, path, cfg, aud, root); skip {
+		return reason
+	}
+	return "not audited"
 }
 
 func findingsMention(findings []symbol.Finding, name string) bool {

@@ -18,6 +18,9 @@ const (
 	packagistURL       = "https://repo.packagist.org/p2/igor-php/igor-php.json"
 	updateCheckTTL     = 24 * time.Hour
 	updateCheckTimeout = 2 * time.Second
+	// updateRetryDelay spaces the attempts when Packagist cannot be reached, so an offline machine does not
+	// wait for the timeout on every call.
+	updateRetryDelay = time.Hour
 	// noUpdateCheckEnv disables the call to Packagist (offline machines, CI).
 	noUpdateCheckEnv = "IGOR_NO_UPDATE_CHECK"
 )
@@ -40,6 +43,8 @@ type updateChecker struct {
 	cacheFile string
 	client    *http.Client
 	now       func() time.Time
+	// failedAt is the last failed attempt, also kept here when there is no cache file.
+	failedAt time.Time
 }
 
 func newUpdateChecker() *updateChecker {
@@ -56,25 +61,35 @@ func newUpdateChecker() *updateChecker {
 }
 
 type latestVersionCache struct {
-	Latest    string    `json:"latest"`
-	CheckedAt time.Time `json:"checked_at"`
+	Latest    string    `json:"latest,omitempty"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	FailedAt  time.Time `json:"failed_at,omitzero"`
 }
 
 // latest returns the latest stable release of igor. A fresh cache answers without network; when
-// Packagist cannot be reached, a stale cache is better than nothing.
+// Packagist cannot be reached, a stale cache is better than nothing, and the next attempt waits an hour.
 func (c *updateChecker) latest(ctx context.Context) (string, error) {
 	if v := os.Getenv(noUpdateCheckEnv); v != "" && v != "0" {
 		return "", fmt.Errorf("update check disabled by %s", noUpdateCheckEnv)
 	}
 
-	cached, hasCache := c.readCache()
-	if hasCache && c.now().Sub(cached.CheckedAt) < updateCheckTTL {
+	now := c.now()
+	cached := c.readCache()
+	if cached.Latest != "" && now.Sub(cached.CheckedAt) < updateCheckTTL {
 		return cached.Latest, nil
+	}
+	if lastFailure := latestTime(cached.FailedAt, c.failedAt); now.Sub(lastFailure) < updateRetryDelay {
+		if cached.Latest != "" {
+			return cached.Latest, nil
+		}
+		return "", fmt.Errorf("packagist could not be reached at %s, next attempt after %s", lastFailure.Format(time.RFC3339), lastFailure.Add(updateRetryDelay).Format(time.RFC3339))
 	}
 
 	latest, err := c.fetch(ctx)
 	if err != nil {
-		if hasCache {
+		c.failedAt, cached.FailedAt = now, now
+		c.writeCache(cached)
+		if cached.Latest != "" {
 			return cached.Latest, nil
 		}
 		return "", err
@@ -122,16 +137,22 @@ func (c *updateChecker) fetch(ctx context.Context) (string, error) {
 	return latest, nil
 }
 
-func (c *updateChecker) readCache() (latestVersionCache, bool) {
+func (c *updateChecker) readCache() latestVersionCache {
 	var cached latestVersionCache
 	if c.cacheFile == "" {
-		return cached, false
+		return cached
 	}
-	data, err := os.ReadFile(c.cacheFile)
-	if err != nil || json.Unmarshal(data, &cached) != nil || cached.Latest == "" {
-		return cached, false
+	if data, err := os.ReadFile(c.cacheFile); err == nil && json.Unmarshal(data, &cached) != nil {
+		return latestVersionCache{}
 	}
-	return cached, true
+	return cached
+}
+
+func latestTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
 }
 
 func (c *updateChecker) writeCache(cached latestVersionCache) {
