@@ -559,22 +559,34 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 		return
 	}
 
-	rule, exists := dangerousFunctions[name]
+	rule, exists := v.processStateRule(n, name, isFullyQualified)
 	if !exists {
 		return
+	}
+
+	v.addFinding(n, symbol.RuleProcessStateMutation, rule.msg, v.hint(name, rule.hint), "WARNING")
+}
+
+// processStateRule returns the rule of a call to a function that changes the PHP process
+// (ini_set(), date_default_timezone_set()). name is the lowercased function name without its
+// leading backslash. An unqualified call shadowed by a function of the current namespace, or a
+// getter call such as mb_internal_encoding() with no argument, does not match.
+func (v *PHPVisitor) processStateRule(n *sitter.Node, name string, isFullyQualified bool) (dangerousFuncRule, bool) {
+	rule, exists := dangerousFunctions[name]
+	if !exists {
+		return rule, false
 	}
 
 	// Unqualified call shadowed by use function or local function definition in the current namespace scope
 	shadowed := v.getShadowedFunctions(n.StartByte())
 	if !isFullyQualified && shadowed != nil && shadowed[name] {
-		return
+		return rule, false
 	}
 
 	if rule.needsArgs && countArguments(n) == 0 {
-		return
+		return rule, false
 	}
-
-	v.addFinding(n, symbol.RuleProcessStateMutation, rule.msg, v.hint(name, rule.hint), "WARNING")
+	return rule, true
 }
 
 func (v *PHPVisitor) getShadowedFunctions(pos uint) map[string]bool {

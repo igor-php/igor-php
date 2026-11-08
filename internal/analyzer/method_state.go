@@ -22,8 +22,8 @@ type MethodCallRef struct {
 type CallArgs struct {
 	// Shared lists the positions of arguments holding the caller's own state.
 	Shared []int
-	// Params gives, for each position, the index of the caller's parameter passed there as a
-	// whole, or -1.
+	// Params gives, for each position, the index of the caller's parameter passed there, or
+	// reached from there ($holder->index), or -1.
 	Params []int
 	// Unknown is true when positions cannot be trusted (named or spread arguments).
 	Unknown bool
@@ -228,10 +228,13 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 
 // mutateParam records a change to the parameter named name, if it is one.
 func (s *stateSummarizer) mutateParam(name string) {
-	index, ok := s.params[name]
-	if !ok {
-		return
+	if index, ok := s.params[name]; ok {
+		s.mutateParamIndex(index)
 	}
+}
+
+// mutateParamIndex records a change to the parameter at index.
+func (s *stateSummarizer) mutateParamIndex(index int) {
 	s.st.MutatesArgs = true
 	for _, i := range s.st.MutatedParams {
 		if i == index {
@@ -295,11 +298,14 @@ func (s *stateSummarizer) callArgs(call *sitter.Node) CallArgs {
 		if s.holdsOwnState(value) {
 			out.Shared = append(out.Shared, pos)
 		}
+		// A parameter, or an object reached from one ($holder->index): a change made there by
+		// the callee is a change to what the caller was given
 		param := -1
-		if value != nil && value.Kind() == "variable_name" {
-			if index, ok := s.params[s.v.getContent(value)]; ok {
-				param = index
-			}
+		if value != nil && value.Kind() == "variadic_unpacking" {
+			value = lastNamedChild(value)
+		}
+		if index, ok := s.params[rootVariable(s.v, value)]; ok {
+			param = index
 		}
 		out.Params = append(out.Params, param)
 	}
@@ -347,11 +353,23 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 		return
 	}
 	root := rootVariable(v, obj)
+	_, onParam := s.params[root]
 	s.mutateParam(root)
 	// A mutating call on an object reached from $this through a longer chain or a local
-	// variable: the summary cannot tell whose state it is
-	if s.holdsOwnState(obj) {
+	// variable, or a local given the object's own state ($helper->rename($this->index)): the
+	// summary cannot tell whose state it changes. A helper's result (session()->forget($this->key))
+	// is left to its name: it is not an object of the method
+	if s.holdsOwnState(obj) || (root != "" && len(args.Shared) > 0) {
 		st.Mutates = true
+		return
+	}
+	// A local receiver the auditor does not follow ($helper = new Helper()) may change what it is
+	// given: count the parameters passed to it as changed. On a parameter ($playlist->addSongs($user))
+	// the change is the receiver's, counted above
+	for _, param := range args.Params {
+		if param >= 0 && !onParam {
+			s.mutateParamIndex(param)
+		}
 	}
 }
 
@@ -466,13 +484,15 @@ func (v *PHPVisitor) callWritesOwnState(n *sitter.Node) bool {
 	fn := n.ChildByFieldName("function")
 	name := ""
 	if fn != nil && (fn.Kind() == "name" || fn.Kind() == "qualified_name") {
-		name = strings.ToLower(strings.TrimPrefix(v.getContent(fn), "\\"))
+		raw := v.getContent(fn)
+		// Matched as the process state rule matches it: shadowing and getter calls included
+		if _, ok := v.processStateRule(n, strings.ToLower(strings.TrimPrefix(raw, "\\")), strings.HasPrefix(raw, "\\")); ok {
+			return true
+		}
+		name = strings.ToLower(raw)
 		if i := strings.LastIndex(name, "\\"); i >= 0 {
 			name = name[i+1:]
 		}
-	}
-	if _, ok := dangerousFunctions[name]; ok {
-		return true
 	}
 	args := n.ChildByFieldName("arguments")
 	if args == nil {

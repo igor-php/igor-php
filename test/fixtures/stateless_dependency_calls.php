@@ -2,6 +2,12 @@
 
 namespace App\Stateless;
 
+// Shadows the global setlocale() for unqualified calls in this namespace
+function setlocale(string $locale): string
+{
+    return $locale;
+}
+
 interface RatingServiceInterface
 {
     public function setRating(int $songId, int $rating): void;
@@ -231,6 +237,42 @@ class PlaylistAdder
     }
 }
 
+class IndexHolder
+{
+    public function __construct(public Index $index)
+    {
+    }
+}
+
+class HeldIndexRenamer
+{
+    public function __construct(private IndexRenamer $renamer)
+    {
+    }
+
+    public function setHeldName(IndexHolder $holder): void
+    {
+        $this->renamer->setRootName($holder->index);
+    }
+}
+
+class LocalHelperRenamer
+{
+    public function setNameWith(Index $index): void
+    {
+        $helper = new IndexRenamer();
+        $helper->setRootName($index);
+    }
+}
+
+class EncodingReader
+{
+    public function setEncodingCheck(): string
+    {
+        return mb_internal_encoding().setlocale('fr');
+    }
+}
+
 final class StatelessCallsController
 {
     public function __construct(
@@ -255,6 +297,10 @@ final class StatelessCallsController
         private Playlist $playlist,
         private User $user,
         private TenantSwitcher $tenantSwitcher,
+        private HeldIndexRenamer $heldIndexRenamer,
+        private IndexHolder $indexHolder,
+        private LocalHelperRenamer $localHelperRenamer,
+        private EncodingReader $encodingReader,
     ) {
     }
 
@@ -361,5 +407,25 @@ final class StatelessCallsController
     public function switchTenant(): void
     {
         $this->tenantSwitcher->setTenant('acme');
+    }
+
+    public function renameHeldSharedIndex(): void
+    {
+        $this->heldIndexRenamer->setHeldName($this->indexHolder);
+    }
+
+    public function renameSharedIndexWithHelper(): void
+    {
+        $this->localHelperRenamer->setNameWith($this->index);
+    }
+
+    public function renameFreshIndexWithHelper(): void
+    {
+        $this->localHelperRenamer->setNameWith(new Index());
+    }
+
+    public function readEncoding(): void
+    {
+        $this->encodingReader->setEncodingCheck();
     }
 }

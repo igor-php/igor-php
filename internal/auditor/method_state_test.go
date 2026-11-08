@@ -18,7 +18,7 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		t.Fatalf("failed to audit fixture: %v", err)
 	}
 	before := dependencyMutations(findings)
-	for _, m := range []string{"rate", "renameFreshIndex"} {
+	for _, m := range []string{"rate", "renameFreshIndex", "renameHeldSharedIndex", "readEncoding"} {
 		if !before[m] {
 			t.Fatalf("%s: expected the name-based finding before the drop", m)
 		}
@@ -62,6 +62,10 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"addSongsForSharedUser", false, "addSongs() changes the playlist it is given, not the shared user"},
 		{"addSongsToSharedPlaylist", true, "addSongs() changes the shared playlist it is given"},
 		{"switchTenant", true, "setTenant() writes $_ENV"},
+		{"renameHeldSharedIndex", true, "setHeldName() renames the index held by the shared holder it is given"},
+		{"renameSharedIndexWithHelper", true, "setNameWith() hands the shared index to a local helper's setter"},
+		{"renameFreshIndexWithHelper", false, "setNameWith() only hands a new index to a local helper"},
+		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
 	for _, c := range cases {
 		if reported[c.method] != c.kept {
