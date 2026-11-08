@@ -116,7 +116,8 @@ $bootstrapper = new class()
             }
 
             $versionString = trim(\Composer\InstalledVersions::getPrettyVersion('igor-php/igor-php'));
-            if (preg_match('/^v?(\d+\.\d+\.\d+)$/', $versionString, $matches) === 1) {
+            // A stable release (0.11.0) or a pre-release (0.11.0-beta.1, 0.11.0-RC1), whose binary is published too
+            if (preg_match('/^v?(\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.?\d*)?)$/i', $versionString, $matches) === 1) {
                 return $matches[1];
             }
         } catch(Throwable $throwable) {

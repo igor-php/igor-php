@@ -79,6 +79,21 @@ Igor detects `artisan` and runs `php artisan igor:dump` (registered by `IgorPhp\
 
 Hints use Laravel wording when Igor detects a Laravel application (`abort()`, `session()`, Octane listeners…).
 
+### 🤖 With Claude Code or another agent
+
+The lab is also a good playground for the [Claude Code plugin](../../plugins/igor/README.md) and the [MCP server](../../README.md#-mcp-server). With the plugin installed, open the lab in Claude Code and ask *"audit this project for FrankenPHP worker mode"*: Claude sees `artisan` and `laravel/octane`, runs the audit, and proposes the Laravel fixes (`scoped()`, a `reset()` called from an Octane listener, resolving the request at call time).
+
+Any MCP client can drive the same audit:
+
+```bash
+igor-php mcp examples/demo-leak-laravel
+```
+
+- `project_info` reports Laravel with Octane and whether the Deep Audit runs.
+- `audit_project` returns the findings of the table above, with their `rule_id`.
+- `explain_service` on `App\Services\StatefulService` shows that it is shared, its dependencies, its findings and its verdict (it persists because `config/octane.php` warms it). On a service Igor does not audit, it says why it is skipped.
+- `audit_file` checks a fix before it is written, from the unsaved content of the file.
+
 ## 🧹 Cleanup
 ```bash
 make stop

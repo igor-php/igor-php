@@ -73,7 +73,7 @@ Let Claude Code audit your project for worker mode and fix what Igor finds:
 /plugin install igor@igor-php
 ```
 
-Then ask *"audit my project for FrankenPHP worker mode"*, or run `/igor:audit`. Claude installs Igor (and the Symfony bundle) if needed, runs the audit, sorts the findings (reachable leaks first, boot-time and vendor code apart), fixes one service at a time with the Symfony or Laravel remedy, re-audits each file, and only accepts a finding with a written reason (`#[WorkerSafe]`, baseline).
+Then ask *"audit my project for FrankenPHP worker mode"*, or run `/igor:audit`. Claude installs Igor if needed (and registers the Symfony bundle; on Laravel there is nothing to register), runs the audit, sorts the findings (reachable leaks first, boot-time and vendor code apart), fixes one service at a time with the Symfony or Laravel remedy, re-audits each file, and only accepts a finding with a written reason (`#[WorkerSafe]`, baseline).
 
 - **`/igor:watch on`**: from then on, every PHP file Claude edits is audited and the findings on the lines it just wrote are handed back to it, so a leak is fixed before it lands. It informs, never blocks.
 - **`igor-triage` agent**: sorts a large audit (real leak, bounded cache, false positive) without filling the conversation.
@@ -269,6 +269,16 @@ On a Laravel project, Composer's package discovery registers `IgorPhp\Laravel\Ig
 **Without Octane** (a custom FrankenPHP worker loop that reuses one application), Igor detects that `laravel/octane` is not installed and switches to the worker model: the same container serves every request, so every `singleton()` and `scoped()` binding persists once resolved, whether or not it was resolved at boot. Only `bind()` services are built per request, and nothing is resettable, since no Octane listener runs.
 
 The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the framework's own state. If `igor:dump` cannot run, Igor falls back to a standard directory scan. `--no-agent` skips the Laravel detection entirely.
+
+**Package discovery turned off?** If your `composer.json` lists `igor-php/igor-php` (or `*`) under `extra.laravel.dont-discover`, register the provider yourself. Igor is a dev dependency, so register it only when it is installed, for example in `AppServiceProvider::register()`:
+
+```php
+if (class_exists(\IgorPhp\Laravel\IgorServiceProvider::class)) {
+    $this->app->register(\IgorPhp\Laravel\IgorServiceProvider::class);
+}
+```
+
+Listing it in `bootstrap/providers.php` also works, as long as the dev dependencies are installed wherever the application boots. Check with `php artisan igor:dump`: it writes `bootstrap/cache/igor_service_map.json`.
 
 ### Via Go
 ```bash
@@ -753,7 +763,7 @@ $this->counter++; // @igor-ignore - This line too
 #### 2. Modern Exclusions with PHP 8 Attributes (Recommended)
 Instead of line-by-line comments, you can use modern PHP 8 attributes to exclude entire classes, specific methods, or individual properties.
 
-First, import the attribute (available via the embedded Symfony bundle):
+First, import the attribute. It ships with the Composer package and is autoloaded on Symfony and Laravel alike, with no bundle to enable, despite its `IgorBundle` namespace:
 ```php
 use IgorPhp\IgorBundle\Attribute\WorkerSafe;
 ```
