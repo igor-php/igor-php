@@ -177,6 +177,7 @@ func TestCheckVersionUpdateCommand(t *testing.T) {
 		{"unknown constraint", "0.9.7", `{"require-dev":{"igor-php/igor-php":"^0.9 || ^0.10"}}`, boolPtr(false), "composer update igor-php/igor-php", "check that the constraint"},
 		{"binary", "0.9.7", "", boolPtr(false), "go install github.com/igor-php/igor-php/cmd/igor@v0.10.1", "releases/latest"},
 		{"dev build", "dev", "", nil, "", "development build"},
+		{"pre-release", "0.11.0-beta.1", `{"require-dev":{"igor-php/igor-php":"^0.11@beta"}}`, nil, "", "is a pre-release"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

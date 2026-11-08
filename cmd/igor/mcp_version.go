@@ -170,6 +170,9 @@ func (c *updateChecker) writeCache(cached latestVersionCache) {
 
 var stableVersionPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
 
+// preReleasePattern matches a pre-release such as 0.11.0-beta.1 or 0.11.0-RC1.
+var preReleasePattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+-[0-9A-Za-z.-]+$`)
+
 // parseStableVersion parses X.Y.Z (with an optional v); pre-releases and dev builds are not stable.
 func parseStableVersion(v string) ([]int, bool) {
 	m := stableVersionPattern.FindStringSubmatch(strings.TrimSpace(v))
@@ -314,6 +317,9 @@ func checkVersion(ctx context.Context, checker *updateChecker, rootPath string) 
 	current, ok := parseStableVersion(Version)
 	if !ok {
 		info.Note = fmt.Sprintf("igor %s is a development build: it cannot be compared with the releases", Version)
+		if preReleasePattern.MatchString(strings.TrimSpace(Version)) {
+			info.Note = fmt.Sprintf("igor %s is a pre-release: it is not compared with the stable releases (latest: %s)", Version, latest)
+		}
 		return info
 	}
 	upToDate := compareVersions(current, latestParts) >= 0
