@@ -30,7 +30,9 @@ Work in this order and keep the user informed in plain words at each step.
    - Symfony: register `IgorPhp\IgorBundle\IgorPhpBundle::class => ['dev' => true, 'test' => true]`
      in `config/bundles.php`, then `php bin/console cache:clear`.
    - Laravel: nothing to do, package discovery registers `IgorServiceProvider` and igor runs
-     `php artisan igor:dump` itself.
+     `php artisan igor:dump` itself. If `php artisan igor:dump` is unknown, discovery is turned off
+     (`extra.laravel.dont-discover` in `composer.json`): register the provider in
+     `AppServiceProvider::register()`, guarded by `class_exists()` since igor is a dev dependency.
 4. **Config.** No `igor.json`? Run `vendor/bin/igor-php init`.
 
 ## 2. Run the audit
