@@ -197,7 +197,8 @@ func (s *mcpServer) baselinePruneTool(_ context.Context, _ *mcp.CallToolRequest,
 type baselineAddInput struct {
 	Path   string `json:"path" jsonschema:"the file of the finding, absolute or relative to the project root"`
 	Line   int    `json:"line" jsonschema:"the line of the finding"`
-	RuleID string `json:"rule_id,omitempty" jsonschema:"the rule_id of the finding, needed when several findings share the line"`
+	RuleID  string `json:"rule_id,omitempty" jsonschema:"the rule_id of the finding, needed when several findings share the line"`
+	Message string `json:"message,omitempty" jsonschema:"the message of the finding, needed when several findings of the same rule share the line"`
 	Reason string `json:"reason" jsonschema:"why this state cannot leak between requests, e.g. bounded cache keyed by class, reset by kernel.reset"`
 }
 
@@ -222,13 +223,13 @@ func validateBaselineReason(reason string) error {
 	return nil
 }
 
-// findingAt returns the finding of results at line, of rule ruleID when it is set.
-func findingAt(results []symbol.AuditStatus, line int, ruleID string) (symbol.AuditStatus, symbol.Finding, error) {
+// findingAt returns the finding of results at line, of rule ruleID and with message when they are set.
+func findingAt(results []symbol.AuditStatus, line int, ruleID, message string) (symbol.AuditStatus, symbol.Finding, error) {
 	var matches []symbol.Finding
 	var file symbol.AuditStatus
 	for _, res := range results {
 		for _, f := range res.Findings {
-			if f.Line == line && (ruleID == "" || strings.EqualFold(f.Rule, ruleID)) {
+			if f.Line == line && (ruleID == "" || strings.EqualFold(f.Rule, ruleID)) && (message == "" || f.Message == message) {
 				matches = append(matches, f)
 				file = res
 			}
@@ -238,11 +239,11 @@ func findingAt(results []symbol.AuditStatus, line int, ruleID string) (symbol.Au
 	case len(matches) == 0:
 		return file, symbol.Finding{}, fmt.Errorf("no finding at line %d: run audit_file to get the line and rule_id of the findings", line)
 	case len(matches) > 1:
-		var rules []string
+		var found []string
 		for _, f := range matches {
-			rules = append(rules, f.Rule)
+			found = append(found, fmt.Sprintf("%s: %q", f.Rule, f.Message))
 		}
-		return file, symbol.Finding{}, fmt.Errorf("%d findings at line %d (%s): pass rule_id", len(matches), line, strings.Join(rules, ", "))
+		return file, symbol.Finding{}, fmt.Errorf("%d findings at line %d, pass rule_id or message to pick one: %s", len(matches), line, strings.Join(found, "; "))
 	}
 	return file, matches[0], nil
 }
@@ -262,7 +263,7 @@ func (s *mcpServer) baselineAddTool(_ context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, baselineAddOutput{}, err
 	}
-	res, finding, err := findingAt(results, in.Line, in.RuleID)
+	res, finding, err := findingAt(results, in.Line, in.RuleID, strings.TrimSpace(in.Message))
 	if err != nil {
 		return nil, baselineAddOutput{}, err
 	}

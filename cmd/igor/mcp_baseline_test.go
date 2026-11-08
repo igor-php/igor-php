@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/igor-php/igor-php/internal/config"
+	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 func readTestBaseline(t *testing.T, root string) config.Baseline {
@@ -135,5 +136,27 @@ func TestValidateBaselineReason(t *testing.T) {
 		if err := validateBaselineReason(reason); (err == nil) != ok {
 			t.Errorf("validateBaselineReason(%q) = %v", reason, err)
 		}
+	}
+}
+
+func TestFindingAtPicksByRuleAndMessage(t *testing.T) {
+	results := []symbol.AuditStatus{{FilePath: "src/Ctrl.php", Findings: []symbol.Finding{
+		{Line: 7, Rule: symbol.RuleStaleDependency, Message: "Request stored in $a"},
+		{Line: 7, Rule: symbol.RuleStaleDependency, Message: "Request stored in $b"},
+		{Line: 7, Rule: symbol.RuleSuperglobalsUsage, Message: "Usage of $_GET"},
+	}}}
+
+	if _, _, err := findingAt(results, 7, "", ""); err == nil || !strings.Contains(err.Error(), "3 findings") {
+		t.Fatalf("expected 3 matches, got %v", err)
+	}
+	if _, _, err := findingAt(results, 7, symbol.RuleStaleDependency, ""); err == nil || !strings.Contains(err.Error(), `"Request stored in $b"`) {
+		t.Fatalf("the error must list the messages to pick from, got %v", err)
+	}
+	_, f, err := findingAt(results, 7, symbol.RuleStaleDependency, "Request stored in $b")
+	if err != nil || f.Message != "Request stored in $b" {
+		t.Fatalf("message must pick the finding: %+v, %v", f, err)
+	}
+	if _, f, err := findingAt(results, 7, symbol.RuleSuperglobalsUsage, ""); err != nil || f.Rule != symbol.RuleSuperglobalsUsage {
+		t.Fatalf("rule_id must pick the finding: %+v, %v", f, err)
 	}
 }
