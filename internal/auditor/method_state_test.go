@@ -80,6 +80,7 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"renameClonedChild", true, "setCopyName() renames the index a shallow clone still shares"},
 		{"renameClone", false, "setCopy() only changes the clone itself"},
 		{"advanceBranchCursor", true, "setNext() calls advance() on either cursor, one of which moves"},
+		{"advanceReplacedCursor", false, "setQuiet() replaces the moving cursor before calling advance()"},
 		{"trimSharedOptions", false, "setOptions() only changes its own copy of the array"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}

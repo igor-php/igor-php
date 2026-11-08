@@ -136,6 +136,8 @@ type stateSummarizer struct {
 	// opaque are local variables also assigned something other than a property of $this: a
 	// mutator call on them is judged as on any local.
 	opaque map[string]bool
+	// body is the method body: an assignment directly in it always runs.
+	body *sitter.Node
 	// arrayParams are the parameters passed by value as arrays: a write to their entries changes
 	// a copy, not what the caller passed.
 	arrayParams map[string]bool
@@ -172,7 +174,8 @@ func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
 			index++
 		}
 	}
-	s.walk(method.ChildByFieldName("body"))
+	s.body = method.ChildByFieldName("body")
+	s.walk(s.body)
 	return s.st
 }
 
@@ -239,6 +242,17 @@ func (s *stateSummarizer) writesTarget(target *sitter.Node) bool {
 		s.mutateParam(rootVariable(s.v, target))
 	}
 	return false
+}
+
+// unconditional reports an assignment that is a statement of the method body itself, outside any
+// branch or loop, so it always replaces the variable's value.
+func (s *stateSummarizer) unconditional(assignment *sitter.Node) bool {
+	stmt := assignment.Parent()
+	if stmt == nil || stmt.Kind() != "expression_statement" || s.body == nil {
+		return false
+	}
+	parent := stmt.Parent()
+	return parent != nil && parent.StartByte() == s.body.StartByte() && parent.EndByte() == s.body.EndByte()
 }
 
 // copiesParam reports a write to an entry of an array parameter passed by value
@@ -314,6 +328,10 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 			s.tainted[name] = true
 		}
 		s.wrappers[name] = v.wrapsSharedState(right, s.holdsOwnState)
+		if s.unconditional(n) {
+			// $cursor = $this->quiet at the top of the body replaces whatever $cursor held
+			s.sources[name], s.opaque[name] = nil, false
+		}
 		if prop, ok := v.isPropertyFetchOnThis(right); ok && isThisVariable(v, right.ChildByFieldName("object")) {
 			// Branches may assign several properties: keep them all
 			s.sources[name] = appendUnique(s.sources[name], prop)

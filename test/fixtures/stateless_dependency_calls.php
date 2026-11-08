@@ -477,6 +477,13 @@ class BranchCursor
         }
         $cursor->advance();
     }
+
+    public function setQuiet(): void
+    {
+        $cursor = $this->mutable;
+        $cursor = $this->quiet;
+        $cursor->advance();
+    }
 }
 
 class OptionsTrimmer
@@ -746,5 +753,10 @@ final class StatelessCallsController
     public function trimSharedOptions(): void
     {
         $this->optionsTrimmer->setOptions($this->options);
+    }
+
+    public function advanceReplacedCursor(): void
+    {
+        $this->branchCursor->setQuiet();
     }
 }
