@@ -1,0 +1,17 @@
+{
+  "description": "Audits each PHP file Claude edits with igor-php, once enabled with /igor:watch on.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "php \"${CLAUDE_PLUGIN_ROOT}/hooks/igor-check.php\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

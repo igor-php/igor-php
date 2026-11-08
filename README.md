@@ -64,6 +64,24 @@ Detect state pollution and memory leaks in real time as you write code!
 
 ---
 
+## 🤖 Claude Code Plugin
+
+Let Claude Code audit your project for worker mode and fix what Igor finds:
+
+```text
+/plugin marketplace add igor-php/igor-php
+/plugin install igor@igor-php
+```
+
+Then ask *"audit my project for FrankenPHP worker mode"*, or run `/igor:audit`. Claude installs Igor (and the Symfony bundle) if needed, runs the audit, sorts the findings (reachable leaks first, boot-time and vendor code apart), fixes one service at a time with the Symfony or Laravel remedy, re-audits each file, and only accepts a finding with a written reason (`#[WorkerSafe]`, baseline).
+
+- **`/igor:watch on`**: from then on, every PHP file Claude edits is audited and the findings on the lines it just wrote are handed back to it, so a leak is fixed before it lands. It informs, never blocks.
+- **`igor-triage` agent**: sorts a large audit (real leak, bounded cache, false positive) without filling the conversation.
+
+The skill follows the open Agent Skills format, so `plugins/igor/skills/frankenphp-worker-audit/` also works in other agents that read it. Details in [`plugins/igor/README.md`](plugins/igor/README.md).
+
+---
+
 ## 🔍 What Igor Tracks
 
 During its static analysis of shared/singleton services, Igor recursively scans the AST to detect and flag several dangerous patterns that can lead to memory leaks or state pollution across requests:

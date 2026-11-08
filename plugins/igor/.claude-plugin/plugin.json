@@ -1,0 +1,13 @@
+{
+  "name": "igor",
+  "version": "0.1.0",
+  "description": "Audit a Symfony or Laravel project for FrankenPHP worker mode with igor-php, then fix the state leaks it finds.",
+  "author": {
+    "name": "Kevin MARTINS",
+    "url": "https://github.com/igor-php"
+  },
+  "homepage": "https://github.com/igor-php/igor-php",
+  "repository": "https://github.com/igor-php/igor-php",
+  "license": "MIT",
+  "keywords": ["frankenphp", "worker", "symfony", "laravel", "octane", "memory-leak", "static-analysis"]
+}
