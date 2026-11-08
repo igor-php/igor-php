@@ -107,7 +107,7 @@ Run it from the project root, or pass the directory: `igor-php mcp [--no-agent] 
 | `explain_service` | How Igor sees the services matching a name: shared or not, dependencies, verdict, findings. |
 | `get_rule` | The [rule reference](#-rule-reference) of a `rule_id`: why it leaks, the Symfony and Laravel fix, the false positives. |
 
-The tools are read-only, and paths are restricted to the project root. The server also offers the `audit-worker` prompt (audit and fix, the framework way) and the rules as `igor://rules/{rule_id}` resources.
+The tools are read-only, and the paths they take must be inside the project root. A whole-project audit covers the same files as `igor-php .`, so it also reads and returns the code the project links from outside its root (symlinks, Composer `path` repositories). The server also offers the `audit-worker` prompt (audit and fix, the framework way) and the rules as `igor://rules/{rule_id}` resources.
 
 Igor never updates itself: `project_info` gives the command and the agent proposes it. The latest release is read from Packagist at most once a day, with a 2 s timeout; set `IGOR_NO_UPDATE_CHECK=1` to skip it.
 
