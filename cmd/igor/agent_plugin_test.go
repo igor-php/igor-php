@@ -144,6 +144,8 @@ func runIgorCheckHook(t *testing.T, project string, payload map[string]any, audi
 	if noAgentOnly {
 		script += "if (!in_array('--no-agent', $argv, true)) { fwrite(STDERR, 'could not load symfony container'); exit(1); }\n"
 	}
+	// 1 MB on stderr, more than a pipe buffer: the hook must not wait on it.
+	script += "fwrite(STDERR, str_repeat('igor:dump error ', 65536));\n"
 	script += "echo base64_decode('" + base64.StdEncoding.EncodeToString([]byte(audit)) + "');\n"
 	if err := os.WriteFile(fake, []byte(script), 0o644); err != nil {
 		t.Fatal(err)

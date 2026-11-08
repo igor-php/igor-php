@@ -152,15 +152,16 @@ function isPhpScript(string $binary): bool
  */
 function run(array $command, string $cwd): string
 {
-    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd);
+    // stderr (banners, igor:dump errors) is discarded to the null device: a pipe nobody reads
+    // while waiting for stdout could fill up and block igor.
+    $nullDevice = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $nullDevice, 'w']], $pipes, $cwd);
     if (!is_resource($process)) {
         return '';
     }
     fclose($pipes[0]);
     $stdout = (string) stream_get_contents($pipes[1]);
-    stream_get_contents($pipes[2]);
     fclose($pipes[1]);
-    fclose($pipes[2]);
     proc_close($process);
 
     return $stdout;
