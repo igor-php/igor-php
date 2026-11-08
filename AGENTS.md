@@ -34,6 +34,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - **Laravel Discovery Provider**: `src/laravel/IgorServiceProvider.php` and `src/laravel/ServiceMapBuilder.php` (exports the services that persist in Octane workers).
 - **Local Lab Playground**: `examples/demo-leak/` (the Docker-based Symfony playground for simulating leaks in persistent memory).
 - **Laravel Lab Playground**: `examples/demo-leak-laravel/` (the same lab on Laravel Octane + FrankenPHP).
+- **Claude Code Plugin**: `plugins/igor/` (skill `frankenphp-worker-audit`, `/igor:audit`, `/igor:watch`, the `PostToolUse` hook `hooks/igor-check.php`), published by `.claude-plugin/marketplace.json`.
 
 ---
 
@@ -53,6 +54,7 @@ As an AI agent, you **must** read, understand, and strictly adhere to the standa
 - Define the node matching and analysis logic inside `internal/analyzer/visitor.go`.
 - Create a new PHP file under `test/fixtures/` demonstrating the correct detection and ignore cases.
 - Update `internal/analyzer/visitor_test.go` or `cmd/igor/integration_test.go` with your test assertions using the new fixture.
+- Add the rule to the README catalog and give it a section (`## <RuleId>`: messages, why, fix, false positives) in `plugins/igor/skills/frankenphp-worker-audit/references/rules.md`. `TestAgentPluginCoversEveryRule` fails otherwise.
 - **Ideally**, update the Docker laboratory under `examples/demo-leak/` (services, controller, and instructions) to showcase this new pattern and its impacts under persistent FrankenPHP worker runtime.
 
 ### 2. No External PHP Dependencies

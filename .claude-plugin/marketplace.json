@@ -1,0 +1,19 @@
+{
+  "name": "igor-php",
+  "owner": {
+    "name": "Kevin MARTINS",
+    "url": "https://github.com/igor-php"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for igor-php, the static linter that prepares Symfony and Laravel Octane applications for FrankenPHP worker mode."
+  },
+  "plugins": [
+    {
+      "name": "igor",
+      "source": "./plugins/igor",
+      "description": "Audit a Symfony or Laravel project for FrankenPHP worker mode with igor-php, then fix the state leaks it finds.",
+      "category": "development",
+      "keywords": ["frankenphp", "worker", "symfony", "laravel", "octane", "memory-leak", "static-analysis"]
+    }
+  ]
+}
