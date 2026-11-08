@@ -93,46 +93,76 @@ func main() {
 // runAudit detects the project, collects and audits its files, then ranks the
 // findings by reachability. It is the whole CLI pipeline before reporting.
 func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]symbol.AuditStatus, config.Baseline, error) {
-	// 1. Initialize Components
+	project, err := loadAuditProject(rootPath, *cfg)
+	if err != nil {
+		return nil, config.Baseline{}, err
+	}
+
+	results, baseline := project.audit(cfg, func(files int) {
+		// Silence header for machine-readable formats
+		if cfg.OutputFormat != "llm" && cfg.OutputFormat != "json" {
+			rep.PrintHeader(files)
+		}
+	})
+	return results, baseline, nil
+}
+
+// auditProject is what an audit loads once for a project: the container dump and the Symfony or Laravel
+// service map, whose export (bin/console, php artisan igor:dump) is the slow part. A long-running process,
+// such as an MCP server, keeps it to audit the project or one of its files many times.
+type auditProject struct {
+	rootPath  string
+	nonShared analyzer.NonSharedServiceMap
+	aliases   analyzer.AliasesMap
+	bridge    *auditor.SymfonyBridge
+	// degraded tells why the Deep Audit of a detected framework fell back to a directory scan, if it did.
+	degraded string
+}
+
+// loadAuditProject loads the container dump and detects the framework of the project.
+func loadAuditProject(rootPath string, cfg config.Config) (*auditProject, error) {
+	p := &auditProject{rootPath: rootPath}
+
+	// Generic container dump (non-shared/transient classes to skip)
+	p.nonShared, p.aliases = loadContainerDump(rootPath, cfg)
+
+	// Symfony, then Laravel
+	bridge, degraded, err := detectFrameworkProject(rootPath, cfg)
+	if err != nil {
+		return nil, err
+	}
+	p.bridge, p.degraded = bridge, degraded
+	return p, nil
+}
+
+// audit runs one audit of the project with cfg (the whole project, or cfg.TargetFile and its unsaved
+// content). Each run starts from a new auditor, so nothing found by a run leaks into the next one.
+// onCollected, if set, receives the number of files to audit before the audit starts.
+func (p *auditProject) audit(cfg *config.Config, onCollected func(files int)) ([]symbol.AuditStatus, config.Baseline) {
 	aud := auditor.NewAuditor(*cfg)
 	if cfg.StdinContent != nil && cfg.TargetFile != "" {
 		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
 	}
-
-	// 1b. Load generic container dump (non-shared/transient classes to skip)
-	var containerAliases analyzer.AliasesMap
-	aud.NonSharedServices, containerAliases = loadContainerDump(rootPath, *cfg)
-
-	// 2. Detect the framework (Symfony, then Laravel)
-	bridge, err := detectFrameworkProject(rootPath, *cfg)
-	if err != nil {
-		return nil, config.Baseline{}, err
-	}
-	aud.UseFramework(bridge)
-	if len(containerAliases) > 0 {
-		aud.LoadInterfaceAliases(containerAliases)
+	aud.NonSharedServices = p.nonShared
+	aud.UseFramework(p.bridge)
+	if len(p.aliases) > 0 {
+		aud.LoadInterfaceAliases(p.aliases)
 	}
 
-	// 3. Load Baseline
-	baseline := loadAuditBaseline(rootPath, cfg)
-
-	// 4. Collect Files to Audit
-	auditList := collectFiles(rootPath, *cfg, aud)
-
-	// 5. Silence header for machine-readable formats
-	if cfg.OutputFormat != "llm" && cfg.OutputFormat != "json" {
-		rep.PrintHeader(len(auditList))
+	baseline := loadAuditBaseline(p.rootPath, cfg)
+	auditList := collectFiles(p.rootPath, *cfg, aud)
+	if onCollected != nil {
+		onCollected(len(auditList))
 	}
 
-	// 6. Run Audit
-	results := executeAudit(auditList, aud, *cfg, baseline, rootPath)
+	results := executeAudit(auditList, aud, *cfg, baseline, p.rootPath)
 
-	// 6b. Rank findings by call-site reachability from application code
+	// Rank findings by call-site reachability from application code
 	aud.MarkReachability(results)
 
-	// 6c. Flag the findings of code that never runs during a request; the CLI folds them
+	// Flag the findings of code that never runs during a request; the CLI folds them
 	var extends func(class, ancestor string) bool
-	if bridge != nil && bridge.Framework == auditor.FrameworkSymfony {
+	if p.bridge != nil && p.bridge.Framework == auditor.FrameworkSymfony {
 		extends = aud.Extends
 	}
 	markOutOfRequest(results, extends)
@@ -140,5 +170,5 @@ func runAudit(cfg *config.Config, rootPath string, rep reporter.Reporter) ([]sym
 		foldOutOfRequest(results)
 	}
 
-	return results, baseline, nil
+	return results, baseline
 }
