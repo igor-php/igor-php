@@ -7,6 +7,8 @@ import (
 
 // Finding represents a single issue detected by the linter.
 type Finding struct {
+	// Rule is the stable identifier of the rule that reported the finding (one of the Rule* constants).
+	Rule          string   `json:"rule_id,omitempty"`
 	Message       string   `json:"message"`
 	Code          string   `json:"code"`
 	Snippet       string   `json:"snippet"`
@@ -40,6 +42,31 @@ const (
 	// CategoryNotReset marks a property of a resettable service that reset() leaves as is.
 	CategoryNotReset = "not-reset"
 )
+
+// Rule identifiers: stable names of the rules, as listed in the README catalog.
+const (
+	RuleStateMutation        = "StateMutation"
+	RuleSingletonMutation    = "DetectSingletonMutation"
+	RuleClosureStateLeak     = "DetectClosureStateLeak"
+	RuleStaleDependency      = "StaleDependency"
+	RuleIncompleteReset      = "IncompleteReset"
+	RuleMissingResetTag      = "MissingResetTag"
+	RuleUnsafeStateRestore   = "UnsafeStateRestore"
+	RuleDoctrineFlushState   = "DoctrineFlushState"
+	RuleProcessStateMutation = "ProcessStateMutation"
+	RuleLocalStaticVariable  = "LocalStaticVariable"
+	RuleSuperglobalsUsage    = "SuperglobalsUsage"
+	RuleExecutionTerminator  = "ExecutionTerminator"
+	RuleMagicMethodDestruct  = "MagicMethodDestruct"
+)
+
+// Rules lists every rule identifier, in the order of the README catalog.
+var Rules = []string{
+	RuleSingletonMutation, RuleClosureStateLeak, RuleStateMutation, RuleStaleDependency,
+	RuleIncompleteReset, RuleMissingResetTag, RuleUnsafeStateRestore, RuleDoctrineFlushState,
+	RuleProcessStateMutation, RuleLocalStaticVariable, RuleSuperglobalsUsage, RuleExecutionTerminator,
+	RuleMagicMethodDestruct,
+}
 
 // Result groups findings by file.
 type Result struct {

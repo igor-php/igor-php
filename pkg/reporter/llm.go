@@ -85,7 +85,7 @@ func (r *LLMReporter) PrintFindings(res symbol.AuditStatus, _ string, _ bool) {
 			Severity:   f.Severity,
 			Snippet:    f.Snippet,
 			ASTDetails: f.ASTDetails,
-			RuleID:     "STATE_MUTATION", // Default for now
+			RuleID:     f.Rule,
 			Context: LLMContext{
 				Dependencies: LLMServiceContext{
 					IsShared:  res.IsShared,

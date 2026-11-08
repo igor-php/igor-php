@@ -138,7 +138,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 	case "variable_name":
 		v.handleVariable(n)
 	case "static_variable_declaration":
-		v.addFinding(n, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
+		v.addFinding(n, symbol.RuleLocalStaticVariable, "Usage of local static variable is dangerous in Worker mode.", "Static variables persist across requests.", "ERROR")
 	}
 
 	for i := uint(0); i < n.ChildCount(); i++ {
@@ -193,7 +193,7 @@ func (v *PHPVisitor) handleMethodOrFunction(n *sitter.Node, nodeType string) {
 			isTransient = true
 		}
 		if !isTransient {
-			v.addFinding(n, "Usage of __destruct() magic method is dangerous in Worker mode.", "Destructors on shared services are not invoked at the end of each request in Worker mode.", "ERROR")
+			v.addFinding(n, symbol.RuleMagicMethodDestruct, "Usage of __destruct() magic method is dangerous in Worker mode.", "Destructors on shared services are not invoked at the end of each request in Worker mode.", "ERROR")
 		}
 	}
 }
@@ -501,7 +501,7 @@ var dangerousFunctions = map[string]dangerousFuncRule{
 }
 
 func (v *PHPVisitor) addExitFinding(n *sitter.Node) {
-	v.addFinding(n, "Usage of exit/die is forbidden in Worker mode.", v.hint("exit", "Use Symfony response or exceptions instead."), "ERROR")
+	v.addFinding(n, symbol.RuleExecutionTerminator, "Usage of exit/die is forbidden in Worker mode.", v.hint("exit", "Use Symfony response or exceptions instead."), "ERROR")
 }
 
 // bareExitParents are the expression contexts where tree-sitter-php parses a bare `die;`
@@ -565,7 +565,7 @@ func (v *PHPVisitor) handleFunctionCall(n *sitter.Node) {
 		return
 	}
 
-	v.addFinding(n, rule.msg, v.hint(name, rule.hint), "WARNING")
+	v.addFinding(n, symbol.RuleProcessStateMutation, rule.msg, v.hint(name, rule.hint), "WARNING")
 }
 
 func (v *PHPVisitor) getShadowedFunctions(pos uint) map[string]bool {
@@ -775,7 +775,7 @@ func countArguments(n *sitter.Node) int {
 func (v *PHPVisitor) handleVariable(n *sitter.Node) {
 	name := v.getContent(n)
 	if isSuperglobal(name) && !isEnvRead(n, v.getContent) {
-		v.addFinding(n, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), v.hint("superglobal", "Use the Symfony Request object ($request->query, $request->request, etc.) instead."), "WARNING")
+		v.addFinding(n, symbol.RuleSuperglobalsUsage, fmt.Sprintf("Usage of PHP Superglobal %s is discouraged in Worker mode.", name), v.hint("superglobal", "Use the Symfony Request object ($request->query, $request->request, etc.) instead."), "WARNING")
 	}
 }
 
@@ -1079,7 +1079,7 @@ func (v *PHPVisitor) logForeignStaticMutation(n *sitter.Node, target, prop strin
 		if v.curClass == "" {
 			msg = fmt.Sprintf("Mutation of static state '%s::%s'", target, prop)
 		}
-		v.addFinding(n, msg, "Static properties persist across requests in Worker mode, whichever class writes them.", "ERROR")
+		v.addFinding(n, symbol.RuleStateMutation, msg, "Static properties persist across requests in Worker mode, whichever class writes them.", "ERROR")
 	}
 }
 
@@ -1114,7 +1114,7 @@ func (v *PHPVisitor) logMutation(n *sitter.Node, prop string, static bool) {
 		})
 	case v.curClass != "" || static:
 		msg := fmt.Sprintf("Mutation of state '%s' in %s::%s()", key, v.curClass, v.curMethod)
-		v.addFinding(n, msg, "State mutations persist across requests in Worker mode.", "ERROR")
+		v.addFinding(n, symbol.RuleStateMutation, msg, "State mutations persist across requests in Worker mode.", "ERROR")
 	}
 }
 
@@ -1146,6 +1146,7 @@ func (v *PHPVisitor) performResetCheck() {
 		}
 		if !v.resetted[prop] {
 			v.findings = append(v.findings, symbol.Finding{
+				Rule:          symbol.RuleIncompleteReset,
 				Message:       fmt.Sprintf("Property '%s' of %s is mutated but not reset in reset().", prop, v.curClass),
 				Severity:      "WARNING",
 				Line:          info.line,
@@ -1183,7 +1184,8 @@ func (v *PHPVisitor) isIgnoredLine(n *sitter.Node) bool {
 	return row > 0 && strings.Contains(v.lines[row-1], "@igor-ignore")
 }
 
-func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
+// addFinding reports a finding of the given rule (a symbol.Rule* identifier) on the node.
+func (v *PHPVisitor) addFinding(n *sitter.Node, rule, msg, hint, severity string) {
 	if v.isWorkerSafeClass || v.isWorkerSafeMethod {
 		return
 	}
@@ -1202,6 +1204,7 @@ func (v *PHPVisitor) addFinding(n *sitter.Node, msg, hint, severity string) {
 
 	row := int(n.StartPosition().Row)
 	v.findings = append(v.findings, symbol.Finding{
+		Rule:          rule,
 		Message:       msg,
 		Line:          row + 1,
 		Code:          v.lines[row],
@@ -1376,7 +1379,7 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 		} else {
 			msg = fmt.Sprintf("Mutation detected on an injected dependency ($this->%s). Risk of State Leak in a worker.", propName)
 		}
-		v.addFinding(n, msg, v.hint("dependency_mutation", "Avoid modifying injected dependencies at runtime, or use a ResetInterface."), "ERROR")
+		v.addFinding(n, symbol.RuleSingletonMutation, msg, v.hint("dependency_mutation", "Avoid modifying injected dependencies at runtime, or use a ResetInterface."), "ERROR")
 	}
 }
 
@@ -1397,7 +1400,7 @@ func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 			// And it has a "use" capture clause (use ($var))
 			if hasUseClause(node) {
 				msg := "Potential Memory Leak: Injection of a closure capturing local state into a shared service."
-				v.addFinding(node, msg, "Avoid injecting closures that capture local state via use() into shared services.", "ERROR")
+				v.addFinding(node, symbol.RuleClosureStateLeak, msg, "Avoid injecting closures that capture local state via use() into shared services.", "ERROR")
 			}
 		}
 		// Recursive walk of argument node children (e.g., in a nested array)

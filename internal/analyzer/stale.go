@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -112,7 +113,7 @@ func (v *PHPVisitor) checkStaleProperty(n, typed *sitter.Node, nameKind string) 
 			continue
 		}
 		msg := fmt.Sprintf("Property '%s' of %s keeps %s (%s) across requests.", prop, v.curClass, dep.what, typeName)
-		v.addFinding(n, msg, "This service outlives the request: it keeps the object of the first request. "+dep.hint, "ERROR")
+		v.addFinding(n, symbol.RuleStaleDependency, msg, "This service outlives the request: it keeps the object of the first request. "+dep.hint, "ERROR")
 	}
 }
 

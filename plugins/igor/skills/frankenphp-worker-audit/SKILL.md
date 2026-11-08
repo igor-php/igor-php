@@ -22,6 +22,10 @@ Work in this order and keep the user informed in plain words at each step.
    Otherwise install it: `composer require --dev igor-php/igor-php` (the Composer package
    downloads the matching binary on first run). Ask before installing if the user did not ask
    for an audit outright.
+   **Up to date?** With Composer, run `composer outdated igor-php/igor-php`. If a newer version
+   exists, tell the user (new rules and fewer false positives come with each release) and offer
+   `composer update igor-php/igor-php` (`composer require --dev igor-php/igor-php:^<major>` for a
+   new major version). Never update without their agreement: it changes `composer.lock`.
 3. **Container map.** It removes most false positives, so set it up:
    - Symfony: register `IgorPhp\IgorBundle\IgorPhpBundle::class => ['dev' => true, 'test' => true]`
      in `config/bundles.php`, then `php bin/console cache:clear`.
@@ -38,7 +42,7 @@ vendor/bin/igor-php --output json src/Service/Foo.php   # one file
 
 Flags always go **before** the target: igor stops reading flags at the first path.
 The JSON is a list of files (`file_path`, `service_id`, `is_shared`) with their `findings`
-(`line`, `severity`, `message`, `remediation`, `context_class`, `context_method`,
+(`rule_id`, `line`, `severity`, `message`, `remediation`, `context_class`, `context_method`,
 `reachability`, `category`, `property`, `cache_key`). Banners and errors go to stderr.
 
 If the deep audit cannot start (Symfony cache not warmed up, `igor:dump` failing because the
@@ -67,8 +71,9 @@ Ask the user before large refactorings; small local fixes can go ahead.
 
 ## 4. Fix, one service at a time
 
-Find the fix for each finding in `references/rules.md` (matched on the message), with the
-framework details in `references/symfony.md` or `references/laravel-octane.md`.
+Find the fix for each finding in the `## <rule_id>` section of `references/rules.md` (also printed
+by `vendor/bin/igor-php rule <rule_id>`; versions of igor without `rule_id` are matched on the
+message), with the framework details in `references/symfony.md` or `references/laravel-octane.md`.
 
 General principles:
 - Prefer making the service stateless: pass the value as a method argument, or read it from the

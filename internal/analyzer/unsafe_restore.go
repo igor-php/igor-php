@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/igor-php/igor-php/pkg/symbol"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -223,12 +224,12 @@ func (v *PHPVisitor) checkUnsafeRestores(method *sitter.Node) {
 		}
 		reported[w.prop] = true
 		if w.ctx.inCatch {
-			v.addFinding(w.node,
+			v.addFinding(w.node, symbol.RuleUnsafeStateRestore,
 				fmt.Sprintf("Property '%s' is restored in catch (%s): an \\Error leaves it set for the next requests.", w.prop, w.ctx.catchTypes),
 				"Restore it in a finally block, or catch \\Throwable.", "ERROR")
 			continue
 		}
-		v.addFinding(w.node,
+		v.addFinding(w.node, symbol.RuleUnsafeStateRestore,
 			fmt.Sprintf("Property '%s' is restored without finally: an exception thrown after line %d leaves it set for the next requests.", w.prop, set.node.StartPosition().Row+1),
 			"Restore it in a finally block so that it is restored whatever happens.", "ERROR")
 	}

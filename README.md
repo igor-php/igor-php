@@ -243,6 +243,16 @@ igor-php --stdin-filepath src/Service/MyService.php --include-ignored --output j
 - **`--include-ignored`**: Keeps findings exempted by the baseline in the output, marked as ignored with the baseline reason. They do not affect the audit status or exit code.
 - In Symfony projects, a single file is only audited if one of its classes backs a shared service (or is a parent class or trait of one), exactly as in a full audit.
 - Baseline management flags (`--generate-baseline`, `--check-baseline`, `--prune-baseline`) cannot be combined with a single-file target or `--stdin-filepath`.
+- **`rule_id`**: Every finding of `--output json` and `--output llm` carries the stable identifier of its rule (the names of the [rules catalog](#-what-igor-tracks), e.g. `StateMutation`), which tools can rely on instead of the message. GitHub Actions annotations show it as their title.
+
+### 📖 Rule Reference
+
+```bash
+igor-php rule                      # list the rules
+igor-php rule UnsafeStateRestore   # why it leaks in worker mode, the Symfony and Laravel fix, the false positives
+```
+
+The reference is the one the [Claude Code plugin](#-claude-code-plugin) uses (`plugins/igor/skills/frankenphp-worker-audit/references/rules.md`), embedded in the binary.
 
 ### 🧠 Semantic Explanation Matrix (Diagnostic Mode)
 If you want to understand the exact semantics and diagnostic criteria that led Igor to flag or approve a service, you can run the `explain` command:

@@ -1,6 +1,7 @@
 # igor-php rules: what each finding means and how to fix it
 
-Match a finding on its `message`. Each rule gives why it leaks in worker mode, the fix, and when
+Match a finding on its `rule_id` (the section title; `igor-php rule <rule_id>` prints the same
+section), or on its `message` with versions of igor that have no `rule_id`. Each rule gives why it leaks in worker mode, the fix, and when
 the finding is a false positive. Framework details: `symfony.md`, `laravel-octane.md`.
 
 ## StateMutation

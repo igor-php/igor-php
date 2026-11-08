@@ -288,16 +288,19 @@ function formatContext(array $findings, string $relativePath): string
         $relativePath,
     );
     foreach ($findings as $finding) {
+        // Older igor versions have no rule_id, only the message.
+        $rule = (string) ($finding['rule_id'] ?? '');
         $text .= sprintf(
-            "- line %d [%s] %s Fix: %s\n",
+            "- line %d [%s%s] %s Fix: %s\n",
             (int) ($finding['line'] ?? 0),
             (string) ($finding['severity'] ?? 'WARNING'),
+            $rule !== '' ? ' '.$rule : '',
             (string) ($finding['message'] ?? ''),
             (string) ($finding['remediation'] ?? ''),
         );
     }
 
-    return $text."In worker mode this state survives from one request to the next. Fix it now following the frankenphp-worker-audit skill, or tell the user why it is safe (e.g. a bounded cache filled at boot) before going on.";
+    return $text."In worker mode this state survives from one request to the next. Fix it now following the frankenphp-worker-audit skill (`igor-php rule <rule_id>` explains a rule), or tell the user why it is safe (e.g. a bounded cache filled at boot) before going on.";
 }
 
 function relativePath(string $file, string $projectDir): string
