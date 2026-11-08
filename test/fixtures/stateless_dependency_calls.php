@@ -265,6 +265,40 @@ class LocalHelperRenamer
     }
 }
 
+class IndexFactory
+{
+    public function createIndex(): Index
+    {
+        return new Index();
+    }
+}
+
+class FactoryIndexRenamer
+{
+    public function __construct(private IndexRenamer $renamer)
+    {
+    }
+
+    public function setFreshName(IndexFactory $factory): void
+    {
+        $this->renamer->setRootName($factory->createIndex());
+    }
+}
+
+class IndexCollector
+{
+    public function __construct(private Index $own)
+    {
+    }
+
+    public function setItems(Index $index): void
+    {
+        $items = collect([]);
+        $items->push($index);
+        $items->push($this->own);
+    }
+}
+
 class EncodingReader
 {
     public function setEncodingCheck(): string
@@ -301,6 +335,9 @@ final class StatelessCallsController
         private IndexHolder $indexHolder,
         private LocalHelperRenamer $localHelperRenamer,
         private EncodingReader $encodingReader,
+        private FactoryIndexRenamer $factoryRenamer,
+        private IndexFactory $indexFactory,
+        private IndexCollector $indexCollector,
     ) {
     }
 
@@ -427,5 +464,15 @@ final class StatelessCallsController
     public function readEncoding(): void
     {
         $this->encodingReader->setEncodingCheck();
+    }
+
+    public function renameFromSharedFactory(): void
+    {
+        $this->factoryRenamer->setFreshName($this->indexFactory);
+    }
+
+    public function collectSharedIndex(): void
+    {
+        $this->indexCollector->setItems($this->index);
     }
 }

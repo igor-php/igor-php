@@ -65,6 +65,8 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"renameHeldSharedIndex", true, "setHeldName() renames the index held by the shared holder it is given"},
 		{"renameSharedIndexWithHelper", true, "setNameWith() hands the shared index to a local helper's setter"},
 		{"renameFreshIndexWithHelper", false, "setNameWith() only hands a new index to a local helper"},
+		{"renameFromSharedFactory", false, "setFreshName() renames a new index built by the shared factory"},
+		{"collectSharedIndex", false, "setItems() only stores the shared index in a local collection"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
 	for _, c := range cases {

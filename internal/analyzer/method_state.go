@@ -304,12 +304,29 @@ func (s *stateSummarizer) callArgs(call *sitter.Node) CallArgs {
 		if value != nil && value.Kind() == "variadic_unpacking" {
 			value = lastNamedChild(value)
 		}
-		if index, ok := s.params[rootVariable(s.v, value)]; ok {
+		if index, ok := s.params[s.paramRoot(value)]; ok {
 			param = index
 		}
 		out.Params = append(out.Params, param)
 	}
 	return out
+}
+
+// paramRoot returns the variable at the root of an argument, like rootVariable, or "" when the
+// chain goes through a call that returns a fresh object ($factory->createIndex()).
+func (s *stateSummarizer) paramRoot(n *sitter.Node) string {
+	for x := n; x != nil; x = x.ChildByFieldName("object") {
+		switch x.Kind() {
+		case "member_call_expression", "nullsafe_member_call_expression":
+			if name := x.ChildByFieldName("name"); name != nil && isTaintBreakerMethod(s.v.getContent(name)) {
+				return ""
+			}
+		case "member_access_expression", "nullsafe_member_access_expression":
+		default:
+			return rootVariable(s.v, n)
+		}
+	}
+	return rootVariable(s.v, n)
 }
 
 // isSelf reports $this or a local variable holding it.
@@ -349,12 +366,26 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 		})
 		return
 	}
-	if !mutator {
-		return
+	if mutator {
+		s.localCall(obj, method, args)
 	}
+}
+
+// localCall handles a mutator-named call on a receiver the summary does not follow: a
+// parameter, a local variable or a longer chain.
+func (s *stateSummarizer) localCall(obj *sitter.Node, method string, args CallArgs) {
+	v, st := s.v, &s.st
 	root := rootVariable(v, obj)
 	_, onParam := s.params[root]
 	s.mutateParam(root)
+	if storageMethods[strings.ToLower(method)] && !onParam && !s.holdsOwnState(obj) {
+		// $items = collect([]); $items->push($index): storing an object does not change it, but
+		// the local now holds what it was given
+		if root != "" && len(args.Shared) > 0 {
+			s.tainted[root] = true
+		}
+		return
+	}
 	// A mutating call on an object reached from $this through a longer chain or a local
 	// variable, or a local given the object's own state ($helper->rename($this->index)): the
 	// summary cannot tell whose state it changes. A helper's result (session()->forget($this->key))
@@ -371,6 +402,13 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 			s.mutateParamIndex(param)
 		}
 	}
+}
+
+// storageMethods put their arguments into the receiver without changing them.
+var storageMethods = map[string]bool{
+	"push": true, "add": true, "append": true, "prepend": true, "put": true, "insert": true,
+	"attach": true, "offsetset": true, "enqueue": true, "unshift": true, "merge": true,
+	"concat": true, "set": true,
 }
 
 // mutatorPrefixes extend the injected dependency rule's prefixes with the verbs of collections,
