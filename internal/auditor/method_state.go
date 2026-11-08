@@ -132,9 +132,11 @@ func (s sharedArgs) through(args analyzer.CallArgs) sharedArgs {
 	for _, p := range args.Shared {
 		out.positions[p] = true
 	}
-	for pos, param := range args.Params {
-		if param >= 0 && (s.all || s.positions[param]) {
-			out.positions[pos] = true
+	for pos, params := range args.Params {
+		for _, param := range params {
+			if s.all || s.positions[param] {
+				out.positions[pos] = true
+			}
 		}
 	}
 	if args.Unknown && (s.all || len(s.positions) > 0 || len(out.positions) > 0) {
@@ -188,7 +190,12 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 // and its name suggests a change.
 func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.MethodState, shared sharedArgs, push func(stateNode)) bool {
 	for _, c := range state.SelfCalls {
-		push(stateNode{node.receiver, node.receiver, strings.ToLower(c.Method), shared.through(c.Args).key()})
+		start := node.receiver
+		if c.Self {
+			// self::touch() runs the method as seen from the class declaring the caller
+			start = declaring
+		}
+		push(stateNode{node.receiver, start, strings.ToLower(c.Method), shared.through(c.Args).key()})
 	}
 	for _, c := range state.ParentCalls {
 		parent := a.classParents[declaring]

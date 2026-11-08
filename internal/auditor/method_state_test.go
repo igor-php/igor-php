@@ -71,6 +71,14 @@ func TestDropStatelessDependencyCalls(t *testing.T) {
 		{"renameStoredSharedIndex", true, "setFirstName() renames the shared index through the collection it stored it in"},
 		{"renameAliasedSharedIndex", true, "setAliasName() renames the shared index through a local alias"},
 		{"pushThroughReusedLocal", true, "setQueued() appends to its own queue through a local that held a collection"},
+		{"touchInherited", true, "the inherited setValue() calls self::touch(), which is the parent's writing touch()"},
+		{"renameWrappedSharedIndex", true, "setItems() hands the shared index, wrapped in an array, to a method that renames it"},
+		{"bumpSharedCounter", true, "setCount() increments a property of the shared counter it is given"},
+		{"resetSharedCounters", true, "setAll() writes each shared counter it loops over"},
+		{"advanceCursor", true, "setNext() calls advance(), which moves its own cursor, through a local"},
+		{"pushCurrentQueue", true, "setCurrent() pushes onto a queue current() hands back from its own state"},
+		{"renameClonedChild", true, "setCopyName() renames the index a shallow clone still shares"},
+		{"renameClone", false, "setCopy() only changes the clone itself"},
 		{"readEncoding", false, "setEncodingCheck() reads the encoding and calls the namespace's own setlocale()"},
 	}
 	for _, c := range cases {

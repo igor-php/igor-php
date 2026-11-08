@@ -346,6 +346,116 @@ class ReusedLocal
     }
 }
 
+class SelfToucher
+{
+    private int $touched = 0;
+
+    public function setValue(): void
+    {
+        self::touch();
+    }
+
+    public function touch(): void
+    {
+        $this->touched++;
+    }
+}
+
+class QuietToucher extends SelfToucher
+{
+    public function touch(): void
+    {
+    }
+}
+
+class FirstRenamer
+{
+    public function setFirst(array $items): void
+    {
+        $items[0]->setName('renamed');
+    }
+}
+
+class WrappedRenamer
+{
+    public function __construct(private FirstRenamer $helper)
+    {
+    }
+
+    public function setItems(Index $item): void
+    {
+        $this->helper->setFirst([$item]);
+    }
+}
+
+class Counter
+{
+    public int $value = 0;
+}
+
+class CounterBumper
+{
+    public function setCount(Counter $counter): void
+    {
+        $counter->value++;
+    }
+
+    public function setAll(array $counters): void
+    {
+        foreach ($counters as $counter) {
+            $counter->value = 1;
+        }
+    }
+}
+
+class Cursor
+{
+    private int $position = 0;
+
+    public function advance(): void
+    {
+        $this->position++;
+    }
+}
+
+class CursorUser
+{
+    public function __construct(private Cursor $cursor)
+    {
+    }
+
+    public function setNext(): void
+    {
+        $cursor = $this->cursor;
+        $cursor->advance();
+    }
+}
+
+class QueueHolder
+{
+    public function __construct(private array $queues, private IndexHolder $holder)
+    {
+    }
+
+    public function setCurrent(): void
+    {
+        $queue = current($this->queues);
+        $queue->enqueue(1);
+    }
+
+    public function setCopyName(): void
+    {
+        $copy = clone $this->holder;
+        $copy->index->setName('copy');
+    }
+
+    public function setCopy(): void
+    {
+        $copy = clone $this->holder;
+        $copy->setIndexName('copy');
+    }
+}
+
 class EncodingReader
 {
     public function setEncodingCheck(): string
@@ -388,6 +498,12 @@ final class StatelessCallsController
         private LocalSetHelper $localSetHelper,
         private StoredIndexRenamer $storedRenamer,
         private ReusedLocal $reusedLocal,
+        private QuietToucher $quietToucher,
+        private WrappedRenamer $wrappedRenamer,
+        private CounterBumper $bumper,
+        private Counter $counter,
+        private CursorUser $cursorUser,
+        private QueueHolder $queueHolder,
     ) {
     }
 
@@ -544,5 +660,45 @@ final class StatelessCallsController
     public function pushThroughReusedLocal(): void
     {
         $this->reusedLocal->setQueued();
+    }
+
+    public function touchInherited(): void
+    {
+        $this->quietToucher->setValue();
+    }
+
+    public function renameWrappedSharedIndex(): void
+    {
+        $this->wrappedRenamer->setItems($this->index);
+    }
+
+    public function bumpSharedCounter(): void
+    {
+        $this->bumper->setCount($this->counter);
+    }
+
+    public function resetSharedCounters(): void
+    {
+        $this->bumper->setAll([$this->counter]);
+    }
+
+    public function advanceCursor(): void
+    {
+        $this->cursorUser->setNext();
+    }
+
+    public function pushCurrentQueue(): void
+    {
+        $this->queueHolder->setCurrent();
+    }
+
+    public function renameClonedChild(): void
+    {
+        $this->queueHolder->setCopyName();
+    }
+
+    public function renameClone(): void
+    {
+        $this->queueHolder->setCopy();
     }
 }

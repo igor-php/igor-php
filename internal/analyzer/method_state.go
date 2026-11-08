@@ -13,6 +13,8 @@ type MethodCallRef struct {
 	Method string
 	// Mutator is true when the method name suggests a change: it decides for a class that was not audited.
 	Mutator bool
+	// Self is true for a self:: call.
+	Self bool
 	// Args says what the call passes: a callee that changes its arguments changes the object's
 	// own state when it is given some ($this->index).
 	Args CallArgs
@@ -22,9 +24,9 @@ type MethodCallRef struct {
 type CallArgs struct {
 	// Shared lists the positions of arguments holding the caller's own state.
 	Shared []int
-	// Params gives, for each position, the index of the caller's parameter passed there, or
-	// reached from there ($holder->index), or -1.
-	Params []int
+	// Params gives, for each position, the indexes of the caller's parameters the argument holds:
+	// passed as is, reached from there ($holder->index) or wrapped in an array ([$item]).
+	Params [][]int
 	// Unknown is true when positions cannot be trusted (named or spread arguments).
 	Unknown bool
 }
@@ -44,7 +46,8 @@ type MethodState struct {
 	MutatedParams []int
 	// VariadicFrom is the index of a variadic parameter, or -1: it receives every later argument.
 	VariadicFrom int
-	// SelfCalls are the methods called on $this, self:: or static:: (Class is empty).
+	// SelfCalls are the methods called on $this, self:: or static:: (Class is empty; Self marks
+	// self::, which resolves from the class declaring the method, not from the instance).
 	SelfCalls []MethodCallRef
 	// ParentCalls are the methods called through parent:: (Class is empty).
 	ParentCalls []MethodCallRef
@@ -123,6 +126,13 @@ type stateSummarizer struct {
 	// aliases are local variables holding a parameter, or a collection it was stored in
 	// ($items->push($index)), with the indexes of those parameters.
 	aliases map[string][]int
+	// wrappers are local variables holding a new object built around the object's own state
+	// (clone $this->holder, collect([$this->queue])): a change to them is not, a change to what
+	// they hold is.
+	wrappers map[string]bool
+	// sources are local variables holding a property of $this ($cursor = $this->cursor), by name:
+	// calls on them are followed as calls on that property.
+	sources map[string]string
 	// containers are local variables created as a collection (collect(), new \ArrayObject(), []):
 	// storing an object in them does not change it.
 	containers map[string]bool
@@ -134,7 +144,8 @@ type stateSummarizer struct {
 func (v *PHPVisitor) summarizeMethodState(method *sitter.Node) MethodState {
 	s := &stateSummarizer{
 		v: v, tainted: map[string]bool{}, params: map[string]int{}, self: map[string]bool{},
-		aliases: map[string][]int{}, containers: map[string]bool{},
+		aliases: map[string][]int{}, containers: map[string]bool{}, wrappers: map[string]bool{},
+		sources: map[string]string{},
 	}
 	s.st.VariadicFrom = -1
 	if list := method.ChildByFieldName("parameters"); list != nil {
@@ -191,17 +202,15 @@ func (s *stateSummarizer) writes(n *sitter.Node) bool {
 		// $x = &$this->prop, or $this->prop = &$x
 		return v.derivesFromOwnState(n.ChildByFieldName("left")) || v.derivesFromOwnState(n.ChildByFieldName("right"))
 	case "update_expression":
-		return s.writesState(n.ChildByFieldName("argument"))
+		return s.writesTarget(n.ChildByFieldName("argument"))
 	case "unset_statement":
 		for i := uint(0); i < n.ChildCount(); i++ {
-			if s.writesState(n.Child(i)) {
+			if s.writesTarget(n.Child(i)) {
 				return true
 			}
 		}
 	case "foreach_statement":
-		// foreach ($this->items as $item) $item->setX() mutates objects the service holds,
-		// and foreach ($this->items as &$item) writes the property itself
-		return n.ChildCount() > 2 && s.holdsOwnState(n.Child(2)) && v.collectVariables(n, s.tainted)
+		return s.foreach(n)
 	case "by_ref":
 		// [&$this->prop], fn(&$x) bound to a property
 		return n.ChildCount() > 0 && v.derivesFromOwnState(n.Child(n.ChildCount()-1))
@@ -209,6 +218,41 @@ func (s *stateSummarizer) writes(n *sitter.Node) bool {
 		return v.callWritesOwnState(n)
 	}
 	return false
+}
+
+// writesTarget reports a write target ($x->count++, unset($x->items[0])) that is the object's own
+// state, and records it as a change to the parameter it is rooted at.
+func (s *stateSummarizer) writesTarget(target *sitter.Node) bool {
+	if s.writesState(target) {
+		return true
+	}
+	if target != nil && target.Kind() != "variable_name" {
+		s.mutateParam(rootVariable(s.v, target))
+	}
+	return false
+}
+
+// foreach tracks the loop variables: foreach ($this->items as $item) $item->setX() mutates
+// objects the service holds, foreach ($this->items as &$item) writes the property itself, and
+// foreach ($items as $item) over a parameter links $item to it.
+func (s *stateSummarizer) foreach(n *sitter.Node) bool {
+	if n.ChildCount() <= 2 {
+		return false
+	}
+	source := n.Child(2)
+	bound := map[string]bool{}
+	byRef := s.v.collectVariables(n, bound)
+	indexes := s.paramIndexes(source)
+	for name := range bound {
+		s.alias(name, indexes)
+	}
+	if !s.holdsOwnState(source) {
+		return false
+	}
+	for name := range bound {
+		s.tainted[name] = true
+	}
+	return byRef
 }
 
 func (s *stateSummarizer) assignment(n *sitter.Node) bool {
@@ -228,6 +272,11 @@ func (s *stateSummarizer) assignment(n *sitter.Node) bool {
 		}
 		if s.holdsOwnState(right) {
 			s.tainted[name] = true
+		}
+		s.wrappers[name] = v.wrapsSharedState(right, s.holdsOwnState)
+		s.sources[name] = ""
+		if prop, ok := v.isPropertyFetchOnThis(right); ok && isThisVariable(v, right.ChildByFieldName("object")) {
+			s.sources[name] = prop
 		}
 		// A local reassigned to anything else ($items = $this->queue) is no longer a fresh collection
 		s.containers[name] = s.isContainerCreation(right)
@@ -252,8 +301,19 @@ func (s *stateSummarizer) mutateParam(name string) {
 // paramIndexes gives the parameters a value holds: a parameter or an object reached from one, or
 // a local holding some.
 func (s *stateSummarizer) paramIndexes(n *sitter.Node) []int {
-	if n != nil && n.Kind() == "variadic_unpacking" {
-		n = lastNamedChild(n)
+	if n == nil {
+		return nil
+	}
+	switch n.Kind() {
+	case "variadic_unpacking":
+		return s.paramIndexes(lastNamedChild(n))
+	case "array_creation_expression", "array_element_initializer", "pair", "parenthesized_expression",
+		"conditional_expression", "binary_expression":
+		var out []int
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			out = append(out, s.paramIndexes(n.NamedChild(i))...)
+		}
+		return out
 	}
 	root := s.paramRoot(n)
 	if root == "" {
@@ -350,11 +410,12 @@ func (s *stateSummarizer) holdsOwnState(n *sitter.Node) bool {
 		}
 		return false
 	}
-	if s.v.derivesFromOwnState(n) {
+	if s.v.derivesFromOwnState(n) || s.v.returnsArgument(n, s.holdsOwnState) {
 		return true
 	}
 	root := rootVariable(s.v, n)
-	return root != "" && (s.tainted[root] || s.self[root])
+	// A wrapper is fresh, but what is reached through it ($copy->queue) may be shared
+	return root != "" && (s.tainted[root] || s.self[root] || (s.wrappers[root] && n.Kind() != "variable_name"))
 }
 
 // callArgs describes the arguments of a call: which hold the object's own state, and which
@@ -377,11 +438,7 @@ func (s *stateSummarizer) callArgs(call *sitter.Node) CallArgs {
 		}
 		// A parameter, or an object reached from one ($holder->index): a change made there by
 		// the callee is a change to what the caller was given
-		param := -1
-		if indexes := s.paramIndexes(value); len(indexes) > 0 {
-			param = indexes[0]
-		}
-		out.Params = append(out.Params, param)
+		out.Params = append(out.Params, s.paramIndexes(value))
 	}
 	return out
 }
@@ -429,7 +486,13 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 	}
 	mutator := isMutatorName(method)
 	args := s.callArgs(n)
-	if propName, ok := v.isPropertyFetchOnThis(obj); ok && isThisVariable(v, obj.ChildByFieldName("object")) {
+	propName, ok := v.isPropertyFetchOnThis(obj)
+	ok = ok && isThisVariable(v, obj.ChildByFieldName("object"))
+	if !ok && obj.Kind() == "variable_name" && s.sources[v.getContent(obj)] != "" {
+		// $cursor = $this->cursor; $cursor->advance(): followed as $this->cursor->advance()
+		propName, ok = s.sources[v.getContent(obj)], true
+	}
+	if ok {
 		// Every call on a property is followed when its class is audited; otherwise only the
 		// method name tells whether it changes the object ($this->queue->insert())
 		st.DepCalls = append(st.DepCalls, MethodCallRef{
@@ -473,8 +536,11 @@ func (s *stateSummarizer) localCall(call, obj *sitter.Node, method string, args 
 	// A local receiver the auditor does not follow ($helper = new Helper()) may change what it is
 	// given: count the parameters passed to it as changed. On a parameter ($playlist->addSongs($user))
 	// the change is the receiver's, counted above
-	for _, param := range args.Params {
-		if param >= 0 && !onParam {
+	if onParam {
+		return
+	}
+	for _, params := range args.Params {
+		for _, param := range params {
 			s.mutateParamIndex(param)
 		}
 	}
@@ -543,7 +609,10 @@ func (s *stateSummarizer) scopedCall(n *sitter.Node) {
 	}
 	call := MethodCallRef{Method: v.getContent(nameNode), Args: s.callArgs(n)}
 	switch strings.ToLower(v.getContent(scope)) {
-	case "self", "static":
+	case "self":
+		call.Self = true
+		st.SelfCalls = append(st.SelfCalls, call)
+	case "static":
 		st.SelfCalls = append(st.SelfCalls, call)
 	case "parent":
 		st.ParentCalls = append(st.ParentCalls, call)
@@ -813,6 +882,73 @@ func (v *PHPVisitor) isOwnStaticCall(n *sitter.Node) bool {
 	switch strings.ToLower(v.getContent(scope)) {
 	case "self", "static", "parent":
 		return true
+	}
+	return false
+}
+
+// freshBuilders are functions whose result is a new value built from their arguments, or a scalar:
+// it may hold the objects it was given, but it is not one of them.
+var freshBuilders = map[string]bool{
+	"collect": true, "array_map": true, "array_filter": true, "array_merge": true, "array_values": true,
+	"array_keys": true, "array_slice": true, "array_combine": true, "array_reverse": true,
+	"array_unique": true, "array_column": true, "array_fill_keys": true, "iterator_to_array": true,
+	"compact": true, "count": true, "sprintf": true, "implode": true, "json_encode": true,
+	"serialize": true, "in_array": true, "array_key_exists": true, "is_array": true, "get_class": true,
+	"spl_object_id": true, "spl_object_hash": true, "md5": true, "sha1": true, "strtolower": true,
+	"strtoupper": true, "trim": true, "str_replace": true, "array_sum": true, "max": true, "min": true,
+}
+
+// functionName returns the lowercased name of a called function, without its namespace.
+func (v *PHPVisitor) functionName(call *sitter.Node) string {
+	fn := call.ChildByFieldName("function")
+	if fn == nil || (fn.Kind() != "name" && fn.Kind() != "qualified_name") {
+		return ""
+	}
+	name := strings.ToLower(v.getContent(fn))
+	if i := strings.LastIndex(name, "\\"); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
+// anyArgument reports a call whose arguments hold a value matching shared.
+func anyArgument(call *sitter.Node, shared func(*sitter.Node) bool) bool {
+	args := call.ChildByFieldName("arguments")
+	if args == nil {
+		return false
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		if shared(lastNamedChild(args.NamedChild(i))) {
+			return true
+		}
+	}
+	return false
+}
+
+// returnsArgument reports a function call that may hand back an object it was given
+// (current($this->queues), reset(), a helper): any function but the known builders.
+func (v *PHPVisitor) returnsArgument(n *sitter.Node, shared func(*sitter.Node) bool) bool {
+	if n == nil || n.Kind() != "function_call_expression" {
+		return false
+	}
+	name := v.functionName(n)
+	return name != "" && !freshBuilders[name] && anyArgument(n, shared)
+}
+
+// wrapsSharedState reports a new value built around shared state: clone $this->holder,
+// new Wrapper($this->queue), collect([$this->queue]). The value is fresh, the objects it holds
+// may not be.
+func (v *PHPVisitor) wrapsSharedState(n *sitter.Node, shared func(*sitter.Node) bool) bool {
+	if n == nil {
+		return false
+	}
+	switch n.Kind() {
+	case "clone_expression":
+		return n.NamedChildCount() > 0 && shared(lastNamedChild(n))
+	case "object_creation_expression":
+		return anyArgument(n, shared)
+	case "function_call_expression":
+		return freshBuilders[v.functionName(n)] && anyArgument(n, shared)
 	}
 	return false
 }

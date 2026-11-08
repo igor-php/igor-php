@@ -62,6 +62,13 @@ final class LibraryStatisticsService
         $handler = HandlerProvider::forRegistry($this->registry);
         $handler->setDefault('x'); // reported
 
+        $current = current($this->queues);
+        $current->push(1); // reported
+
+        $snapshot = clone $this->holder;
+        $snapshot->queue->push(1); // reported
+        $snapshot->setName('copy'); // not reported
+
         return $statistics;
     }
 }
