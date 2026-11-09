@@ -237,7 +237,8 @@ type fateScanner struct {
 	// and the last position in the body where the variable was given each.
 	holders map[string]map[int]uint
 	// resets are, for each variable, the end positions of the assignments that are statements
-	// of the method body itself: they always run, and replace whatever the variable held.
+	// of the method body itself and whose value is built from no variable ($copy = [], $fn =
+	// null): they always run, and what the variable held is gone.
 	resets map[string][]uint
 	fates  []ParamFate
 	grew   bool
@@ -410,7 +411,22 @@ func (s *fateScanner) held(name string, at uint) []int {
 	return out
 }
 
-// markResets records the assignments to a variable that are statements of the method body.
+// usesVariable reports an expression that reads a variable other than $this.
+func (s *fateScanner) usesVariable(n *sitter.Node) bool {
+	if n.Kind() == "variable_name" {
+		return s.v.getContent(n) != "$this"
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if s.usesVariable(n.Child(i)) {
+			return true
+		}
+	}
+	return false
+}
+
+// markResets records the assignments that clear a variable: statements of the method body
+// whose value uses no variable. $callback = \Closure::fromCallable($callback) and $listener =
+// $this->wrap($listener) are not: the new value may still hold the old one.
 func (s *fateScanner) markResets(body *sitter.Node) {
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		stmt := body.NamedChild(i)
@@ -421,7 +437,8 @@ func (s *fateScanner) markResets(body *sitter.Node) {
 		if assignment.Kind() != "assignment_expression" {
 			continue
 		}
-		if left := assignment.ChildByFieldName("left"); left != nil && left.Kind() == "variable_name" {
+		left, right := assignment.ChildByFieldName("left"), assignment.ChildByFieldName("right")
+		if left != nil && left.Kind() == "variable_name" && right != nil && !s.usesVariable(right) {
 			name := s.v.getContent(left)
 			s.resets[name] = append(s.resets[name], assignment.EndByte())
 		}
