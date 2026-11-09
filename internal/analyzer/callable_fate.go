@@ -233,11 +233,15 @@ type fateScanner struct {
 	v      *PHPVisitor
 	params map[string]int
 	// holders are local variables holding a parameter, or something built around it (an array,
-	// a closure capturing it, an object created with it), with the indexes of those parameters.
-	holders map[string]map[int]bool
-	fates   []ParamFate
-	grew    bool
-	opaque  bool
+	// a closure capturing it, an object created with it), with the indexes of those parameters
+	// and the last position in the body where the variable was given each.
+	holders map[string]map[int]uint
+	// resets are, for each variable, the end positions of the assignments that are statements
+	// of the method body itself: they always run, and replace whatever the variable held.
+	resets map[string][]uint
+	fates  []ParamFate
+	grew   bool
+	opaque bool
 	// arrayParams are the parameters that are arrays passed by value (array $options, a
 	// variadic): writing an entry changes the method's own copy.
 	arrayParams map[string]bool
@@ -250,8 +254,8 @@ type fateScanner struct {
 func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	out := MethodCallables{VariadicFrom: -1}
 	s := &fateScanner{
-		v: v, params: map[string]int{}, holders: map[string]map[int]bool{},
-		arrayParams: map[string]bool{}, foreign: map[string]bool{},
+		v: v, params: map[string]int{}, holders: map[string]map[int]uint{},
+		arrayParams: map[string]bool{}, foreign: map[string]bool{}, resets: map[string][]uint{},
 	}
 	var promoted, byRef []int
 	if list := method.ChildByFieldName("parameters"); list != nil {
@@ -287,6 +291,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	}
 	out.HasBody = true
 	s.markForeign(body)
+	s.markResets(body)
 
 	// A local may be given a parameter after a line that uses it (in a loop): scan until the
 	// set of locals holding a parameter stops growing
@@ -335,7 +340,7 @@ func (s *fateScanner) scan(n *sitter.Node) {
 		if p := n.Parent(); p != nil && p.Kind() == "dynamic_variable_name" {
 			s.allUnknown()
 		}
-		if indexes := s.held(s.v.getContent(n)); len(indexes) > 0 && !s.isBinding(n) {
+		if indexes := s.held(s.v.getContent(n), n.StartByte()); len(indexes) > 0 && !s.isBinding(n) {
 			s.follow(n, indexes)
 		}
 		return
@@ -382,15 +387,45 @@ func (s *fateScanner) allUnknown() {
 }
 
 // held gives the parameters a variable holds.
-func (s *fateScanner) held(name string) []int {
+func (s *fateScanner) held(name string, at uint) []int {
+	// $copy[] = $callback; $copy = []; return $copy; no longer holds it: a reset between the
+	// last time the variable was given the parameter and this use clears it
+	cleared := func(given uint) bool {
+		for _, reset := range s.resets[name] {
+			if given < reset && reset < at {
+				return true
+			}
+		}
+		return false
+	}
 	var out []int
-	if index, ok := s.params[name]; ok {
+	if index, ok := s.params[name]; ok && !cleared(0) {
 		out = append(out, index)
 	}
-	for index := range s.holders[name] {
-		out = append(out, index)
+	for index, given := range s.holders[name] {
+		if !cleared(given) {
+			out = append(out, index)
+		}
 	}
 	return out
+}
+
+// markResets records the assignments to a variable that are statements of the method body.
+func (s *fateScanner) markResets(body *sitter.Node) {
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		stmt := body.NamedChild(i)
+		if stmt.Kind() != "expression_statement" || stmt.NamedChildCount() == 0 {
+			continue
+		}
+		assignment := stmt.NamedChild(0)
+		if assignment.Kind() != "assignment_expression" {
+			continue
+		}
+		if left := assignment.ChildByFieldName("left"); left != nil && left.Kind() == "variable_name" {
+			name := s.v.getContent(left)
+			s.resets[name] = append(s.resets[name], assignment.EndByte())
+		}
+	}
 }
 
 // usedIn gives the parameters held by the variables used anywhere under n.
@@ -402,7 +437,7 @@ func (s *fateScanner) usedIn(n *sitter.Node) []int {
 			return
 		}
 		if x.Kind() == "variable_name" {
-			for _, index := range s.held(s.v.getContent(x)) {
+			for _, index := range s.held(s.v.getContent(x), x.StartByte()) {
 				seen[index] = true
 			}
 			return
@@ -419,24 +454,34 @@ func (s *fateScanner) usedIn(n *sitter.Node) []int {
 	return out
 }
 
-func (s *fateScanner) hold(name string, indexes []int) {
+// hold records that the variable name holds the given parameters from the position at on.
+func (s *fateScanner) hold(name string, indexes []int, at uint) {
 	if name == "" || name == "$this" {
 		return
 	}
 	// A parameter may be reused as a local: $options = [$callback]
 	own, isParam := s.params[name]
 	if s.holders[name] == nil {
-		s.holders[name] = map[int]bool{}
+		s.holders[name] = map[int]uint{}
 	}
 	for _, index := range indexes {
 		if isParam && index == own {
 			continue
 		}
-		if !s.holders[name][index] {
-			s.holders[name][index] = true
+		if given, known := s.holders[name][index]; !known || given < at {
+			s.holders[name][index] = at
 			s.grew = true
 		}
 	}
+}
+
+// givenAt is the position from which a variable written by target holds the value: after the
+// whole assignment for $x = ..., so that a reset by that same assignment comes first.
+func givenAt(target *sitter.Node) uint {
+	if p := target.Parent(); p != nil && (p.Kind() == "assignment_expression" || p.Kind() == "augmented_assignment_expression") {
+		return p.EndByte() + 1
+	}
+	return target.StartByte()
 }
 
 func (s *fateScanner) retain(indexes []int) {
@@ -515,7 +560,7 @@ func (s *fateScanner) step(p, cur *sitter.Node, indexes []int) *sitter.Node {
 			bound := map[string]bool{}
 			s.v.collectVariables(p, bound)
 			for name := range bound {
-				s.hold(name, indexes)
+				s.hold(name, indexes, p.StartByte())
 			}
 		}
 	}
@@ -571,7 +616,7 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 	}
 	switch left.Kind() {
 	case "variable_name":
-		s.hold(v.getContent(left), indexes)
+		s.hold(v.getContent(left), indexes, givenAt(left))
 		return
 	case "list_literal", "array_creation_expression":
 		bound := map[string]bool{}
@@ -587,7 +632,7 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 		}
 		mark(left)
 		for name := range bound {
-			s.hold(name, indexes)
+			s.hold(name, indexes, givenAt(left))
 		}
 		return
 	}
@@ -607,12 +652,12 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 		s.unknown(indexes)
 		// The variable holds it all the same: $callbacks = $this->listeners; $callbacks[] =
 		// $callback; $this->listeners = $callbacks; stores it for sure
-		s.hold(root, indexes)
+		s.hold(root, indexes, left.StartByte())
 		return
 	}
 	// $listeners[] = $callback, $wrapper->callback = $callback on an array or an object the
 	// method created
-	s.hold(root, indexes)
+	s.hold(root, indexes, left.StartByte())
 }
 
 // ownsTarget reports a write target rooted at a variable only this method can reach: an entry of
