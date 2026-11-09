@@ -238,11 +238,21 @@ type fateScanner struct {
 	fates   []ParamFate
 	grew    bool
 	opaque  bool
+	// arrayParams are the parameters that are arrays passed by value (array $options, a
+	// variadic): writing an entry changes the method's own copy.
+	arrayParams map[string]bool
+	// foreign are the local variables that may hold an object the method did not create: one
+	// assigned anything but a new array or a new object, or bound by a foreach, a list(), a
+	// catch, a reference. Storing a value in them may store it in shared state.
+	foreign map[string]bool
 }
 
 func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	out := MethodCallables{VariadicFrom: -1}
-	s := &fateScanner{v: v, params: map[string]int{}, holders: map[string]map[int]bool{}}
+	s := &fateScanner{
+		v: v, params: map[string]int{}, holders: map[string]map[int]bool{},
+		arrayParams: map[string]bool{}, foreign: map[string]bool{},
+	}
 	var promoted, byRef []int
 	if list := method.ChildByFieldName("parameters"); list != nil {
 		index := 0
@@ -253,9 +263,13 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 				continue
 			}
 			s.params[v.getContent(name)] = index
+			if isByValueArray(v, param) {
+				s.arrayParams[v.getContent(name)] = true
+			}
 			switch param.Kind() {
 			case "variadic_parameter":
 				out.VariadicFrom = index
+				s.arrayParams[v.getContent(name)] = param.ChildByFieldName("reference_modifier") == nil
 			case "property_promotion_parameter":
 				promoted = append(promoted, index)
 			}
@@ -272,6 +286,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 		return out
 	}
 	out.HasBody = true
+	s.markForeign(body)
 
 	// A local may be given a parameter after a line that uses it (in a loop): scan until the
 	// set of locals holding a parameter stops growing
@@ -586,15 +601,77 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 		s.retainGlobally(indexes)
 		return
 	}
-	_, isParam := s.params[root]
-	if root == "" || (left.Kind() != "subscript_expression" && (isParam || len(s.holders[root]) > 0)) {
-		// Stored in an object the caller passed, or one the summary lost track of
+	if !s.ownsTarget(root, left) {
+		// Stored in an object the caller passed ($options['callback'] = $callback on an
+		// \ArrayAccess), or one the summary lost track of ($registry = $this->registry)
 		s.unknown(indexes)
 		return
 	}
-	// $listeners[] = $callback (a parameter passed as an array is a copy), $wrapper->callback =
-	// $callback on a local
+	// $listeners[] = $callback, $wrapper->callback = $callback on an array or an object the
+	// method created
 	s.hold(root, indexes)
+}
+
+// ownsTarget reports a write target rooted at a variable only this method can reach: an entry of
+// an array parameter passed by value, or a local it created (a new array, a new object).
+func (s *fateScanner) ownsTarget(root string, left *sitter.Node) bool {
+	if root == "" {
+		return false
+	}
+	if _, isParam := s.params[root]; isParam {
+		return left.Kind() == "subscript_expression" && s.arrayParams[root]
+	}
+	return !s.foreign[root]
+}
+
+// markForeign finds the local variables that may hold an object the method did not create.
+func (s *fateScanner) markForeign(n *sitter.Node) {
+	if n == nil {
+		return
+	}
+	v := s.v
+	markAll := func(x *sitter.Node) {
+		bound := map[string]bool{}
+		var visit func(*sitter.Node)
+		visit = func(y *sitter.Node) {
+			if y.Kind() == "variable_name" {
+				bound[v.getContent(y)] = true
+				return
+			}
+			for i := uint(0); i < y.ChildCount(); i++ {
+				visit(y.Child(i))
+			}
+		}
+		visit(x)
+		for name := range bound {
+			s.foreign[name] = true
+		}
+	}
+	switch n.Kind() {
+	case "assignment_expression":
+		left, right := n.ChildByFieldName("left"), n.ChildByFieldName("right")
+		switch {
+		case left == nil:
+		case left.Kind() == "variable_name":
+			if right == nil || (right.Kind() != "array_creation_expression" && right.Kind() != "object_creation_expression") {
+				s.foreign[v.getContent(left)] = true
+			}
+		case left.Kind() == "list_literal" || left.Kind() == "array_creation_expression":
+			markAll(left)
+		}
+	case "reference_assignment_expression", "global_declaration", "static_variable_declaration",
+		"anonymous_function_use_clause", "catch_clause", "formal_parameters":
+		markAll(n)
+	case "foreach_statement":
+		bound := map[string]bool{}
+		v.collectVariables(n, bound)
+		for name := range bound {
+			s.foreign[name] = true
+		}
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		s.markForeign(n.Child(i))
+	}
 }
 
 // callableInvokers are PHP functions that call or inspect the callable they are given, and

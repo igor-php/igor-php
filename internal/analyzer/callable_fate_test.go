@@ -43,6 +43,8 @@ func TestParamFate(t *testing.T) {
 		{"closure around it, called", `$wrapped = function () use ($callback) { return $callback(); }; return $wrapped();`, invoked},
 		{"arrow function around it, called", `$wrapped = fn () => $callback(); return $wrapped();`, invoked},
 		{"local array, iterated", `$all = [$callback]; foreach ($all as $one) { $one(); }`, invoked},
+		{"local array filled then iterated", `$all = []; $all['first'] = $callback; foreach ($all as $one) { $one(); }`, invoked},
+		{"local object given it", `$box = new Box(); $box->callback = $callback; return $box;`, invoked},
 		{"method called on it", `$callback->handle($options);`, invoked},
 
 		{"stored in a property", `$this->untyped = $callback;`, retained},
@@ -80,6 +82,10 @@ func TestParamFate(t *testing.T) {
 		{"func_get_args", `$this->listeners = func_get_args();`, unknown},
 		{"reference", `$ref = &$callback;`, unknown},
 		{"stored in an object of the caller", `$options['holder']->callback = $callback;`, unknown},
+		{"stored in a local taken from the object", `$all = $this->listeners; $all->callbacks[] = $callback;`, unknown},
+		{"stored in a local taken from a dependency", `$bag = $this->registry->bag(); $bag['callback'] = $callback;`, unknown},
+		{"stored in a loop variable", `foreach ($this->listeners as $holder) { $holder->callback = $callback; }`, unknown},
+		{"stored in a caught object", `try { run(); } catch (\Throwable $e) { $e->callback = $callback; }`, unknown},
 
 		{"passed to a method of the class", `$this->keep('x', $callback);`,
 			ParamFate{Forwards: []ParamForward{{Kind: ForwardSelf, Method: "keep", Pos: 1}}}},
@@ -100,6 +106,39 @@ func TestParamFate(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, c.want)
 			}
 		})
+	}
+}
+
+// An entry written on a parameter is a local copy only when the parameter is an array passed by
+// value: an \ArrayAccess object, or an untyped parameter, may be shared.
+func TestParamFateEntryOfAParameter(t *testing.T) {
+	fate := func(signature, body string) ParamFate {
+		t.Helper()
+		code := "<?php\nclass S { private array $kept = [];\n public function run(" + signature + ") {\n" + body + "\n} }"
+		return SummarizeCallables([]byte(code))["S"].Methods["run"].Params[0]
+	}
+	write := `$options['callback'] = $callback;`
+	for _, signature := range []string{
+		`callable $callback, \ArrayAccess $options`,
+		`callable $callback, $options`,
+		`callable $callback, array &$options`,
+		`callable $callback, iterable $options`,
+	} {
+		if got := fate(signature, write); !got.Unknown || got.Retained {
+			t.Errorf("%s: an entry of this parameter may be shared, got %+v", signature, got)
+		}
+	}
+	for _, signature := range []string{
+		`callable $callback, array $options = []`,
+		`callable $callback, ?array $options = null`,
+		`callable $callback, callable ...$options`,
+	} {
+		if got := fate(signature, write); got.Unknown || got.Retained {
+			t.Errorf("%s: an entry of this parameter is a local copy, got %+v", signature, got)
+		}
+		if got := fate(signature, write+` $this->kept = $options;`); !got.Retained {
+			t.Errorf("%s: the copy is then stored, got %+v", signature, got)
+		}
 	}
 }
 
