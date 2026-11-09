@@ -219,7 +219,7 @@ func TestResolveClosureLeaks_InjectedImplementation(t *testing.T) {
 	}
 	syncBus := write("SyncBus.php", `<?php
 namespace Lib\Bus;
-final class SyncBus implements BusInterface {
+final class SyncBus implements BusInterface, \Countable {
     public function run(callable $work): mixed { return $work(); }
 }`)
 	queueBus := write("QueueBus.php", `<?php
@@ -228,6 +228,9 @@ final class QueueBus implements BusInterface {
     private array $queue = [];
     public function run(callable $work): mixed { $this->queue[] = $work; return null; }
 }`)
+	locator := write("Locator.php", `<?php
+namespace Lib\Bus;
+final class Locator implements \Countable, \IteratorAggregate {}`)
 	consumer := func(class string) string {
 		return write(class+".php", `<?php
 namespace App;
@@ -249,14 +252,16 @@ class `+class+` {
 				"bus.sync":      {Class: `Lib\Bus\SyncBus`, Shared: true},
 				"bus.queue":     {Class: `Lib\Bus\QueueBus`, Shared: true},
 				`App\ByDefault`: {Class: `App\ByDefault`, Shared: true, Arguments: []any{service(`Lib\Bus\BusInterface`)}},
-				`App\Explicit`:  {Class: `App\Explicit`, Shared: true, Arguments: []any{service("bus.queue")}},
-				`App\Both`:      {Class: `App\Both`, Shared: true, Arguments: []any{service("bus.sync"), service("bus.queue")}},
-				`App\Unlisted`:  {Class: `App\Unlisted`, Shared: true},
+				// The locator implements PHP interfaces, which have no file: it is still not a bus
+				"app.locator":  {Class: `Lib\Bus\Locator`, Shared: true},
+				`App\Explicit`: {Class: `App\Explicit`, Shared: true, Arguments: []any{service("bus.queue"), service("app.locator")}},
+				`App\Both`:     {Class: `App\Both`, Shared: true, Arguments: []any{service("bus.sync"), service("bus.queue")}},
+				`App\Unlisted`: {Class: `App\Unlisted`, Shared: true},
 			},
 			Aliases: map[string]interface{}{`Lib\Bus\BusInterface`: "bus.sync"},
 		},
 		ClassToFile: map[string]string{
-			`Lib\Bus\SyncBus`: syncBus, `Lib\Bus\QueueBus`: queueBus,
+			`Lib\Bus\SyncBus`: syncBus, `Lib\Bus\QueueBus`: queueBus, `Lib\Bus\Locator`: locator,
 			`App\ByDefault`: byDefault, `App\Explicit`: explicit, `App\Both`: both, `App\Unlisted`: unlisted,
 		},
 	}

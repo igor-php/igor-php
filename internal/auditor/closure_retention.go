@@ -427,6 +427,11 @@ func (a *Auditor) isA(class, typeName string, visited map[string]bool) tri {
 	visited[key] = true
 	info, ok := a.classCallables(class)
 	if !ok {
+		if !strings.Contains(class, "\\") {
+			// \Countable, \IteratorAggregate, \Stringable: a PHP class has no file, and it is
+			// not typeName
+			return triNo
+		}
 		return triMaybe
 	}
 	result := triNo
