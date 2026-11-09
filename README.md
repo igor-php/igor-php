@@ -18,6 +18,14 @@
   </a>
 </p>
 
+<p align="center">
+  <a href="https://jb.gg/OpenSource">
+    <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg" alt="JetBrains logo" height="48" />
+  </a>
+  <br />
+  Tooling provided by <a href="https://jb.gg/OpenSource">JetBrains</a>.
+</p>
+
 **The faithful assistant for your FrankenPHP Workers.**
 
 ⭐️ **If you find Igor useful, please consider leaving a star! It encourages us to keep maintaining and improving the project.**
