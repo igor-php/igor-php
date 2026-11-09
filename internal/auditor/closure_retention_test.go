@@ -58,6 +58,7 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"storedWithCoalesceAssign", "ERROR", "once() stores it with ??="},
 		{"storedWithPlusAssign", "ERROR", "merge() stores it with +="},
 		{"storedThroughAnotherParameter", "ERROR", "viaOptions() reuses a parameter to hold it, then stores that"},
+		{"storedThroughACopyOfAProperty", "ERROR", "viaCopy() appends to a copy of a property, then stores the copy back"},
 		{"registeredByAConstructor", "ERROR", "spawn() creates an object whose constructor registers a shutdown function"},
 		{"boxedAndReturned", "", "box() creates an object that holds it and returns that object"},
 		{"passedToAShadowingFunction", "WARNING", "App\\Closure\\array_map() is not PHP's array_map()"},

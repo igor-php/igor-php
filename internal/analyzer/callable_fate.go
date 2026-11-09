@@ -605,6 +605,9 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 		// Stored in an object the caller passed ($options['callback'] = $callback on an
 		// \ArrayAccess), or one the summary lost track of ($registry = $this->registry)
 		s.unknown(indexes)
+		// The variable holds it all the same: $callbacks = $this->listeners; $callbacks[] =
+		// $callback; $this->listeners = $callbacks; stores it for sure
+		s.hold(root, indexes)
 		return
 	}
 	// $listeners[] = $callback, $wrapper->callback = $callback on an array or an object the

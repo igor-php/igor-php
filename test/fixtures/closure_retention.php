@@ -161,6 +161,13 @@ final class Edges
         $this->options = $options;
     }
 
+    public function viaCopy(callable $work): void
+    {
+        $copy = $this->options;
+        $copy[] = $work;
+        $this->options = $copy;
+    }
+
     public function spawn(callable $work): void
     {
         new ShutdownHook($work);
@@ -352,6 +359,13 @@ final class Consumer
     public function storedThroughAnotherParameter(string $optin): void
     {
         $this->edges->viaOptions(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function storedThroughACopyOfAProperty(string $optin): void
+    {
+        $this->edges->viaCopy(function () use ($optin) {
             return $optin;
         });
     }

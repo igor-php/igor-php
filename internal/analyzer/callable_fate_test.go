@@ -67,6 +67,8 @@ func TestParamFate(t *testing.T) {
 		{"array_push on a property", `array_push($this->listeners, $callback);`, retained},
 		{"local array then stored", `$all = []; $all[] = $callback; $this->listeners = $all;`, retained},
 		{"stored later in a loop", `foreach ($options as $o) { $this->listeners[] = $fn; $fn = $callback; }`, retained},
+		{"appended to a copy of a property, then stored back", `$all = $this->listeners; $all[] = $callback; $this->listeners = $all;`,
+			ParamFate{Retained: true, Unknown: true}},
 		{"shutdown function", `register_shutdown_function($callback);`, global},
 		{"static variable", `static $kept = $callback;`, global},
 		{"superglobal", `$GLOBALS['cb'] = $callback;`, global},
