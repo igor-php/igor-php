@@ -1,3 +1,4 @@
+src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::closureDispatcherLeak | ERROR | Potential Memory Leak: Injection of a closure capturing local state into a shared service.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::closureLeak | ERROR | Mutation detected on an injected dependency ($this->closureLeakService). Risk of State Leak in a worker.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::closureLeak | ERROR | Potential Memory Leak: Injection of a closure capturing local state into a shared service.
 src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::destructorLeak | WARNING | Usage of PHP Superglobal $_GET is discouraged in Worker mode.

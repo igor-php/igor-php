@@ -32,7 +32,18 @@ type Auditor struct {
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
 	subclasses           map[string][]string
-	mu                   sync.Mutex
+	// classFiles maps every audited class to its file: the closure rule reads the methods a
+	// closure is passed to, in files the container map does not list.
+	classFiles map[string]string
+	// callables caches, by file, what the methods of its classes do with their parameters.
+	callables map[string]map[string]analyzer.ClassCallables
+	// composer is the project's Composer autoloader, read once to locate the other classes.
+	composer *composerAutoload
+	// userFunctions are the namespaced functions declared by the files Composer always loads.
+	userFunctions map[string]bool
+	// auditedFunctions are the namespaced functions declared by the audited files.
+	auditedFunctions map[string]bool
+	mu               sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.
@@ -134,10 +145,12 @@ func (a *Auditor) resolveAliasToConcrete(target string) string {
 type fileEngine struct {
 	*Auditor
 	isVendor bool
+	path     string
 }
 
 func (f *fileEngine) RecordClassAudited(name string) {
 	f.Auditor.RecordClassAudited(name)
+	f.Auditor.recordClassFile(name, f.path)
 	if !f.isVendor {
 		f.Auditor.recordProjectClass(name)
 	}
@@ -317,9 +330,21 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 	}
 	defer tree.Close()
 
+	if functions := analyzer.DeclaredFunctionsIn(tree.RootNode(), content); len(functions) > 0 {
+		a.mu.Lock()
+		if a.auditedFunctions == nil {
+			a.auditedFunctions = make(map[string]bool)
+		}
+		for _, fn := range functions {
+			a.auditedFunctions[strings.ToLower(normalizeClassName(fn))] = true
+		}
+		a.mu.Unlock()
+	}
+
 	v := analyzer.NewVisitor(content, &fileEngine{
 		Auditor:  a,
 		isVendor: isVendorPath(a.Config.NormalizePath(path)),
+		path:     path,
 	})
 	v.SetDependencies(dependencies)
 	v.SetNonSharedServices(a.NonSharedServices)

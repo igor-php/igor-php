@@ -27,7 +27,10 @@ func executeAudit(auditList []symbol.AuditStatus, aud *auditor.Auditor, cfg conf
 
 	// Drop the dependency mutation findings whose called method turns out to change nothing:
 	// it can only be read once every file is audited
-	if aud.DropStatelessDependencyCalls(finalResults) {
+	dropped := aud.DropStatelessDependencyCalls(finalResults)
+	// Same for the closures passed to a dependency: a method that only calls the closure cannot
+	// leak it
+	if aud.ResolveClosureLeaks(finalResults) || dropped {
 		for i := range finalResults {
 			if finalResults[i].Status != "❌ ERROR" {
 				finalResults[i].Status = calculateAuditStatus(finalResults[i].Findings)
