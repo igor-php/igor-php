@@ -15,4 +15,12 @@ class ClosureLeakService
     {
         return $this->listeners;
     }
+
+    /**
+     * Calls the callback and returns its result: nothing is kept once the call is over.
+     */
+    public function runNow(callable $callback): mixed
+    {
+        return $callback();
+    }
 }

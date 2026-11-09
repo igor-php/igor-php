@@ -53,6 +53,16 @@ on every request. The list grows forever and each closure keeps its captured dat
 **Fix**: register the listener once (event subscriber, `boot()`), and pass the data through the
 event or a request attribute. If a per-request callback is needed, remove it in `finally`.
 
+**Severity**: igor reads the method the closure is passed to (vendor code included, an interface
+resolved to its service through the container map). It reports an ERROR when that method stores
+the closure, and nothing when it only calls it (`wrapInTransaction()`, `CacheInterface::get()`).
+A WARNING means igor could not read the method (interface without a container map, abstract
+class, untyped property, named argument) and its name does not say it registers a callback: read
+the method yourself.
+
+**False positive**: a WARNING on a method that calls the closure and returns. Add it to the
+baseline, or type the property with the concrete class so igor can read the method.
+
 ## StaleDependency (Laravel)
 
 **Messages**: `Property '<prop>' of <Class> keeps the HTTP request (...)`,

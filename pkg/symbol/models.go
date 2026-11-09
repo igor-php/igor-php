@@ -37,6 +37,21 @@ type Finding struct {
 	// Callee is the method called on an injected dependency for a dependency mutation finding.
 	// The auditor drops the finding once it knows that method leaves the dependency's state as is.
 	Callee *CallRef `json:"-"`
+	// ClosureArg is the call a closure state leak finding is about: the method the closure is
+	// passed to. The auditor drops the finding once it knows that method only calls the closure.
+	ClosureArg *ClosureArgRef `json:"-"`
+}
+
+// ClosureArgRef names the parameter of a method that receives a closure.
+type ClosureArgRef struct {
+	// Class is the declared type of the receiver, or "" when it is unknown.
+	Class  string
+	Method string
+	// Pos is the position of the argument holding the closure.
+	Pos int
+	// Positional is false when that argument, or one before it, is named or spread: Pos cannot
+	// be trusted.
+	Positional bool
 }
 
 // CallRef names a method of a class.

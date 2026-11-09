@@ -32,7 +32,12 @@ type Auditor struct {
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
 	subclasses           map[string][]string
-	mu                   sync.Mutex
+	// classFiles maps every audited class to its file: the closure rule reads the methods a
+	// closure is passed to, in files the container map does not list.
+	classFiles map[string]string
+	// callables caches, by file, what the methods of its classes do with their parameters.
+	callables map[string]map[string]analyzer.ClassCallables
+	mu        sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.
@@ -134,10 +139,12 @@ func (a *Auditor) resolveAliasToConcrete(target string) string {
 type fileEngine struct {
 	*Auditor
 	isVendor bool
+	path     string
 }
 
 func (f *fileEngine) RecordClassAudited(name string) {
 	f.Auditor.RecordClassAudited(name)
+	f.Auditor.recordClassFile(name, f.path)
 	if !f.isVendor {
 		f.Auditor.recordProjectClass(name)
 	}
@@ -320,6 +327,7 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 	v := analyzer.NewVisitor(content, &fileEngine{
 		Auditor:  a,
 		isVendor: isVendorPath(a.Config.NormalizePath(path)),
+		path:     path,
 	})
 	v.SetDependencies(dependencies)
 	v.SetNonSharedServices(a.NonSharedServices)

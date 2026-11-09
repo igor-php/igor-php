@@ -1,0 +1,148 @@
+package analyzer
+
+import (
+	"reflect"
+	"testing"
+)
+
+func fateOf(t *testing.T, body string, param int) ParamFate {
+	t.Helper()
+	code := "<?php\nnamespace App;\nuse Vendor\\Registry;\nclass Subject extends Base {\n" +
+		"    private Registry $registry;\n    private $untyped;\n    private array $listeners = [];\n    private static array $all = [];\n" +
+		"    public function run(callable $callback, array $options = [], callable ...$rest) {\n" + body + "\n    }\n}\n"
+	classes := SummarizeCallables([]byte(code))
+	class, ok := classes["App\\Subject"]
+	if !ok {
+		t.Fatalf("class not summarized: %v", classes)
+	}
+	method, ok := class.Methods["run"]
+	if !ok || !method.HasBody || len(method.Params) != 3 {
+		t.Fatalf("method not summarized: %+v", method)
+	}
+	return method.Params[param]
+}
+
+func TestParamFate(t *testing.T) {
+	invoked := ParamFate{}
+	retained := ParamFate{Retained: true}
+	unknown := ParamFate{Unknown: true}
+
+	cases := []struct {
+		name string
+		body string
+		want ParamFate
+	}{
+		{"called", `return $callback($this);`, invoked},
+		{"called in a try", `try { $r = $callback(); } finally { $this->close(); } return $r;`, invoked},
+		{"unused", `return 1;`, invoked},
+		{"call_user_func", `return \call_user_func($callback, 1);`, invoked},
+		{"array_map", `return array_map($callback, $options);`, invoked},
+		{"tested and returned", `if (null === $callback || !is_callable($callback)) { return null; } return $callback;`, invoked},
+		{"local alias called", `$fn = $callback; return $fn();`, invoked},
+		{"closure around it, called", `$wrapped = function () use ($callback) { return $callback(); }; return $wrapped();`, invoked},
+		{"arrow function around it, called", `$wrapped = fn () => $callback(); return $wrapped();`, invoked},
+		{"local array, iterated", `$all = [$callback]; foreach ($all as $one) { $one(); }`, invoked},
+		{"method called on it", `$callback->handle($options);`, invoked},
+
+		{"stored in a property", `$this->untyped = $callback;`, retained},
+		{"appended to a property", `$this->listeners[$options['event']][] = $callback;`, retained},
+		{"stored in a static property", `self::$all[] = $callback;`, retained},
+		{"stored through a local alias", `$fn = $callback; $this->listeners[] = $fn;`, retained},
+		{"stored inside an array", `$this->listeners[] = [$callback, 10];`, retained},
+		{"stored inside a closure", `$this->listeners[] = function () use ($callback) { return $callback(); };`, retained},
+		{"stored inside an arrow function", `$this->listeners[] = fn () => $callback();`, retained},
+		{"stored inside a new object", `$this->listeners[] = new Wrapper($callback);`, retained},
+		{"stored as a first-class callable", `$this->untyped = $callback(...);`, retained},
+		{"stored after Closure::fromCallable", `$this->untyped = \Closure::fromCallable($callback);`, retained},
+		{"stored after bindTo", `$this->untyped = $callback->bindTo($this);`, retained},
+		{"stored with a default", `$this->untyped = $callback ?? 'strlen';`, retained},
+		{"array_push on a property", `array_push($this->listeners, $callback);`, retained},
+		{"local array then stored", `$all = []; $all[] = $callback; $this->listeners = $all;`, retained},
+		{"stored later in a loop", `foreach ($options as $o) { $this->listeners[] = $fn; $fn = $callback; }`, retained},
+		{"shutdown function", `register_shutdown_function($callback);`, retained},
+		{"static variable", `static $kept = $callback;`, retained},
+		{"superglobal", `$GLOBALS['cb'] = $callback;`, retained},
+
+		{"unknown function", `tap($callback);`, unknown},
+		{"method on a local", `$helper = new Helper(); $helper->keep($callback);`, unknown},
+		{"method on an untyped property", `$this->untyped->keep($callback);`, unknown},
+		{"named argument", `$this->keep(listener: $callback);`, unknown},
+		{"func_get_args", `$this->listeners = func_get_args();`, unknown},
+		{"reference", `$ref = &$callback;`, unknown},
+		{"stored in an object of the caller", `$options['holder']->callback = $callback;`, unknown},
+
+		{"passed to a method of the class", `$this->keep('x', $callback);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardSelf, Method: "keep", Pos: 1}}}},
+		{"passed to self::", `self::keep($callback);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardSelf, Method: "keep", Pos: 0, Self: true}}}},
+		{"passed to parent::", `parent::run($callback);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardParent, Method: "run", Pos: 0}}}},
+		{"passed to a dependency", `$this->registry->add('x', $callback);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardDependency, Class: "Vendor\\Registry", Method: "add", Pos: 1}}}},
+		{"passed to a static method", `Registry::compute($callback, $options);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardStatic, Class: "Vendor\\Registry", Method: "compute", Pos: 0}}}},
+		{"wrapped then passed on", `$this->registry->add(function () use ($callback) { $callback(); });`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardDependency, Class: "Vendor\\Registry", Method: "add", Pos: 0}}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := fateOf(t, c.body, 0); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("got %+v, want %+v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestParamFateVariadicAndOthers(t *testing.T) {
+	if got := fateOf(t, `foreach ($rest as $one) { $this->listeners[] = $one; }`, 2); !got.Retained {
+		t.Errorf("variadic stored through foreach: got %+v", got)
+	}
+	if got := fateOf(t, `foreach ($rest as $one) { $one(); }`, 2); got.Retained || got.Unknown || len(got.Forwards) > 0 {
+		t.Errorf("variadic called through foreach: got %+v", got)
+	}
+	// What happens to one parameter says nothing about the others
+	if got := fateOf(t, `$this->listeners[] = $callback; return $options;`, 1); got.Retained || got.Unknown {
+		t.Errorf("other parameter: got %+v", got)
+	}
+}
+
+func TestSummarizeCallablesShapes(t *testing.T) {
+	code := `<?php
+namespace App;
+use Lib\Tools;
+abstract class Base implements Contract { use Tools, \Lib\More, Local; abstract public function run(callable $c);
+    public function __construct(private \Closure $factory, callable &$ref) {} }
+interface Contract { public function run(callable $c); }
+trait Local { public function keep(callable $c) { $this->kept = $c; } }
+final class Leaf extends Base { public function run(callable $c) { return $c(); } }
+`
+	classes := SummarizeCallables([]byte(code))
+	base := classes["App\\Base"]
+	if base.Concrete || !reflect.DeepEqual(base.Traits, []string{"Lib\\Tools", "Lib\\More", "App\\Local"}) {
+		t.Errorf("Base: %+v", base)
+	}
+	if base.Methods["run"].HasBody {
+		t.Errorf("abstract method has a body")
+	}
+	ctor := base.Methods["__construct"].Params
+	if !ctor[0].Retained || !ctor[1].Unknown {
+		t.Errorf("constructor: %+v", ctor)
+	}
+	if classes["App\\Contract"].Concrete || classes["App\\Local"].Concrete {
+		t.Errorf("interface or trait reported concrete")
+	}
+	if !classes["App\\Local"].Methods["keep"].Params[0].Retained {
+		t.Errorf("trait method not summarized")
+	}
+	if base.Methods["__construct"].Opaque {
+		t.Errorf("constructor reported opaque")
+	}
+	variadic := SummarizeCallables([]byte(`<?php class V { function add() { $this->all = func_get_args(); } }`))
+	if !variadic["V"].Methods["add"].Opaque {
+		t.Errorf("func_get_args() must make the method opaque")
+	}
+	leaf := classes["App\\Leaf"]
+	if !leaf.Concrete || leaf.Parent != "App\\Base" {
+		t.Errorf("Leaf: %+v", leaf)
+	}
+}

@@ -1444,10 +1444,17 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 }
 
 // detectClosureStateLeak flags anonymous functions capturing local scope via use() passed as arguments to singleton dependencies.
+// Whether the called method keeps the closure or only calls it is not known here: the finding
+// names the call, and the auditor drops it once it has read that method.
 func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 	argsNode := n.ChildByFieldName("arguments")
 	if argsNode == nil {
 		return
+	}
+
+	ref := symbol.ClosureArgRef{Class: v.resolveReceiverType(n.ChildByFieldName("object")), Positional: true}
+	if nameNode := n.ChildByFieldName("name"); nameNode != nil && nameNode.Kind() == "name" {
+		ref.Method = v.getContent(nameNode)
 	}
 
 	var findClosures func(*sitter.Node)
@@ -1460,7 +1467,12 @@ func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 			// And it has a "use" capture clause (use ($var))
 			if hasUseClause(node) {
 				msg := "Potential Memory Leak: Injection of a closure capturing local state into a shared service."
+				before := len(v.findings)
 				v.addFinding(node, symbol.RuleClosureStateLeak, msg, "Avoid injecting closures that capture local state via use() into shared services.", "ERROR")
+				if len(v.findings) > before {
+					arg := ref
+					v.findings[before].ClosureArg = &arg
+				}
 			}
 		}
 		// Recursive walk of argument node children (e.g., in a nested array)
@@ -1468,7 +1480,16 @@ func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 			findClosures(node.Child(i))
 		}
 	}
-	findClosures(argsNode)
+	for i := uint(0); i < argsNode.NamedChildCount(); i++ {
+		arg := argsNode.NamedChild(i)
+		value := lastNamedChild(arg)
+		if arg.ChildByFieldName("name") != nil || arg.Kind() == "variadic_unpacking" || (value != nil && value.Kind() == "variadic_unpacking") {
+			// A named or spread argument: this position and the next ones cannot be trusted
+			ref.Positional = false
+		}
+		ref.Pos = int(i)
+		findClosures(arg)
+	}
 }
 
 func isDoctrineManager(className string) bool {

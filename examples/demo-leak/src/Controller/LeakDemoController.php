@@ -13,6 +13,7 @@ use App\Service\ProcessStateLeakService;
 use App\Service\UnwiredClearService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -29,6 +30,7 @@ class LeakDemoController extends AbstractController
         private DestructorLeakService $destructorLeakService,
         private ProcessStateLeakService $processStateLeakService,
         private UnwiredClearService $unwiredClearService,
+        private EventDispatcherInterface $eventDispatcher,
         #[Autowire(env: 'IGOR_RUNTIME_MODE')]
         private string $runtimeMode,
     ) {}
@@ -50,7 +52,9 @@ class LeakDemoController extends AbstractController
                 <li><a href='/heavy-load' style='color: #dc3545; font-weight: bold;'>5. 🎮 CHALLENGE: Out of Memory Game</a></li>
                 <li><a href='/exit'>6. The Danger of Exit/Die</a></li>
                 <li><a href='/doctrine-leak' style='color: #28a745; font-weight: bold;'>7. Shared Service Indirect Mutation (Doctrine Filters Leak)</a></li>
-                <li><a href='/closure-leak'>8. Closure State Leak</a></li>
+                <li><a href='/closure-leak'>8. Closure State Leak</a>
+                    (<a href='/closure-dispatcher-leak'>8b. kept by Symfony's EventDispatcher</a>,
+                    <a href='/closure-sync'>8c. only called: no leak</a>)</li>
                 <li><a href='/local-static'>9. Local Static Variable</a></li>
                 <li><a href='/superglobals'>10. PHP Superglobals</a></li>
                 <li><a href='/destructor-leak' style='color: #fd7e14; font-weight: bold;'>11. Magic Method __destruct() Bypass (NEW)</a></li>
@@ -273,6 +277,71 @@ class LeakDemoController extends AbstractController
                           "    });\n" .
                           "}";
                           
+        return $this->renderLayout($html, true, 'src/Service/ClosureLeakService.php', $controllerCode);
+    }
+
+    #[Route('/closure-dispatcher-leak')]
+    public function closureDispatcherLeak(): Response
+    {
+        $v = 'State captured at ' . time();
+        $this->eventDispatcher->addListener('lab.closure', function () use ($v) {
+            return $v;
+        });
+
+        $html = "<h2>8b. Closure kept by Symfony's EventDispatcher</h2>
+                 <p>Listeners currently registered on <code>lab.closure</code>: <b>" . count($this->eventDispatcher->getListeners('lab.closure')) . "</b></p>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 20px;'>
+                    <b>🧠 The Leak scenario:</b> The same leak as experiment 8, through a framework service.
+                    <code>EventDispatcher::addListener()</code> appends the closure to its <code>\$listeners</code> array, and the
+                    dispatcher is a shared service that is not reset between requests: every request adds one more listener.
+                    Igor reads <code>addListener()</code> in <code>vendor/</code> to know that the closure is kept.
+                 </div>
+                 <button onclick='window.location.reload()' style='padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>⚡ Trigger Request & Leak State (F5)</button>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "#[Route('/closure-dispatcher-leak')]\n" .
+                          "public function closureDispatcherLeak(): Response {\n" .
+                          "    \$v = 'State captured at ' . time();\n" .
+                          "    // EventDispatcher::addListener() stores the closure: one more on every request!\n" .
+                          "    \$this->eventDispatcher->addListener('lab.closure', function () use (\$v) {\n" .
+                          "        return \$v;\n" .
+                          "    });\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, null, $controllerCode);
+    }
+
+    #[Route('/closure-sync')]
+    public function closureSync(): Response
+    {
+        $v = 'State captured at ' . time();
+        $result = $this->closureLeakService->runNow(function () use ($v) {
+            return $v;
+        });
+
+        $html = "<h2>8c. Closure only called: no leak</h2>
+                 <p>Result of the callback: <b>" . htmlspecialchars($result) . "</b></p>
+                 <p>Listeners currently registered on the shared service: <b>" . count($this->closureLeakService->getListeners()['request'] ?? []) . "</b> (this page never adds one)</p>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #28a745; margin-bottom: 20px;'>
+                    <b>✅ The safe scenario:</b> The closure also captures a local variable with <code>use ()</code>, and it is also
+                    passed to a shared service. But <code>runNow()</code> only calls it and returns: nothing holds the closure once
+                    the call is over, so nothing can leak. This is what <code>EntityManager::wrapInTransaction()</code> or
+                    <code>CacheInterface::get()</code> do. Igor reads <code>runNow()</code> and reports nothing here.
+                 </div>
+                 <button onclick='window.location.reload()' style='padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>⚡ Trigger Request (F5)</button>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "#[Route('/closure-sync')]\n" .
+                          "public function closureSync(): Response {\n" .
+                          "    \$v = 'State captured at ' . time();\n" .
+                          "    // runNow() calls the closure and returns: it is not kept\n" .
+                          "    \$result = \$this->closureLeakService->runNow(function () use (\$v) {\n" .
+                          "        return \$v;\n" .
+                          "    });\n" .
+                          "}";
+
         return $this->renderLayout($html, true, 'src/Service/ClosureLeakService.php', $controllerCode);
     }
 
