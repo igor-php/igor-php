@@ -16,9 +16,14 @@
   <a href="https://plugins.jetbrains.com/plugin/34646-igor-php">
     <img src="https://img.shields.io/jetbrains/plugin/v/34646.svg?label=PhpStorm%20Plugin&style=flat-square&colorB=blue" alt="JetBrains Plugin" />
   </a>
+</p>
+
+<p align="center">
   <a href="https://jb.gg/OpenSource">
-    <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg" alt="Tooling provided by JetBrains" height="28" />
+    <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg" alt="JetBrains logo" height="48" />
   </a>
+  <br />
+  Tooling provided by <a href="https://jb.gg/OpenSource">JetBrains</a>.
 </p>
 
 **The faithful assistant for your FrankenPHP Workers.**
