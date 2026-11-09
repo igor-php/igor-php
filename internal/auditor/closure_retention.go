@@ -269,15 +269,20 @@ func (a *Auditor) paramFate(node retentionNode) (found resolvedMethod, fate anal
 	return found, fate, true
 }
 
-// declaresFunction reports a namespaced function declared by a file Composer always loads
-// (the "files" autoload of the project and of its packages).
+// declaresFunction reports a namespaced function declared by an audited file, or by a file
+// Composer always loads (the "files" autoload of the project and of its packages).
 func (a *Auditor) declaresFunction(name string) bool {
+	key := strings.ToLower(normalizeClassName(name))
+	a.mu.Lock()
+	audited := a.auditedFunctions[key]
+	functions := a.userFunctions
+	a.mu.Unlock()
+	if audited {
+		return true
+	}
 	if a.Symfony == nil || a.Symfony.Root == "" {
 		return false
 	}
-	a.mu.Lock()
-	functions := a.userFunctions
-	a.mu.Unlock()
 	if functions == nil {
 		functions = map[string]bool{}
 		for _, path := range composerAutoloadFiles(a.Symfony.Root) {
@@ -293,7 +298,7 @@ func (a *Auditor) declaresFunction(name string) bool {
 		a.userFunctions = functions
 		a.mu.Unlock()
 	}
-	return functions[strings.ToLower(normalizeClassName(name))]
+	return functions[key]
 }
 
 // composerAutoloadFiles lists the files of vendor/composer/autoload_files.php.

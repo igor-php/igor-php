@@ -41,7 +41,9 @@ type Auditor struct {
 	composer *composerAutoload
 	// userFunctions are the namespaced functions declared by the files Composer always loads.
 	userFunctions map[string]bool
-	mu            sync.Mutex
+	// auditedFunctions are the namespaced functions declared by the audited files.
+	auditedFunctions map[string]bool
+	mu               sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.
@@ -327,6 +329,17 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 		return nil, fmt.Errorf("failed to parse %s", path)
 	}
 	defer tree.Close()
+
+	if functions := analyzer.DeclaredFunctionsIn(tree.RootNode(), content); len(functions) > 0 {
+		a.mu.Lock()
+		if a.auditedFunctions == nil {
+			a.auditedFunctions = make(map[string]bool)
+		}
+		for _, fn := range functions {
+			a.auditedFunctions[strings.ToLower(normalizeClassName(fn))] = true
+		}
+		a.mu.Unlock()
+	}
 
 	v := analyzer.NewVisitor(content, &fileEngine{
 		Auditor:  a,

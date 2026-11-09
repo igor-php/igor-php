@@ -146,7 +146,11 @@ func DeclaredFunctions(content []byte) []string {
 		return nil
 	}
 	defer tree.Close()
+	return DeclaredFunctionsIn(tree.RootNode(), content)
+}
 
+// DeclaredFunctionsIn is DeclaredFunctions for a file that is already parsed.
+func DeclaredFunctionsIn(root *sitter.Node, content []byte) []string {
 	var out []string
 	var walk func(n *sitter.Node, namespace string)
 	walk = func(n *sitter.Node, namespace string) {
@@ -173,7 +177,7 @@ func DeclaredFunctions(content []byte) []string {
 			}
 		}
 	}
-	walk(tree.RootNode(), "")
+	walk(root, "")
 	return out
 }
 

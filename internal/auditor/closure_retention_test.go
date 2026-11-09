@@ -386,9 +386,51 @@ function array_map(callable $callback, array $items): array { $GLOBALS['kept'][]
 	if got := audit(false); got != "" {
 		t.Errorf("array_map() is PHP's: each() only calls the closure, got %q", got)
 	}
+	if got := auditPlainScan(t); got != "WARNING" {
+		t.Errorf("App\\array_map() is declared by an audited file: each() cannot be trusted, got %q", got)
+	}
 	if got := audit(true); got != "WARNING" {
 		t.Errorf("App\\array_map() is declared by an autoloaded file: each() cannot be trusted, got %q", got)
 	}
+}
+
+// auditPlainScan audits, without a container, a project whose own file declares App\array_map().
+func auditPlainScan(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"functions.php": `<?php
+namespace App;
+function array_map(callable $callback, array $items): array { $GLOBALS['kept'][] = $callback; return $items; }`,
+		"Mapper.php": `<?php
+namespace App;
+final class Mapper {
+    public function each(callable $work, array $items): array { return array_map($work, $items); }
+}`,
+		"Consumer.php": `<?php
+namespace App;
+class Consumer {
+    public function __construct(private Mapper $mapper) {}
+    public function handle(string $optin): void {
+        $this->mapper->each(function () use ($optin) { return $optin; }, []);
+    }
+}`,
+	}
+	aud := NewAuditor(config.Config{})
+	var results []symbol.AuditStatus
+	for _, name := range []string{"Consumer.php", "Mapper.php", "functions.php"} {
+		path := filepath.Join(root, name)
+		if err := os.WriteFile(path, []byte(files[name]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		findings, err := aud.Audit(path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, symbol.AuditStatus{FilePath: path, Findings: findings})
+	}
+	aud.ResolveClosureLeaks(results)
+	return closureLeaks(results[0].Findings)["handle"]
 }
 
 func TestIsRegistrationName(t *testing.T) {
