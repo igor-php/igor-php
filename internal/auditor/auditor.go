@@ -37,7 +37,9 @@ type Auditor struct {
 	classFiles map[string]string
 	// callables caches, by file, what the methods of its classes do with their parameters.
 	callables map[string]map[string]analyzer.ClassCallables
-	mu        sync.Mutex
+	// composer is the project's Composer autoloader, read once to locate the other classes.
+	composer *composerAutoload
+	mu       sync.Mutex
 }
 
 // NewAuditor creates a new instance of the Auditor.

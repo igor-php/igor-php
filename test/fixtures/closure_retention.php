@@ -118,9 +118,131 @@ final class Scheduler
     use Deferring;
 }
 
+final class ShutdownHook
+{
+    public function __construct(callable $work)
+    {
+        register_shutdown_function($work);
+    }
+}
+
+final class Box
+{
+    public function __construct(private mixed $work)
+    {
+    }
+}
+
+function array_map(callable $callback, array $items): array
+{
+    $GLOBALS['callbacks'][] = $callback;
+
+    return $items;
+}
+
+final class Edges
+{
+    private mixed $first = null;
+    private array $options = [];
+
+    public function once(callable $work): void
+    {
+        $this->first ??= $work;
+    }
+
+    public function merge(callable $work): void
+    {
+        $this->options += [$work];
+    }
+
+    public function viaOptions(callable $work, array $options = []): void
+    {
+        $options = [$work];
+        $this->options = $options;
+    }
+
+    public function spawn(callable $work): void
+    {
+        new ShutdownHook($work);
+    }
+
+    public function box(callable $work): Box
+    {
+        return new Box($work);
+    }
+
+    public function mapped(callable $work): array
+    {
+        return \App\Closure\array_map($work, []);
+    }
+}
+
+trait ImmediateRun
+{
+    public function run(callable $work): mixed
+    {
+        return $work();
+    }
+}
+
+trait DeferredRun
+{
+    private array $later = [];
+
+    public function run(callable $work): mixed
+    {
+        $this->later[] = $work;
+
+        return null;
+    }
+}
+
+final class Adapted
+{
+    use ImmediateRun, DeferredRun {
+        DeferredRun::run insteadof ImmediateRun;
+    }
+}
+
+class KeepingBase
+{
+    protected array $kept = [];
+
+    public function keep(callable $work): void
+    {
+        $this->kept[] = $work;
+    }
+}
+
+trait Delegating
+{
+    public function relay(callable $work): void
+    {
+        parent::keep($work);
+    }
+
+    public function relayToSelf(callable $work): void
+    {
+        self::stash($work);
+    }
+}
+
+final class Relay extends KeepingBase
+{
+    use Delegating;
+
+    private function stash(callable $work): void
+    {
+        $this->kept[] = $work;
+    }
+}
+
 final class Consumer
 {
     public function __construct(
+        private Edges $edges,
+        private Adapted $adapted,
+        private Relay $relay,
         private ListenerRegistry $registry,
         private Registry $contract,
         private Transactions $transactions,
@@ -208,6 +330,70 @@ final class Consumer
     public function knownCacheCallback(string $optin): void
     {
         $this->cache->get('key', function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    // Review cases: writes and calls that are easy to miss
+    public function storedWithCoalesceAssign(string $optin): void
+    {
+        $this->edges->once(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function storedWithPlusAssign(string $optin): void
+    {
+        $this->edges->merge(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function storedThroughAnotherParameter(string $optin): void
+    {
+        $this->edges->viaOptions(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function registeredByAConstructor(string $optin): void
+    {
+        $this->edges->spawn(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function boxedAndReturned(string $optin): void
+    {
+        $this->edges->box(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function passedToAShadowingFunction(string $optin): void
+    {
+        $this->edges->mapped(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function calledOnAdaptedTraits(string $optin): void
+    {
+        $this->adapted->run(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function storedThroughParentInATrait(string $optin): void
+    {
+        $this->relay->relay(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function storedThroughSelfInATrait(string $optin): void
+    {
+        $this->relay->relayToSelf(function () use ($optin) {
             return $optin;
         });
     }

@@ -39,6 +39,9 @@ type ParamFate struct {
 	// Retained is true when the value is stored in the object's own state, in static or global
 	// state, or registered with PHP itself (register_shutdown_function()).
 	Retained bool
+	// Global is true when it is stored outside the object: a static property, a superglobal, a
+	// static variable, a PHP registry. In a constructor, only this outlives the new object.
+	Global bool
 	// Unknown is true when the value goes somewhere the summary cannot follow.
 	Unknown bool
 	// Forwards are the methods the value is passed on to: it is kept if one of them keeps it.
@@ -63,6 +66,11 @@ type ClassCallables struct {
 	Concrete bool
 	Parent   string
 	Traits   []string
+	// Interfaces are the interfaces a class implements, or an interface extends.
+	Interfaces []string
+	// TraitRules is true when a trait use adapts methods (insteadof, as): which trait gives a
+	// method is not read.
+	TraitRules bool
 	// Methods is keyed by lowercased method name.
 	Methods map[string]MethodCallables
 }
@@ -132,6 +140,11 @@ func (v *PHPVisitor) classCallables(class *sitter.Node) ClassCallables {
 			if class.Kind() == "class_declaration" && c.NamedChildCount() > 0 {
 				out.Parent = v.resolveFQCN(v.getContent(c.NamedChild(0)))
 			}
+			if class.Kind() == "interface_declaration" {
+				out.Interfaces = append(out.Interfaces, v.clauseNames(c)...)
+			}
+		case "class_interface_clause":
+			out.Interfaces = append(out.Interfaces, v.clauseNames(c)...)
 		}
 	}
 	body := v.getClassBody(class)
@@ -143,6 +156,10 @@ func (v *PHPVisitor) classCallables(class *sitter.Node) ClassCallables {
 		member := body.Child(i)
 		switch member.Kind() {
 		case "use_declaration":
+			if strings.Contains(v.getContent(member), "{") {
+				// use A, B { B::run insteadof A; }
+				out.TraitRules = true
+			}
 			for j := uint(0); j < member.NamedChildCount(); j++ {
 				if t := member.NamedChild(j); t.Kind() == "name" || t.Kind() == "qualified_name" {
 					out.Traits = append(out.Traits, v.resolveTraitName(class, v.getContent(t)))
@@ -152,6 +169,17 @@ func (v *PHPVisitor) classCallables(class *sitter.Node) ClassCallables {
 			if nameNode := member.ChildByFieldName("name"); nameNode != nil {
 				out.Methods[strings.ToLower(v.getContent(nameNode))] = v.methodCallables(member)
 			}
+		}
+	}
+	return out
+}
+
+// clauseNames resolves the class names listed by an extends or implements clause.
+func (v *PHPVisitor) clauseNames(clause *sitter.Node) []string {
+	var out []string
+	for i := uint(0); i < clause.NamedChildCount(); i++ {
+		if n := clause.NamedChild(i); n.Kind() == "name" || n.Kind() == "qualified_name" {
+			out = append(out, v.resolveFQCN(v.getContent(n)))
 		}
 	}
 	return out
@@ -277,8 +305,16 @@ func (s *fateScanner) scan(n *sitter.Node) {
 		return
 	}
 	switch n.Kind() {
-	case "class_declaration", "anonymous_class":
+	case "class_declaration":
 		// Its methods have their own variables
+		return
+	case "anonymous_class":
+		// So do these, but new class($callback) {} is given variables of this method
+		for i := uint(0); i < n.ChildCount(); i++ {
+			if c := n.Child(i); c.Kind() == "arguments" {
+				s.scan(c)
+			}
+		}
 		return
 	case "variable_name":
 		if p := n.Parent(); p != nil && p.Kind() == "dynamic_variable_name" {
@@ -372,13 +408,15 @@ func (s *fateScanner) hold(name string, indexes []int) {
 	if name == "" || name == "$this" {
 		return
 	}
-	if _, isParam := s.params[name]; isParam {
-		return
-	}
+	// A parameter may be reused as a local: $options = [$callback]
+	own, isParam := s.params[name]
 	if s.holders[name] == nil {
 		s.holders[name] = map[int]bool{}
 	}
 	for _, index := range indexes {
+		if isParam && index == own {
+			continue
+		}
 		if !s.holders[name][index] {
 			s.holders[name][index] = true
 			s.grew = true
@@ -389,6 +427,14 @@ func (s *fateScanner) hold(name string, indexes []int) {
 func (s *fateScanner) retain(indexes []int) {
 	for _, i := range indexes {
 		s.fates[i].Retained = true
+	}
+}
+
+// retainGlobally records a value stored outside the object.
+func (s *fateScanner) retainGlobally(indexes []int) {
+	for _, i := range indexes {
+		s.fates[i].Retained = true
+		s.fates[i].Global = true
 	}
 }
 
@@ -439,14 +485,15 @@ func (s *fateScanner) step(p, cur *sitter.Node, indexes []int) *sitter.Node {
 	switch p.Kind() {
 	case "argument":
 		return s.argument(p, indexes)
-	case "assignment_expression":
+	case "assignment_expression", "augmented_assignment_expression":
+		// $this->callback ??= $callback and $this->listeners += [$callback] store it too
 		if sameNode(p.ChildByFieldName("right"), cur) {
 			s.assign(p.ChildByFieldName("left"), indexes)
 		}
 	case "reference_assignment_expression", "global_declaration":
 		s.unknown(indexes)
 	case "static_variable_declaration":
-		s.retain(indexes)
+		s.retainGlobally(indexes)
 	case "foreach_statement":
 		// foreach ($listeners as $listener): the loop variables hold what the source holds
 		if p.NamedChildCount() > 0 && sameNode(p.NamedChild(0), cur) {
@@ -529,21 +576,24 @@ func (s *fateScanner) assign(left *sitter.Node, indexes []int) {
 		}
 		return
 	}
-	if v.writesOwnState(left) {
-		s.retain(indexes)
-		return
-	}
 	root := rootVariable(v, left)
 	if root == "$this" {
 		s.retain(indexes)
 		return
 	}
-	if _, isParam := s.params[root]; root == "" || isParam || len(s.holders[root]) > 0 && left.Kind() != "subscript_expression" {
+	if v.writesOwnState(left) {
+		// self::$listeners[] = $callback, $GLOBALS['callback'] = $callback
+		s.retainGlobally(indexes)
+		return
+	}
+	_, isParam := s.params[root]
+	if root == "" || (left.Kind() != "subscript_expression" && (isParam || len(s.holders[root]) > 0)) {
 		// Stored in an object the caller passed, or one the summary lost track of
 		s.unknown(indexes)
 		return
 	}
-	// $listeners[] = $callback, $wrapper->callback = $callback on a local
+	// $listeners[] = $callback (a parameter passed as an array is a copy), $wrapper->callback =
+	// $callback on a local
 	s.hold(root, indexes)
 }
 
@@ -593,6 +643,7 @@ func (s *fateScanner) argument(arg *sitter.Node, indexes []int) *sitter.Node {
 
 	switch call.Kind() {
 	case "object_creation_expression":
+		s.constructorArgument(call, pos, positional, indexes)
 		return call
 	case "function_call_expression":
 		return s.functionArgument(call, args, pos, indexes)
@@ -626,15 +677,46 @@ func argumentPosition(args, arg *sitter.Node) (pos int, positional bool) {
 	return 0, false
 }
 
+// constructorArgument handles a value passed to new Wrapper(...): the object holds it, and its
+// constructor may also keep it elsewhere (a static registry, a shutdown function).
+func (s *fateScanner) constructorArgument(call *sitter.Node, pos int, positional bool, indexes []int) {
+	v := s.v
+	for i := uint(0); i < call.NamedChildCount(); i++ {
+		c := call.NamedChild(i)
+		if c.Kind() != "name" && c.Kind() != "qualified_name" {
+			continue
+		}
+		name := v.getContent(c)
+		switch strings.ToLower(name) {
+		case "self", "static", "parent":
+			s.unknown(indexes)
+		default:
+			if !positional {
+				s.unknown(indexes)
+				return
+			}
+			s.forward(indexes, ParamForward{Kind: ForwardStatic, Class: v.resolveFQCN(name), Method: "__construct", Pos: pos})
+		}
+		return
+	}
+	// new class(...) {}, new $class(...)
+	s.unknown(indexes)
+}
+
 // functionArgument handles a value passed to a function.
 func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes []int) *sitter.Node {
 	name := s.v.functionName(call)
+	if !s.v.isGlobalFunction(call, name) {
+		// \App\array_map() or an imported function with the name of a PHP one
+		s.unknown(indexes)
+		return nil
+	}
 	switch {
 	case callableInvokers[name]:
 	case callableHolders[name]:
 		return call
 	case callableRegistrars[name]:
-		s.retain(indexes)
+		s.retainGlobally(indexes)
 	case byRefStores[name] && pos > 0:
 		if first := args.NamedChild(0); first != nil {
 			s.assign(lastNamedChild(first), indexes)
@@ -643,6 +725,28 @@ func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes
 		s.unknown(indexes)
 	}
 	return nil
+}
+
+// isGlobalFunction reports a call that can only reach the PHP function called name: not a
+// qualified name (App\array_map()), not a function the file imports or declares.
+func (v *PHPVisitor) isGlobalFunction(call *sitter.Node, name string) bool {
+	fn := call.ChildByFieldName("function")
+	if fn == nil || name == "" {
+		return false
+	}
+	if strings.Contains(strings.TrimPrefix(v.getContent(fn), "\\"), "\\") {
+		return false
+	}
+	for _, line := range v.lines {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if strings.HasPrefix(line, "use function ") && strings.Contains(line, name) {
+			return false
+		}
+		if strings.HasPrefix(line, "function "+name+"(") || strings.HasPrefix(line, "function "+name+" (") {
+			return false
+		}
+	}
+	return true
 }
 
 // methodArgument handles a value passed to a method: one of the class ($this->keep($callback)),

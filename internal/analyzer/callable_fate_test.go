@@ -25,6 +25,7 @@ func fateOf(t *testing.T, body string, param int) ParamFate {
 func TestParamFate(t *testing.T) {
 	invoked := ParamFate{}
 	retained := ParamFate{Retained: true}
+	global := ParamFate{Retained: true, Global: true}
 	unknown := ParamFate{Unknown: true}
 
 	cases := []struct {
@@ -46,12 +47,17 @@ func TestParamFate(t *testing.T) {
 
 		{"stored in a property", `$this->untyped = $callback;`, retained},
 		{"appended to a property", `$this->listeners[$options['event']][] = $callback;`, retained},
-		{"stored in a static property", `self::$all[] = $callback;`, retained},
+		{"stored in a static property", `self::$all[] = $callback;`, global},
 		{"stored through a local alias", `$fn = $callback; $this->listeners[] = $fn;`, retained},
 		{"stored inside an array", `$this->listeners[] = [$callback, 10];`, retained},
 		{"stored inside a closure", `$this->listeners[] = function () use ($callback) { return $callback(); };`, retained},
 		{"stored inside an arrow function", `$this->listeners[] = fn () => $callback();`, retained},
-		{"stored inside a new object", `$this->listeners[] = new Wrapper($callback);`, retained},
+		{"stored inside a new object", `$this->listeners[] = new Wrapper($callback);`,
+			ParamFate{Retained: true, Forwards: []ParamForward{{Kind: ForwardStatic, Class: "App\\Wrapper", Method: "__construct", Pos: 0}}}},
+		{"stored with ??=", `$this->untyped ??= $callback;`, retained},
+		{"stored with +=", `$this->listeners += [$callback];`, retained},
+		{"stored through another parameter", `$options = [$callback]; $this->listeners = $options;`, retained},
+		{"appended to an array parameter then stored", `$options[] = $callback; $this->listeners = $options;`, retained},
 		{"stored as a first-class callable", `$this->untyped = $callback(...);`, retained},
 		{"stored after Closure::fromCallable", `$this->untyped = \Closure::fromCallable($callback);`, retained},
 		{"stored after bindTo", `$this->untyped = $callback->bindTo($this);`, retained},
@@ -59,11 +65,15 @@ func TestParamFate(t *testing.T) {
 		{"array_push on a property", `array_push($this->listeners, $callback);`, retained},
 		{"local array then stored", `$all = []; $all[] = $callback; $this->listeners = $all;`, retained},
 		{"stored later in a loop", `foreach ($options as $o) { $this->listeners[] = $fn; $fn = $callback; }`, retained},
-		{"shutdown function", `register_shutdown_function($callback);`, retained},
-		{"static variable", `static $kept = $callback;`, retained},
-		{"superglobal", `$GLOBALS['cb'] = $callback;`, retained},
+		{"shutdown function", `register_shutdown_function($callback);`, global},
+		{"static variable", `static $kept = $callback;`, global},
+		{"superglobal", `$GLOBALS['cb'] = $callback;`, global},
 
 		{"unknown function", `tap($callback);`, unknown},
+		{"namespaced function named like a PHP one", `\App\array_map($callback, $options);`, unknown},
+		{"new object left to its constructor", `new Wrapper($callback);`,
+			ParamFate{Forwards: []ParamForward{{Kind: ForwardStatic, Class: "App\\Wrapper", Method: "__construct", Pos: 0}}}},
+		{"new anonymous class", `new class($callback) {};`, unknown},
 		{"method on a local", `$helper = new Helper(); $helper->keep($callback);`, unknown},
 		{"method on an untyped property", `$this->untyped->keep($callback);`, unknown},
 		{"named argument", `$this->keep(listener: $callback);`, unknown},
@@ -140,6 +150,18 @@ final class Leaf extends Base { public function run(callable $c) { return $c(); 
 	variadic := SummarizeCallables([]byte(`<?php class V { function add() { $this->all = func_get_args(); } }`))
 	if !variadic["V"].Methods["add"].Opaque {
 		t.Errorf("func_get_args() must make the method opaque")
+	}
+	if !reflect.DeepEqual(base.Interfaces, []string{"App\\Contract"}) || base.TraitRules {
+		t.Errorf("Base interfaces and trait rules: %+v", base)
+	}
+	adapted := SummarizeCallables([]byte(`<?php class A { use Immediate, Deferred { Deferred::run insteadof Immediate; } }
+interface Sub extends \Top, Other {}`))
+	if !adapted["A"].TraitRules || !reflect.DeepEqual(adapted["Sub"].Interfaces, []string{"Top", "Other"}) {
+		t.Errorf("trait rules or interface parents: %+v", adapted)
+	}
+	shadow := SummarizeCallables([]byte("<?php\nnamespace App;\nuse function Lib\\array_map;\nclass S { function run(callable $c) { array_map($c, []); } }"))
+	if !shadow["App\\S"].Methods["run"].Params[0].Unknown {
+		t.Errorf("an imported function named like a PHP one must not be trusted")
 	}
 	leaf := classes["App\\Leaf"]
 	if !leaf.Concrete || leaf.Parent != "App\\Base" {

@@ -55,6 +55,16 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"knownTransaction", "", "wrapInTransaction() is a known synchronous callback"},
 		{"knownCacheCallback", "", "CacheInterface::get() is a known synchronous callback"},
 
+		{"storedWithCoalesceAssign", "ERROR", "once() stores it with ??="},
+		{"storedWithPlusAssign", "ERROR", "merge() stores it with +="},
+		{"storedThroughAnotherParameter", "ERROR", "viaOptions() reuses a parameter to hold it, then stores that"},
+		{"registeredByAConstructor", "ERROR", "spawn() creates an object whose constructor registers a shutdown function"},
+		{"boxedAndReturned", "", "box() creates an object that holds it and returns that object"},
+		{"passedToAShadowingFunction", "WARNING", "App\\Closure\\array_map() is not PHP's array_map()"},
+		{"calledOnAdaptedTraits", "WARNING", "insteadof picks the trait: the method is not read"},
+		{"storedThroughParentInATrait", "ERROR", "parent:: in a trait is the parent of the class using it"},
+		{"storedThroughSelfInATrait", "ERROR", "self:: in a trait is the class using it"},
+
 		{"registeredThroughAnInterface", "ERROR", "an interface cannot be read, and addListener() registers"},
 		{"visitedThroughAnInterface", "WARNING", "an interface cannot be read, and visit() says nothing"},
 		{"calledOnAnAbstractClass", "WARNING", "an abstract class may be any subclass"},
@@ -193,6 +203,129 @@ class TraceableEventDispatcher {
 	aud.ResolveClosureLeaks(results)
 	if _, reported := closureLeaks(results[0].Findings)["listen"]; reported {
 		t.Errorf("listen: a method that ignores the closure cannot leak it")
+	}
+}
+
+// The services injected into the caller decide which implementation a property holds, not the
+// default service of its type.
+func TestResolveClosureLeaks_InjectedImplementation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, code string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	syncBus := write("SyncBus.php", `<?php
+namespace Lib\Bus;
+final class SyncBus implements BusInterface {
+    public function run(callable $work): mixed { return $work(); }
+}`)
+	queueBus := write("QueueBus.php", `<?php
+namespace Lib\Bus;
+final class QueueBus implements BusInterface {
+    private array $queue = [];
+    public function run(callable $work): mixed { $this->queue[] = $work; return null; }
+}`)
+	consumer := func(class string) string {
+		return write(class+".php", `<?php
+namespace App;
+use Lib\Bus\BusInterface;
+class `+class+` {
+    public function __construct(private BusInterface $bus) {}
+    public function handle(string $optin): void {
+        $this->bus->run(function () use ($optin) { return $optin; });
+    }
+}`)
+	}
+	byDefault, explicit, both, unlisted := consumer("ByDefault"), consumer("Explicit"), consumer("Both"), consumer("Unlisted")
+
+	service := func(id string) map[string]any { return map[string]any{"type": "service", "id": id} }
+	aud := NewAuditor(config.Config{})
+	aud.Symfony = &SymfonyBridge{
+		Container: &symbol.SymfonyContainer{
+			Definitions: map[string]symbol.SymfonyService{
+				"bus.sync":      {Class: `Lib\Bus\SyncBus`, Shared: true},
+				"bus.queue":     {Class: `Lib\Bus\QueueBus`, Shared: true},
+				`App\ByDefault`: {Class: `App\ByDefault`, Shared: true, Arguments: []any{service(`Lib\Bus\BusInterface`)}},
+				`App\Explicit`:  {Class: `App\Explicit`, Shared: true, Arguments: []any{service("bus.queue")}},
+				`App\Both`:      {Class: `App\Both`, Shared: true, Arguments: []any{service("bus.sync"), service("bus.queue")}},
+				`App\Unlisted`:  {Class: `App\Unlisted`, Shared: true},
+			},
+			Aliases: map[string]interface{}{`Lib\Bus\BusInterface`: "bus.sync"},
+		},
+		ClassToFile: map[string]string{
+			`Lib\Bus\SyncBus`: syncBus, `Lib\Bus\QueueBus`: queueBus,
+			`App\ByDefault`: byDefault, `App\Explicit`: explicit, `App\Both`: both, `App\Unlisted`: unlisted,
+		},
+	}
+
+	cases := []struct {
+		path, want, why string
+	}{
+		{byDefault, "", "the default service of the interface only calls the closure"},
+		{explicit, "ERROR", "the queue bus is injected instead of the default one, and it stores the closure"},
+		{both, "WARNING", "two buses are injected: which one the property holds is not known"},
+		{unlisted, "", "no argument says otherwise: the default service is used"},
+	}
+	for _, c := range cases {
+		findings, err := aud.Audit(c.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results := []symbol.AuditStatus{{FilePath: c.path, Findings: findings}}
+		aud.ResolveClosureLeaks(results)
+		if got := closureLeaks(results[0].Findings)["handle"]; got != c.want {
+			t.Errorf("%s: got %q, want %q (%s)", filepath.Base(c.path), got, c.want, c.why)
+		}
+	}
+}
+
+// A class the container map does not list is located through the Composer autoloader.
+func TestComposerClassFile(t *testing.T) {
+	root := t.TempDir()
+	mkdir := func(parts ...string) string {
+		dir := filepath.Join(append([]string{root}, parts...)...)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	composer := mkdir("vendor", "composer")
+	lib := mkdir("vendor", "acme", "lib", "src", "Util")
+	app := mkdir("src", "Service")
+	legacy := mkdir("legacy")
+	for path, code := range map[string]string{
+		filepath.Join(composer, "autoload_psr4.php"): "<?php\n\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\n\nreturn array(\n" +
+			"    'Acme\\\\Lib\\\\' => array($vendorDir . '/acme/lib/src'),\n" +
+			"    'Acme\\\\' => array($vendorDir . '/acme/other'),\n" +
+			"    'App\\\\' => array($baseDir . '/src'),\n);\n",
+		filepath.Join(composer, "autoload_classmap.php"): "<?php\nreturn array(\n    'Legacy_Tool' => $baseDir . '/legacy/Tool.php',\n);\n",
+		filepath.Join(lib, "Runner.php"):                 "<?php namespace Acme\\Lib\\Util; final class Runner { public static function run(callable $c) { return $c(); } }",
+		filepath.Join(app, "Mailer.php"):                 "<?php namespace App\\Service; class Mailer {}",
+		filepath.Join(legacy, "Tool.php"):                "<?php class Legacy_Tool {}",
+	} {
+		if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	aud := NewAuditor(config.Config{})
+	aud.Symfony = &SymfonyBridge{Root: root, ClassToFile: map[string]string{}}
+	for class, want := range map[string]string{
+		`Acme\Lib\Util\Runner`:  filepath.Join(lib, "Runner.php"),
+		`App\Service\Mailer`:    filepath.Join(app, "Mailer.php"),
+		`Legacy_Tool`:           filepath.Join(legacy, "Tool.php"),
+		`Acme\Lib\Util\Missing`: "",
+		`Other\Thing`:           "",
+	} {
+		if got := aud.classFile(class); got != want {
+			t.Errorf("%s: got %q, want %q", class, got, want)
+		}
+	}
+	if info, ok := aud.classCallables(`Acme\Lib\Util\Runner`); !ok || !info.Concrete {
+		t.Errorf("the class located through Composer must be readable: %+v", info)
 	}
 }
 
