@@ -335,6 +335,62 @@ func TestComposerClassFile(t *testing.T) {
 	}
 }
 
+// array_map() called unqualified in a namespace is the project's own function when a file
+// Composer always loads declares one there.
+func TestResolveClosureLeaks_ShadowedBuiltin(t *testing.T) {
+	audit := func(withShadow bool) string {
+		root := t.TempDir()
+		composer := filepath.Join(root, "vendor", "composer")
+		if err := os.MkdirAll(composer, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		files := map[string]string{
+			filepath.Join(root, "Mapper.php"): `<?php
+namespace App;
+final class Mapper {
+    public function each(callable $work, array $items): array { return array_map($work, $items); }
+}`,
+			filepath.Join(root, "Consumer.php"): `<?php
+namespace App;
+class Consumer {
+    public function __construct(private Mapper $mapper) {}
+    public function handle(string $optin): void {
+        $this->mapper->each(function () use ($optin) { return $optin; }, []);
+    }
+}`,
+		}
+		if withShadow {
+			files[filepath.Join(root, "functions.php")] = `<?php
+namespace App;
+function array_map(callable $callback, array $items): array { $GLOBALS['kept'][] = $callback; return $items; }`
+			files[filepath.Join(composer, "autoload_files.php")] = "<?php\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\nreturn array(\n    'abc123' => $baseDir . '/functions.php',\n);\n"
+		}
+		for path, code := range files {
+			if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		aud := NewAuditor(config.Config{})
+		aud.Symfony = &SymfonyBridge{Root: root, ClassToFile: map[string]string{
+			`App\Mapper`: filepath.Join(root, "Mapper.php"), `App\Consumer`: filepath.Join(root, "Consumer.php"),
+		}}
+		path := filepath.Join(root, "Consumer.php")
+		findings, err := aud.Audit(path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results := []symbol.AuditStatus{{FilePath: path, Findings: findings}}
+		aud.ResolveClosureLeaks(results)
+		return closureLeaks(results[0].Findings)["handle"]
+	}
+	if got := audit(false); got != "" {
+		t.Errorf("array_map() is PHP's: each() only calls the closure, got %q", got)
+	}
+	if got := audit(true); got != "WARNING" {
+		t.Errorf("App\\array_map() is declared by an autoloaded file: each() cannot be trusted, got %q", got)
+	}
+}
+
 func TestIsRegistrationName(t *testing.T) {
 	for _, name := range []string{"addListener", "register", "on", "onKernelRequest", "listen", "subscribe", "push", "setCallback", "extend"} {
 		if !isRegistrationName(name) {

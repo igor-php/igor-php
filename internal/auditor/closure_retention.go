@@ -49,6 +49,7 @@ func (a *Auditor) ResolveClosureLeaks(results []symbol.AuditStatus) bool {
 	// Files may have changed since the last audit of a long-lived process (igor mcp)
 	a.mu.Lock()
 	a.callables = nil
+	a.userFunctions = nil
 	a.mu.Unlock()
 
 	changed := false
@@ -258,7 +259,59 @@ func (a *Auditor) paramFate(node retentionNode) (found resolvedMethod, fate anal
 		}
 		index = found.method.VariadicFrom
 	}
-	return found, found.method.Params[index], true
+	fate = found.method.Params[index]
+	for _, name := range fate.Trusts {
+		if a.declaresFunction(name) {
+			// array_map() in that namespace is the project's own function, not PHP's
+			fate.Unknown = true
+		}
+	}
+	return found, fate, true
+}
+
+// declaresFunction reports a namespaced function declared by a file Composer always loads
+// (the "files" autoload of the project and of its packages).
+func (a *Auditor) declaresFunction(name string) bool {
+	if a.Symfony == nil || a.Symfony.Root == "" {
+		return false
+	}
+	a.mu.Lock()
+	functions := a.userFunctions
+	a.mu.Unlock()
+	if functions == nil {
+		functions = map[string]bool{}
+		for _, path := range composerAutoloadFiles(a.Symfony.Root) {
+			content, err := a.getFileContent(path)
+			if err != nil {
+				continue
+			}
+			for _, fn := range analyzer.DeclaredFunctions(content) {
+				functions[strings.ToLower(normalizeClassName(fn))] = true
+			}
+		}
+		a.mu.Lock()
+		a.userFunctions = functions
+		a.mu.Unlock()
+	}
+	return functions[strings.ToLower(normalizeClassName(name))]
+}
+
+// composerAutoloadFiles lists the files of vendor/composer/autoload_files.php.
+func composerAutoloadFiles(root string) []string {
+	vendor := filepath.Join(root, "vendor")
+	data, err := os.ReadFile(filepath.Join(vendor, "composer", "autoload_files.php"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range composerPath.FindAllStringSubmatch(string(data), -1) {
+		base := root
+		if p[1] == "vendorDir" {
+			base = vendor
+		}
+		out = append(out, filepath.Join(base, filepath.FromSlash(phpUnquote(p[2]))))
+	}
+	return out
 }
 
 // forwardNode gives the method a parameter is passed on to.

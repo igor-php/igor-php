@@ -46,6 +46,10 @@ type ParamFate struct {
 	Unknown bool
 	// Forwards are the methods the value is passed on to: it is kept if one of them keeps it.
 	Forwards []ParamForward
+	// Trusts are the namespaced function names (App\array_map) that must not exist for this
+	// summary to hold: the body calls array_map() unqualified, which PHP resolves to a function
+	// of the namespace before the built-in one.
+	Trusts []string
 }
 
 // MethodCallables is the fate of each parameter of a method.
@@ -121,6 +125,50 @@ func SummarizeCallables(content []byte) map[string]ClassCallables {
 				out[fqcn] = v.classCallables(c)
 			case "if_statement", "compound_statement", "declaration_list":
 				// class_exists() guards and bracketed blocks
+				walk(c, namespace)
+			}
+		}
+	}
+	walk(tree.RootNode(), "")
+	return out
+}
+
+// DeclaredFunctions parses a PHP file and returns the functions it declares in a namespace, by
+// qualified name (App\array_map).
+func DeclaredFunctions(content []byte) []string {
+	p := sitter.NewParser()
+	defer p.Close()
+	if err := p.SetLanguage(sitter.NewLanguage(php.LanguagePHP())); err != nil {
+		return nil
+	}
+	tree := p.Parse(content, nil)
+	if tree == nil {
+		return nil
+	}
+	defer tree.Close()
+
+	var out []string
+	var walk func(n *sitter.Node, namespace string)
+	walk = func(n *sitter.Node, namespace string) {
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			switch c.Kind() {
+			case "namespace_definition":
+				name := ""
+				if nameNode := c.ChildByFieldName("name"); nameNode != nil {
+					name = string(content[nameNode.StartByte():nameNode.EndByte()])
+				}
+				if body := c.ChildByFieldName("body"); body != nil {
+					walk(body, name)
+				} else {
+					namespace = name
+				}
+			case "function_definition":
+				if nameNode := c.ChildByFieldName("name"); nameNode != nil && namespace != "" {
+					out = append(out, namespace+"\\"+string(content[nameNode.StartByte():nameNode.EndByte()]))
+				}
+			case "if_statement", "compound_statement", "declaration_list":
+				// if (!function_exists(...)) { function ... }
 				walk(c, namespace)
 			}
 		}
@@ -242,6 +290,10 @@ type fateScanner struct {
 	fates  []ParamFate
 	grew   bool
 	opaque bool
+	// count is the number of parameters. The index count+i stands for a value that may hold
+	// parameter i: the result of a method that was given it. Whatever happens to that value
+	// makes the fate of parameter i unknown.
+	count int
 	// arrayParams are the parameters that are arrays passed by value (array $options, a
 	// variadic): writing an entry changes the method's own copy.
 	arrayParams map[string]bool
@@ -284,6 +336,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 		}
 	}
 	count := len(s.params)
+	s.count = count
 	body := method.ChildByFieldName("body")
 	if body == nil {
 		out.Params = make([]ParamFate, count)
@@ -296,13 +349,22 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	// A local may be given a parameter after a line that uses it (in a loop): scan until the
 	// set of locals holding a parameter stops growing
 	for round := 0; round < 8; round++ {
-		s.fates = make([]ParamFate, count)
+		s.fates = make([]ParamFate, 2*count)
 		s.grew = false
 		s.scan(body)
 		if !s.grew {
 			break
 		}
 	}
+	for i := 0; i < count; i++ {
+		// $wrapped = $this->wrap($callback); $this->kept = $wrapped; may keep it
+		maybe := s.fates[count+i]
+		if maybe.Retained || maybe.Unknown || len(maybe.Forwards) > 0 {
+			s.fates[i].Unknown = true
+		}
+		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
+	}
+	s.fates = s.fates[:count]
 	for _, i := range promoted {
 		// public function __construct(private \Closure $callback): stored as a property
 		s.fates[i].Retained = true
@@ -867,6 +929,31 @@ func (s *fateScanner) constructorArgument(call *sitter.Node, pos int, positional
 	s.unknown(indexes)
 }
 
+// resultMayHold follows the result of a call that was given the value: wrap($callback) may
+// return it, or something built around it.
+func (s *fateScanner) resultMayHold(call *sitter.Node, indexes []int) {
+	maybe := make([]int, len(indexes))
+	for i, index := range indexes {
+		maybe[i] = index
+		if index < s.count {
+			maybe[i] = index + s.count
+		}
+	}
+	s.follow(call, maybe)
+}
+
+// trust records that the fate of the parameters relies on name() being the PHP function.
+func (s *fateScanner) trust(call *sitter.Node, name string, indexes []int) {
+	fn := call.ChildByFieldName("function")
+	if s.v.namespace == "" || fn == nil || strings.HasPrefix(s.v.getContent(fn), "\\") {
+		return
+	}
+	qualified := s.v.namespace + "\\" + name
+	for _, i := range indexes {
+		s.fates[i].Trusts = appendUnique(s.fates[i].Trusts, qualified)
+	}
+}
+
 // functionArgument handles a value passed to a function.
 func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes []int) *sitter.Node {
 	name := s.v.functionName(call)
@@ -874,6 +961,9 @@ func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes
 		// \App\array_map() or an imported function with the name of a PHP one
 		s.unknown(indexes)
 		return nil
+	}
+	if callableInvokers[name] || callableHolders[name] || byRefStores[name] {
+		s.trust(call, name, indexes)
 	}
 	switch {
 	case callableInvokers[name]:
@@ -925,11 +1015,13 @@ func (s *fateScanner) methodArgument(call *sitter.Node, pos int, positional bool
 	method := v.getContent(nameNode)
 	if isThisVariable(v, obj) {
 		s.forward(indexes, ParamForward{Kind: ForwardSelf, Method: method, Pos: pos})
+		s.resultMayHold(call, indexes)
 		return
 	}
 	if prop, ok := v.isPropertyFetchOnThis(obj); ok && isThisVariable(v, obj.ChildByFieldName("object")) {
 		if class := v.propertyClass(prop); class != "" {
 			s.forward(indexes, ParamForward{Kind: ForwardDependency, Class: class, Method: method, Pos: pos})
+			s.resultMayHold(call, indexes)
 			return
 		}
 	}
@@ -967,5 +1059,6 @@ func (s *fateScanner) staticArgument(call *sitter.Node, pos int, positional bool
 		}
 		s.forward(indexes, ParamForward{Kind: ForwardStatic, Class: v.resolveFQCN(scopeName), Method: method, Pos: pos})
 	}
+	s.resultMayHold(call, indexes)
 	return nil
 }
