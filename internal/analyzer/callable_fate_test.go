@@ -47,6 +47,7 @@ func TestParamFate(t *testing.T) {
 		{"local object given it", `$box = new Box(); $box->callback = $callback; return $box;`, invoked},
 		{"method called on it", `$callback->handle($options);`, invoked},
 		{"local alias cleared before it is stored", `$fn = $callback; $fn = null; $this->untyped = $fn;`, invoked},
+		{"local replaced by an unrelated value before it is stored", `$fn = $callback; $fn = $options['fallback']; $this->untyped = $fn;`, invoked},
 		{"parameter overwritten before it is stored", `$callback(); $callback = null; $this->untyped = $callback;`, invoked},
 
 		{"stored in a property", `$this->untyped = $callback;`, retained},
@@ -77,6 +78,7 @@ func TestParamFate(t *testing.T) {
 			ParamFate{Retained: true, Forwards: []ParamForward{{Kind: ForwardSelf, Method: "wrap", Pos: 0}}}},
 		{"local replaced by a value built from another variable", `$fn = $callback; $fn = $options['wrap']($fn); $this->untyped = $fn;`,
 			ParamFate{Retained: true, Unknown: true}},
+		{"local replaced by another holder of it", `$all = [$callback]; $fn = null; $fn = $all[0]; $this->untyped = $fn;`, retained},
 		{"cleared in a branch only", `$fn = $callback; if ($options) { $fn = null; } $this->untyped = $fn;`, retained},
 		{"cleared then given again", `$fn = $callback; $fn = null; $fn = $callback; $this->untyped = $fn;`, retained},
 		{"rebuilt from itself", `$all = [$callback]; $all = array_merge($all, $options); $this->listeners = $all;`, retained},

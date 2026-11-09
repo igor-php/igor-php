@@ -236,10 +236,9 @@ type fateScanner struct {
 	// a closure capturing it, an object created with it), with the indexes of those parameters
 	// and the last position in the body where the variable was given each.
 	holders map[string]map[int]uint
-	// resets are, for each variable, the end positions of the assignments that are statements
-	// of the method body itself and whose value is built from no variable ($copy = [], $fn =
-	// null): they always run, and what the variable held is gone.
-	resets map[string][]uint
+	// resets are, for each variable, the assignments that are statements of the method body
+	// itself: they always run.
+	resets map[string][]reset
 	fates  []ParamFate
 	grew   bool
 	opaque bool
@@ -256,7 +255,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	out := MethodCallables{VariadicFrom: -1}
 	s := &fateScanner{
 		v: v, params: map[string]int{}, holders: map[string]map[int]uint{},
-		arrayParams: map[string]bool{}, foreign: map[string]bool{}, resets: map[string][]uint{},
+		arrayParams: map[string]bool{}, foreign: map[string]bool{}, resets: map[string][]reset{},
 	}
 	var promoted, byRef []int
 	if list := method.ChildByFieldName("parameters"); list != nil {
@@ -391,42 +390,52 @@ func (s *fateScanner) allUnknown() {
 func (s *fateScanner) held(name string, at uint) []int {
 	// $copy[] = $callback; $copy = []; return $copy; no longer holds it: a reset between the
 	// last time the variable was given the parameter and this use clears it
-	cleared := func(given uint) bool {
+	cleared := func(index int, given uint) bool {
 		for _, reset := range s.resets[name] {
-			if given < reset && reset < at {
+			if given < reset.end && reset.end < at && !s.mayHold(reset.reads, index) {
 				return true
 			}
 		}
 		return false
 	}
 	var out []int
-	if index, ok := s.params[name]; ok && !cleared(0) {
+	if index, ok := s.params[name]; ok && !cleared(index, 0) {
 		out = append(out, index)
 	}
 	for index, given := range s.holders[name] {
-		if !cleared(given) {
+		if !cleared(index, given) {
 			out = append(out, index)
 		}
 	}
 	return out
 }
 
-// usesVariable reports an expression that reads a variable other than $this.
-func (s *fateScanner) usesVariable(n *sitter.Node) bool {
-	if n.Kind() == "variable_name" {
-		return s.v.getContent(n) != "$this"
-	}
-	for i := uint(0); i < n.ChildCount(); i++ {
-		if s.usesVariable(n.Child(i)) {
+// mayHold reports whether one of the variables holds the parameter at index, at any point of
+// the method.
+func (s *fateScanner) mayHold(variables []string, index int) bool {
+	for _, name := range variables {
+		if own, ok := s.params[name]; ok && own == index {
+			return true
+		}
+		if _, ok := s.holders[name][index]; ok {
 			return true
 		}
 	}
 	return false
 }
 
-// markResets records the assignments that clear a variable: statements of the method body
-// whose value uses no variable. $callback = \Closure::fromCallable($callback) and $listener =
-// $this->wrap($listener) are not: the new value may still hold the old one.
+// reset is an assignment to a variable that is a statement of the method body: it always runs.
+// reads are the variables its value is built from.
+type reset struct {
+	end   uint
+	reads []string
+}
+
+// markResets records the assignments that may clear a variable: the statements of the method
+// body. One clears a parameter the variable held when its value is built from nothing that
+// holds that parameter: $copy = [], $fn = $options['fallback']. $callback =
+// \Closure::fromCallable($callback) and $listener = $this->wrap($listener) do not: the new
+// value may still hold the old one.
 func (s *fateScanner) markResets(body *sitter.Node) {
 	for i := uint(0); i < body.NamedChildCount(); i++ {
 		stmt := body.NamedChild(i)
@@ -438,11 +447,24 @@ func (s *fateScanner) markResets(body *sitter.Node) {
 			continue
 		}
 		left, right := assignment.ChildByFieldName("left"), assignment.ChildByFieldName("right")
-		if left != nil && left.Kind() == "variable_name" && right != nil && !s.usesVariable(right) {
-			name := s.v.getContent(left)
-			s.resets[name] = append(s.resets[name], assignment.EndByte())
+		if left == nil || left.Kind() != "variable_name" || right == nil {
+			continue
 		}
+		name := s.v.getContent(left)
+		s.resets[name] = append(s.resets[name], reset{end: assignment.EndByte(), reads: s.variablesIn(right)})
 	}
+}
+
+// variablesIn lists the variables an expression reads.
+func (s *fateScanner) variablesIn(n *sitter.Node) []string {
+	if n.Kind() == "variable_name" {
+		return []string{s.v.getContent(n)}
+	}
+	var out []string
+	for i := uint(0); i < n.ChildCount(); i++ {
+		out = append(out, s.variablesIn(n.Child(i))...)
+	}
+	return out
 }
 
 // usedIn gives the parameters held by the variables used anywhere under n.
