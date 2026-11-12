@@ -11,6 +11,7 @@ use App\Service\StaticLeakService;
 use App\Service\DestructorLeakService;
 use App\Service\ProcessStateLeakService;
 use App\Service\UnwiredClearService;
+use App\Service\DestructuringLeakService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -30,6 +31,7 @@ class LeakDemoController extends AbstractController
         private DestructorLeakService $destructorLeakService,
         private ProcessStateLeakService $processStateLeakService,
         private UnwiredClearService $unwiredClearService,
+        private DestructuringLeakService $destructuringLeakService,
         private EventDispatcherInterface $eventDispatcher,
         #[Autowire(env: 'IGOR_RUNTIME_MODE')]
         private string $runtimeMode,
@@ -60,6 +62,7 @@ class LeakDemoController extends AbstractController
                 <li><a href='/destructor-leak' style='color: #fd7e14; font-weight: bold;'>11. Magic Method __destruct() Bypass (NEW)</a></li>
                 <li><a href='/process-state-leak' style='color: #e83e8c; font-weight: bold;'>12. Dangerous Process State Mutations (NEW)</a></li>
                 <li><a href='/unwired-clear'>13. clear() Never Called (missing kernel.reset tag)</a></li>
+                <li><a href='/destructuring-leak'>14. State Written Through a Destructuring</a></li>
             </ul>
         ");
     }
@@ -544,6 +547,31 @@ class LeakDemoController extends AbstractController
                           "}";
 
         return $this->renderLayout($html, true, 'src/Service/UnwiredClearService.php', $controllerCode);
+    }
+
+    #[Route('/destructuring-leak')]
+    public function destructuringLeak(Request $request): Response
+    {
+        $visitor = substr(preg_replace('/[^A-Za-z0-9 _-]/', '', (string) $request->query->get('name', 'Visitor ' . rand(1, 1000))), 0, 40);
+        $previous = $this->destructuringLeakService->record($visitor);
+        $html = "<h2>14. State Written Through a Destructuring</h2>
+                 <p>You are <b>" . htmlspecialchars($visitor) . "</b>. Previous visitor seen by this service: <b>" . htmlspecialchars($previous ?? 'none') . "</b> (visits: " . $this->destructuringLeakService->getVisits() . ")</p>
+                 <div style='background: #f8f9fa; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 20px;'>
+                    <b>🧠 The Leak scenario:</b> <code>[\$this->lastVisitor, \$this->visits] = [\$visitor, ...]</code> writes two properties at once.
+                    It is the same mutation as two plain assignments, and the same leak: in <b>Worker Mode (port 8080)</b>, each request sees the name of the visitor before it.
+                    Igor reports writes through a destructuring, <code>list()</code>, a keyed or nested form, and <code>foreach</code> targets.
+                 </div>
+                 <button onclick='window.location.reload()' style='padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;'>⚡ Visit Again (F5)</button>";
+
+        $controllerCode = "<?php\n" .
+                          "// Inside LeakDemoController.php:\n" .
+                          "#[Route('/destructuring-leak')]\n" .
+                          "public function destructuringLeak(Request \$request): Response {\n" .
+                          "    // The service keeps the visitor of this request for the next one\n" .
+                          "    \$previous = \$this->destructuringLeakService->record(\$visitor);\n" .
+                          "}";
+
+        return $this->renderLayout($html, true, 'src/Service/DestructuringLeakService.php', $controllerCode);
     }
 
     private function renderModeBanner(): string

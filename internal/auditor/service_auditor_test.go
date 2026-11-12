@@ -30,7 +30,7 @@ func TestAuditFixtures(t *testing.T) {
 		{
 			name:           "Simple state mutation",
 			fixture:        "state_mutation.php",
-			expectedErrors: 5,
+			expectedErrors: 6, // [$this->count, $other] = ... is a write too (#143)
 			contains:       "Mutation of state",
 		},
 		{

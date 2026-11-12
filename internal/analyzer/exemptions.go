@@ -50,6 +50,137 @@ func (v *PHPVisitor) isResetMethodWrite(n, left, right *sitter.Node) bool {
 	return v.isEmptyValue(right)
 }
 
+// isExemptWrite reports an assignment that cannot carry state from one request to the next (#105).
+func (v *PHPVisitor) isExemptWrite(n, left, right *sitter.Node) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return v.isLazyInit(n, left, right) || v.isResetMethodWrite(n, left, right) || v.isResetMethodDestructuring(n, left, right)
+}
+
+// isResetMethodDestructuring is isResetMethodWrite for a destructuring: [$this->a, [$this->b]] =
+// [null, [[]]] in clear(), close() or __destruct() empties each property it writes. Every target
+// must be a property (or a local) given an empty value: [$this->items[]] = [null] appends.
+func (v *PHPVisitor) isResetMethodDestructuring(n, left, right *sitter.Node) bool {
+	if n.Kind() != "assignment_expression" || left.Kind() != "list_literal" {
+		return false
+	}
+	return resetMethodNames[strings.ToLower(v.curMethod)] && v.emptiesTargets(left, right)
+}
+
+// emptiesTargets reports a destructuring target given an empty value: a property of $this or a
+// static of the class given an empty value (or nothing), a local given anything, or a nested
+// destructuring whose own targets all get one. Keyed forms are not matched.
+func (v *PHPVisitor) emptiesTargets(target, value *sitter.Node) bool {
+	switch {
+	case target == nil:
+		// A skipped element: [, $this->a]
+		return true
+	case target.Kind() == "variable_name":
+		return true
+	case target.Kind() == "list_literal":
+		return v.emptiesList(target, value)
+	case v.isThisProperty(target) || v.isOwnStaticProperty(target):
+		return value == nil || v.isEmptyValue(value)
+	}
+	// $this->items[] or $this->map['key'] adds an entry, by_ref keeps a reference
+	return false
+}
+
+// emptiesList matches the elements of a destructuring with those of the array literal it is given,
+// by position.
+func (v *PHPVisitor) emptiesList(list, value *sitter.Node) bool {
+	targets, keyed := listSlots(list)
+	if keyed {
+		return false
+	}
+	var values []*sitter.Node
+	if value != nil {
+		if value.Kind() != "array_creation_expression" {
+			return false
+		}
+		for i := uint(0); i < value.NamedChildCount(); i++ {
+			element := value.NamedChild(i)
+			if element.NamedChildCount() != 1 {
+				// 'key' => value, ...$spread
+				return false
+			}
+			values = append(values, element.NamedChild(0))
+		}
+	}
+	for i, target := range targets {
+		var assigned *sitter.Node
+		if i < len(values) {
+			assigned = values[i]
+		}
+		if !v.emptiesTargets(target, assigned) {
+			return false
+		}
+	}
+	return true
+}
+
+// listSlots lists the elements of a destructuring by position, nil for a skipped one, and reports
+// a keyed form.
+func listSlots(list *sitter.Node) (slots []*sitter.Node, keyed bool) {
+	var current *sitter.Node
+	open := false
+	for i := uint(0); i < list.ChildCount(); i++ {
+		c := list.Child(i)
+		switch {
+		case c.Kind() == "=>":
+			keyed = true
+		case c.Kind() == "[" || c.Kind() == "(":
+			open = true
+		case c.Kind() == "," || c.Kind() == "]" || c.Kind() == ")":
+			if open && (c.Kind() == "," || current != nil) {
+				slots = append(slots, current)
+			}
+			current = nil
+		case c.IsNamed():
+			current = c
+		}
+	}
+	return slots, keyed
+}
+
+// destructuringTargets lists the variables a destructuring writes, in order. A keyed form
+// (['id' => $this->id]) puts each key before its target: the keys are read, not written.
+func destructuringTargets(list *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(0); i < list.ChildCount(); i++ {
+		c := list.Child(i)
+		if !c.IsNamed() {
+			continue
+		}
+		if next := list.Child(i + 1); next != nil && next.Kind() == "=>" {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// foreachTargets lists what a foreach writes on each iteration: its value, and its key when it
+// has one. They may be a property ($this->current), a destructuring or a reference.
+func foreachTargets(foreach *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(1); i < foreach.NamedChildCount(); i++ {
+		c := foreach.NamedChild(i)
+		if c.Kind() == "compound_statement" || c.Kind() == "colon_block" || strings.HasSuffix(c.Kind(), "_statement") {
+			break
+		}
+		if c.Kind() == "pair" {
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				out = append(out, c.NamedChild(j))
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // byRefParam names the parameter a function changes by reference: its position, or -1 when every
 // argument is passed by reference, and its name for named arguments.
 type byRefParam struct {
