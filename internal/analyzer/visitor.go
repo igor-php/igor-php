@@ -126,7 +126,7 @@ func (v *PHPVisitor) walk(n *sitter.Node) {
 		v.handleMethodOrFunction(n, nodeType)
 	case "assignment_expression", "augmented_assignment_expression":
 		v.handleAssignment(n)
-	case "update_expression":
+	case "update_expression", "foreach_statement":
 		v.handleMutation(n)
 	case "unset_statement":
 		v.handleUnset(n)
@@ -814,17 +814,20 @@ func isSuperglobal(name string) bool {
 }
 
 func (v *PHPVisitor) handleMutation(n *sitter.Node) {
-	if n == nil || v.isReadonlyClass || v.curMethod == "__construct" || (v.curMethod == "" && v.curClass != "AnonymousClass" && v.curClass != "") {
+	if n == nil || v.skipsMutations() {
+		return
+	}
+	if targets := writeTargets(n); targets != nil {
+		// A destructuring, a reference or a foreach writes each of its targets
+		for _, target := range targets {
+			v.handleMutation(target)
+		}
 		return
 	}
 
 	fullName := v.curClass
 	if v.namespace != "" {
 		fullName = v.namespace + "\\" + v.curClass
-	}
-
-	if v.engine != nil && v.engine.IsSafeNamespace(fullName) {
-		return
 	}
 
 	switch n.Kind() {
@@ -848,6 +851,37 @@ func (v *PHPVisitor) handleMutation(n *sitter.Node) {
 			}
 		}
 	}
+}
+
+// skipsMutations reports code whose writes are not reported: a readonly class, a constructor
+// (it sets the initial state), code outside a method, or a class of a safe namespace.
+func (v *PHPVisitor) skipsMutations() bool {
+	if v.isReadonlyClass || v.curMethod == "__construct" || (v.curMethod == "" && v.curClass != "AnonymousClass" && v.curClass != "") {
+		return true
+	}
+	fullName := v.curClass
+	if v.namespace != "" {
+		fullName = v.namespace + "\\" + v.curClass
+	}
+	return v.engine != nil && v.engine.IsSafeNamespace(fullName)
+}
+
+// writeTargets lists what a write node writes when it writes several things at once, or nil:
+// the targets of a destructuring ([$this->a, $this->b] = ..., list(), keyed forms), of a reference
+// ([&$this->a] = ...) and of a foreach (foreach ($rows as $this->current)).
+func writeTargets(n *sitter.Node) []*sitter.Node {
+	switch n.Kind() {
+	case "list_literal":
+		return destructuringTargets(n)
+	case "foreach_statement":
+		return foreachTargets(n)
+	case "by_ref":
+		if target := lastNamedChild(n); target != nil {
+			return []*sitter.Node{target}
+		}
+		return []*sitter.Node{}
+	}
+	return nil
 }
 
 // isTransientClass reports whether the container dump registers the class as a non-shared service.
@@ -884,7 +918,7 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 	right := n.ChildByFieldName("right")
 
 	// Writes that cannot carry state from one request to the next (#105)
-	if left != nil && right != nil && (v.isLazyInit(n, left, right) || v.isResetMethodWrite(n, left, right)) {
+	if v.isExemptWrite(n, left, right) {
 		return
 	}
 

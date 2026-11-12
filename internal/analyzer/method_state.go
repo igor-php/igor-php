@@ -317,6 +317,12 @@ func (s *stateSummarizer) foreach(n *sitter.Node) bool {
 	if n.ChildCount() <= 2 {
 		return false
 	}
+	// foreach ($rows as $this->current): the loop writes a property
+	for _, target := range foreachTargets(n) {
+		if s.writesState(target) {
+			return true
+		}
+	}
 	source := n.Child(2)
 	bound := map[string]bool{}
 	byRef := s.v.collectVariables(n, bound)
@@ -764,7 +770,15 @@ func (v *PHPVisitor) writesOwnState(n *sitter.Node) bool {
 		return false
 	}
 	switch n.Kind() {
-	case "list_literal", "array_creation_expression", "array_element_initializer", "pair", "by_ref":
+	case "list_literal":
+		// The keys of ['id' => $this->id] are read: only the targets are written
+		for _, target := range destructuringTargets(n) {
+			if v.writesOwnState(target) {
+				return true
+			}
+		}
+		return false
+	case "array_creation_expression", "array_element_initializer", "pair", "by_ref":
 		for i := uint(0); i < n.ChildCount(); i++ {
 			if v.writesOwnState(n.Child(i)) {
 				return true
