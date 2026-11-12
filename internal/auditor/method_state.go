@@ -175,7 +175,12 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 			// overrides: the instance may be a class whose method does something else
 			return true
 		}
-		declaring, state, ok := a.resolveMethodState(node.start, node.method)
+		declaring, state, ok, stoppedAt := a.resolveMethodState(node.start, node.method)
+		if !ok && stoppedAt != "" && a.IsSafeNamespace(stoppedAt) && !analyzer.IsMutatorName(node.method) {
+			// $this->getEntityManager(), inherited from a Doctrine repository igor does not audit.
+			// An inherited add() (class Cart extends ArrayCollection) still counts: its name decides
+			continue
+		}
 		if !ok || state.Mutates || shared.hits(state) {
 			return true
 		}
@@ -206,6 +211,11 @@ func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.Met
 	}
 	for _, dep := range state.DepCalls {
 		c := normalizeClassName(dep.Class)
+		if c != "" && a.IsSafeNamespace(c) {
+			// $this->connection->insert(): the injected dependency rule does not report a call on
+			// a class of a safe namespace, so it does not count one level down either
+			continue
+		}
 		if _, audited := a.classShapes[c]; c == "" || !audited {
 			// Not readable: trust the method name
 			if dep.Mutator {
@@ -246,22 +256,23 @@ func (a *Auditor) overriddenBelow(class, method string) bool {
 
 // resolveMethodState finds the declaration of method on class or its parents. It gives up on a
 // class it has not audited and on a class using traits before the declaration is found, since a
-// trait method would take precedence over the parent's.
-func (a *Auditor) resolveMethodState(class, method string) (string, analyzer.MethodState, bool) {
+// trait method would take precedence over the parent's. stoppedAt names the class it has not
+// audited, when that is why it gave up.
+func (a *Auditor) resolveMethodState(class, method string) (declaring string, state analyzer.MethodState, ok bool, stoppedAt string) {
 	visited := map[string]bool{}
 	for class != "" && !visited[class] {
 		visited[class] = true
-		shape, ok := a.classShapes[class]
-		if !ok {
-			return "", analyzer.MethodState{}, false
+		shape, audited := a.classShapes[class]
+		if !audited {
+			return "", analyzer.MethodState{}, false, class
 		}
-		if state, ok := a.methodStates[class][method]; ok {
-			return class, state, true
+		if state, found := a.methodStates[class][method]; found {
+			return class, state, true, ""
 		}
 		if shape.UsesTraits {
-			return "", analyzer.MethodState{}, false
+			return "", analyzer.MethodState{}, false, ""
 		}
 		class = a.classParents[class]
 	}
-	return "", analyzer.MethodState{}, false
+	return "", analyzer.MethodState{}, false, ""
 }
