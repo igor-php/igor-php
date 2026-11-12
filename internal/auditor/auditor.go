@@ -350,6 +350,9 @@ func (a *Auditor) Audit(path string, dependencies []string) ([]symbol.Finding, e
 	v.SetNonSharedServices(a.NonSharedServices)
 	if a.Symfony != nil {
 		v.SetFramework(a.Symfony.Framework)
+		if a.Symfony.Container != nil {
+			v.SetPersistence(a.Symfony.Container.Persistence)
+		}
 	}
 	v.Walk(tree.RootNode())
 

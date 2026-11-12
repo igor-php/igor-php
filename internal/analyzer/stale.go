@@ -13,6 +13,9 @@ import (
 type staleDependency struct {
 	what string
 	hint string
+	// clonedByOctane is true for the container and the config: only Octane gives each request its
+	// own copy. Without it, every request shares them, and keeping them is not stale.
+	clonedByOctane bool
 }
 
 var staleDependencies = map[string]staleDependency{
@@ -34,12 +37,14 @@ var staleDependencies = map[string]staleDependency{
 
 var (
 	staleContainer = staleDependency{
-		what: "the application container",
-		hint: "Resolve the container when you need it, with the app() helper, or inject a closure that returns it.",
+		what:           "the application container",
+		hint:           "Resolve the container when you need it, with the app() helper, or inject a closure that returns it.",
+		clonedByOctane: true,
 	}
 	staleConfig = staleDependency{
-		what: "the configuration repository",
-		hint: "Read the configuration when you need it, with the config() helper, or copy the values you need in the constructor.",
+		what:           "the configuration repository",
+		hint:           "Read the configuration when you need it, with the config() helper, or copy the values you need in the constructor.",
+		clonedByOctane: true,
 	}
 )
 
@@ -118,7 +123,8 @@ func (v *PHPVisitor) checkStaleProperty(n, typed *sitter.Node, nameKind string) 
 }
 
 // staleType resolves each class of a type declaration (nullable and union types included)
-// and returns the first one that is a stale dependency.
+// and returns the first one that is a stale dependency. Without Octane, the container and the
+// config are the same for every request: only the request is.
 func (v *PHPVisitor) staleType(typeStr string) (staleDependency, string, bool) {
 	for _, part := range strings.FieldsFunc(typeStr, func(r rune) bool { return r == '|' || r == '&' || r == '(' || r == ')' }) {
 		name := strings.TrimPrefix(strings.TrimSpace(part), "?")
@@ -128,7 +134,7 @@ func (v *PHPVisitor) staleType(typeStr string) (staleDependency, string, bool) {
 		// Class names are case-insensitive in PHP
 		fqcn := v.resolveFQCN(name)
 		for class, dep := range staleDependencies {
-			if strings.EqualFold(class, fqcn) {
+			if strings.EqualFold(class, fqcn) && !(dep.clonedByOctane && v.persistence == symbol.PersistenceWorker) {
 				return dep, class, true
 			}
 		}

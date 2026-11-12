@@ -112,7 +112,18 @@ type SymfonyContainer struct {
 	EntrypointFiles []string `json:"entrypoint_files,omitempty"`
 	// Warnings reported by the exporter, such as services it could not resolve.
 	Warnings []string `json:"warnings,omitempty"`
+	// Persistence is the worker model of a Laravel map: PersistenceOctane or PersistenceWorker.
+	// It is empty for a Symfony map, and for a map written before the field existed.
+	Persistence string `json:"persistence,omitempty"`
 }
+
+const (
+	// PersistenceOctane: Laravel Octane serves each request from a clone of the application,
+	// with its own container and config.
+	PersistenceOctane = "octane"
+	// PersistenceWorker: a worker without Octane serves every request from the same application.
+	PersistenceWorker = "worker"
+)
 
 // EntrypointTag marks a non-shared service whose code still runs in the worker for every request,
 // such as a Laravel controller: it is audited, but its own state is not expected to persist.
