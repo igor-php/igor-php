@@ -65,6 +65,9 @@ func (a *Auditor) DropStatelessDependencyCalls(results []symbol.AuditStatus) boo
 type stateNode struct {
 	receiver, start, method string
 	shared                  string
+	// name is the method as the call spells it: whether it reads as a mutator (removeElement)
+	// depends on its case
+	name string
 }
 
 // sharedArgs is the set of argument positions of a call that hold persistent state.
@@ -153,7 +156,7 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 	for _, p := range sharedPositions {
 		root.positions[p] = true
 	}
-	queue := []stateNode{{class, class, strings.ToLower(method), root.key()}}
+	queue := []stateNode{{class, class, strings.ToLower(method), root.key(), method}}
 	seen := map[stateNode]bool{queue[0]: true}
 	push := func(n stateNode) {
 		if !seen[n] {
@@ -175,7 +178,12 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 			// overrides: the instance may be a class whose method does something else
 			return true
 		}
-		declaring, state, ok := a.resolveMethodState(node.start, node.method)
+		declaring, state, ok, stoppedAt := a.resolveMethodState(node.start, node.method)
+		if !ok && stoppedAt != "" && a.IsSafeNamespace(stoppedAt) && !analyzer.IsMutatorName(node.name) {
+			// $this->getEntityManager(), inherited from a Doctrine repository igor does not audit.
+			// An inherited add() (class Cart extends ArrayCollection) still counts: its name decides
+			continue
+		}
 		if !ok || state.Mutates || shared.hits(state) {
 			return true
 		}
@@ -195,17 +203,22 @@ func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.Met
 			// self::touch() runs the method as seen from the class declaring the caller
 			start = declaring
 		}
-		push(stateNode{node.receiver, start, strings.ToLower(c.Method), shared.through(c.Args).key()})
+		push(stateNode{node.receiver, start, strings.ToLower(c.Method), shared.through(c.Args).key(), c.Method})
 	}
 	for _, c := range state.ParentCalls {
 		parent := a.classParents[declaring]
 		if parent == "" {
 			return false
 		}
-		push(stateNode{node.receiver, parent, strings.ToLower(c.Method), shared.through(c.Args).key()})
+		push(stateNode{node.receiver, parent, strings.ToLower(c.Method), shared.through(c.Args).key(), c.Method})
 	}
 	for _, dep := range state.DepCalls {
 		c := normalizeClassName(dep.Class)
+		if c != "" && a.IsSafeNamespace(c) {
+			// $this->connection->insert(): the injected dependency rule does not report a call on
+			// a class of a safe namespace, so it does not count one level down either
+			continue
+		}
 		if _, audited := a.classShapes[c]; c == "" || !audited {
 			// Not readable: trust the method name
 			if dep.Mutator {
@@ -213,7 +226,7 @@ func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.Met
 			}
 			continue
 		}
-		push(stateNode{c, c, strings.ToLower(dep.Method), shared.through(dep.Args).key()})
+		push(stateNode{c, c, strings.ToLower(dep.Method), shared.through(dep.Args).key(), dep.Method})
 	}
 	return true
 }
@@ -246,22 +259,32 @@ func (a *Auditor) overriddenBelow(class, method string) bool {
 
 // resolveMethodState finds the declaration of method on class or its parents. It gives up on a
 // class it has not audited and on a class using traits before the declaration is found, since a
-// trait method would take precedence over the parent's.
-func (a *Auditor) resolveMethodState(class, method string) (string, analyzer.MethodState, bool) {
+// trait method would take precedence over the parent's. stoppedAt names the class it has not
+// audited, when that is why it gave up and no audited class on the way declares __call(): a call
+// it does not find may then be one of the application's own magic methods.
+func (a *Auditor) resolveMethodState(class, method string) (declaring string, state analyzer.MethodState, ok bool, stoppedAt string) {
 	visited := map[string]bool{}
+	magic := false
 	for class != "" && !visited[class] {
 		visited[class] = true
-		shape, ok := a.classShapes[class]
-		if !ok {
-			return "", analyzer.MethodState{}, false
+		shape, audited := a.classShapes[class]
+		if !audited {
+			if magic {
+				// An inherited method wins over __call(), but this one may not exist up there
+				return "", analyzer.MethodState{}, false, ""
+			}
+			return "", analyzer.MethodState{}, false, class
 		}
-		if state, ok := a.methodStates[class][method]; ok {
-			return class, state, true
+		if state, found := a.methodStates[class][method]; found {
+			return class, state, true, ""
 		}
 		if shape.UsesTraits {
-			return "", analyzer.MethodState{}, false
+			return "", analyzer.MethodState{}, false, ""
+		}
+		if _, declared := a.methodStates[class]["__call"]; declared {
+			magic = true
 		}
 		class = a.classParents[class]
 	}
-	return "", analyzer.MethodState{}, false
+	return "", analyzer.MethodState{}, false, ""
 }

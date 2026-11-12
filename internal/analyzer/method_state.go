@@ -588,8 +588,24 @@ func (s *stateSummarizer) memberCall(n *sitter.Node) {
 		})
 	}
 	if mutator && (len(props) == 0 || opaque) {
+		if len(props) == 0 && s.onSafeNamespace(obj) {
+			// $this->getEntityManager()->persist($entity): an object of a safe namespace, which
+			// the injected dependency rule does not report either
+			return
+		}
 		s.localCall(n, obj, method, args)
 	}
+}
+
+// onSafeNamespace reports a receiver whose class, resolved through the return types of the calls
+// leading to it ($this->getEntityManager()->getConnection()), belongs to a safe namespace.
+func (s *stateSummarizer) onSafeNamespace(obj *sitter.Node) bool {
+	if s.v.engine == nil || obj.Kind() == "variable_name" {
+		return false
+	}
+	class := s.v.resolveReceiverType(obj)
+	// A union or an intersection (Collection|Mutable) may be a class outside the safe namespace
+	return class != "" && !strings.ContainsAny(class, "|&()") && s.v.engine.IsSafeNamespace(class)
 }
 
 // receiverProperties gives the properties of $this a call receiver may be: $this->cursor, or a
@@ -672,6 +688,12 @@ var mutatorPrefixes = []string{
 	"transform", "init", "initialize", "configure", "mark", "unset", "toggle", "swap", "extract",
 	"sort", "update", "change", "apply", "assign", "bind", "load", "inject", "use", "with",
 	"override", "rename", "remember", "cache",
+}
+
+// IsMutatorName reports a method name that suggests the call changes its object: the auditor
+// relies on it for a method it cannot read.
+func IsMutatorName(method string) bool {
+	return isMutatorName(method)
 }
 
 // isMutatorName reports a method name that suggests the call changes its object.

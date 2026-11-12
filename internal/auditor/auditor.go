@@ -764,13 +764,15 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 
 func isBuiltinType(t string) bool {
 	switch strings.ToLower(t) {
-	case "void", "int", "string", "bool", "float", "array", "callable", "object", "mixed", "never", "false", "null":
+	case "void", "int", "string", "bool", "float", "array", "callable", "object", "mixed", "never", "false", "null", "true", "iterable":
 		return true
 	}
 	return false
 }
 
-func parseMethodDeclaration(node *sitter.Node, content []byte, namespace, className string) (string, string) {
+// parseMethodDeclaration returns the name of a method and its return type, resolved against the
+// namespace and the imports of the file declaring it (lines).
+func parseMethodDeclaration(node *sitter.Node, content []byte, lines []string, namespace, className string) (string, string) {
 	nameNode := node.ChildByFieldName("name")
 	if nameNode == nil {
 		return "", ""
@@ -779,16 +781,21 @@ func parseMethodDeclaration(node *sitter.Node, content []byte, namespace, classN
 	retNode := node.ChildByFieldName("return_type")
 	var retType string
 	if retNode != nil {
-		retType = string(content[retNode.StartByte():retNode.EndByte()])
-		retType = strings.TrimSpace(retType)
-		retType = strings.TrimPrefix(retType, "?")
+		retType = strings.TrimPrefix(strings.TrimSpace(string(content[retNode.StartByte():retNode.EndByte()])), "?")
+		qualified := strings.HasPrefix(retType, "\\")
 		retType = strings.TrimPrefix(retType, "\\")
 
 		// Resolve self and static
-		if retType == "self" || retType == "static" {
+		switch {
+		case retType == "self" || retType == "static":
 			retType = className
-		} else if namespace != "" && !strings.Contains(retType, "\\") && !isBuiltinType(retType) {
-			retType = namespace + "\\" + retType
+		case isBuiltinType(retType) || strings.ContainsAny(retType, "|&()"):
+			// A union or intersection names no single class
+		case qualified:
+			// Fully qualified: \Doctrine\ORM\EntityManagerInterface
+		default:
+			// EntityManagerInterface comes from a use import of this file, not from its namespace
+			retType = resolveTypeInFile(retType, lines, namespace)
 		}
 	}
 	return mName, retType
@@ -838,8 +845,9 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			}
 
 			if normalizeClassName(fqcn) == normalizeClassName(className) {
-				parentClass = resolveParentClassFromNode(n, content, namespace)
-
+				// Only the imports of the namespace declaring the class apply to it
+				lines := namespaceLines(n, content)
+				parentClass = resolveParentClassFromNode(n, content, lines, namespace)
 				// Walk children to find method_declarations
 				var walkClassBody func(*sitter.Node)
 				walkClassBody = func(bodyNode *sitter.Node) {
@@ -847,7 +855,7 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 						return
 					}
 					if bodyNode.Kind() == "method_declaration" {
-						if mName, retType := parseMethodDeclaration(bodyNode, content, namespace, className); mName != "" {
+						if mName, retType := parseMethodDeclaration(bodyNode, content, lines, namespace, className); mName != "" {
 							signatures[mName] = retType
 						}
 					}
@@ -869,7 +877,7 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 }
 
 // resolveParentClassFromNode extracts and resolves the parent class name from a class declaration node.
-func resolveParentClassFromNode(n *sitter.Node, content []byte, namespace string) string {
+func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, namespace string) string {
 	var parentClass string
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
@@ -886,10 +894,53 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, namespace string
 	}
 
 	if parentClass != "" {
-		lines := strings.Split(string(content), "\n")
 		return resolveFQCNInFile(parentClass, lines, namespace)
 	}
 	return ""
+}
+
+// namespaceLines returns the lines of the namespace a declaration belongs to, where its imports
+// are: the body of a bracketed namespace (namespace App { ... }), or the code from its namespace
+// statement to the next one. A file without namespace is returned whole.
+func namespaceLines(decl *sitter.Node, content []byte) []string {
+	start, end := uint(0), uint(len(content))
+	for p := decl.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "namespace_definition" && p.ChildByFieldName("body") != nil {
+			return strings.Split(string(content[p.StartByte():p.EndByte()]), "\n")
+		}
+		if p.Parent() == nil {
+			// The program: find the namespace statements around the declaration
+			for i := uint(0); i < p.ChildCount(); i++ {
+				c := p.Child(i)
+				if c.Kind() != "namespace_definition" {
+					continue
+				}
+				if c.StartByte() <= decl.StartByte() {
+					start = c.StartByte()
+				} else if c.StartByte() < end {
+					end = c.StartByte()
+					break
+				}
+			}
+		}
+	}
+	return strings.Split(string(content[start:end]), "\n")
+}
+
+// resolveTypeInFile resolves a type name written in a file: an imported name or alias, a qualified
+// name whose first segment is imported (Mapping\ClassMetadata), or a name of the file's namespace.
+func resolveTypeInFile(typeName string, lines []string, namespace string) string {
+	first, rest, qualified := strings.Cut(typeName, "\\")
+	if !qualified {
+		return resolveFQCNInFile(typeName, lines, namespace)
+	}
+	if resolved := resolveFQCNInFile(first, lines, ""); resolved != first {
+		return resolved + "\\" + rest
+	}
+	if namespace != "" {
+		return namespace + "\\" + typeName
+	}
+	return typeName
 }
 
 // resolveFQCNInFile resolves class names against the namespace and "use" imports inside a file's lines.

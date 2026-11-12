@@ -44,6 +44,9 @@ the value per call (`$translator->trans($id, [], null, $locale)`), or build a de
 
 **False positive**: the dependency is reset between requests. Igor already ignores dependencies
 it knows are resettable (Symfony `kernel.reset`); without the container map it cannot know.
+When the dependency is a concrete class igor audits, igor reads the called method and drops the
+finding if it only writes to the database: calls on objects of a safe namespace
+(`$this->getEntityManager()->persist()`, an injected Doctrine `Connection`) do not count.
 
 ## DetectClosureStateLeak
 
