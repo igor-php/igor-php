@@ -108,6 +108,33 @@ final class Loader {
 		t.Errorf("clear() writing a value is a mutation: got %q", got)
 	}
 
+	for name, clear := range map[string]string{
+		"nested":              `[[$this->a], $this->b] = [[null], []];`,
+		"skipped element":     `[$this->a, , $this->b] = [null, 1, false];`,
+		"local target":        `[$this->a, $tmp] = [null, $this->b];`,
+		"fewer values":        `[$this->a, $this->b] = [];`,
+		"list() form":         `list($this->a, $this->b) = [0, ''];`,
+		"static of the class": `[self::$s, $this->a] = [[], null];`,
+	} {
+		code := "<?php\nfinal class Loader {\n    private $a; private $b; private static $s;\n    public function clear() { " + clear + " }\n}"
+		if got := stateMessages(t, code); len(got) != 0 {
+			t.Errorf("clear() emptying through a %s destructuring is the reset itself: got %q", name, got)
+		}
+	}
+	for name, clear := range map[string]string{
+		"appended entry":    `[$this->items[]] = [null];`,
+		"keyed entry":       `[$this->a, $this->items['x']] = [null, null];`,
+		"nested value":      `[$this->a] = [[null]];`,
+		"keyed destructure": `['a' => $this->a] = ['a' => null];`,
+		"spread value":      `[$this->a] = [...$this->items];`,
+		"non-empty nested":  `[[$this->a]] = [[1]];`,
+	} {
+		code := "<?php\nfinal class Loader {\n    private $a; private array $items = [];\n    public function clear() { " + clear + " }\n}"
+		if got := stateMessages(t, code); len(got) == 0 {
+			t.Errorf("clear() with a %s destructuring changes state: got no finding", name)
+		}
+	}
+
 	resettable := `<?php
 class Loader implements Symfony\Contracts\Service\ResetInterface {
     private $a; private $b; private $c;
@@ -129,6 +156,8 @@ class Cursor {
     public function setRows(array $rows) { foreach ($rows as $this->current) {} }
     public function setPairs(array $rows) { foreach ($rows as $k => [$this->current]) {} }
     public function setLocal(array $rows) { foreach ($rows as $row) { $row->touch(); } }
+    public function readKey(array $rows) { foreach ($rows as [$this->current => $value]) {} }
+    public function readKeyAssign(array $rows) { [$this->current => $value] = $rows; }
 }`)
 	engine := &stateEngine{}
 	p := sitter.NewParser()
@@ -136,7 +165,7 @@ class Cursor {
 	tree := p.Parse(code, nil)
 	defer tree.Close()
 	NewVisitor(code, engine).Walk(tree.RootNode())
-	for method, want := range map[string]bool{"setRows": true, "setPairs": true, "setLocal": false} {
+	for method, want := range map[string]bool{"setRows": true, "setPairs": true, "setLocal": false, "readKey": false, "readKeyAssign": false} {
 		if got := engine.states[method].Mutates; got != want {
 			t.Errorf("%s: Mutates = %v, want %v", method, got, want)
 		}

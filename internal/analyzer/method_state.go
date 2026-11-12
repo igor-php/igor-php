@@ -748,7 +748,15 @@ func (v *PHPVisitor) writesOwnState(n *sitter.Node) bool {
 		return false
 	}
 	switch n.Kind() {
-	case "list_literal", "array_creation_expression", "array_element_initializer", "pair", "by_ref":
+	case "list_literal":
+		// The keys of ['id' => $this->id] are read: only the targets are written
+		for _, target := range destructuringTargets(n) {
+			if v.writesOwnState(target) {
+				return true
+			}
+		}
+		return false
+	case "array_creation_expression", "array_element_initializer", "pair", "by_ref":
 		for i := uint(0); i < n.ChildCount(); i++ {
 			if v.writesOwnState(n.Child(i)) {
 				return true
