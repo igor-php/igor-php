@@ -14,6 +14,11 @@ class InvoiceController
     {
         $invoice->markPaid();
 
-        return new Response(sprintf('Invoice %s paid: %s', $invoice->getNumber(), $invoice->isPaid() ? 'yes' : 'no'));
+        // Plain text: the number comes from the URL
+        return new Response(
+            sprintf('Invoice %s paid: %s', $invoice->getNumber(), $invoice->isPaid() ? 'yes' : 'no'),
+            200,
+            ['Content-Type' => 'text/plain; charset=utf-8'],
+        );
     }
 }
