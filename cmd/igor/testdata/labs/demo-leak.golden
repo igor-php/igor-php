@@ -17,6 +17,8 @@ src/Controller/LeakDemoController.php | App\Controller\LeakDemoController::super
 src/Internal/InlinedRequestCounter.php | App\Internal\InlinedRequestCounter::increment | ERROR | Mutation of state 'count' in InlinedRequestCounter::increment()
 src/Service/ClosureLeakService.php | App\Service\ClosureLeakService::addListener | ERROR | Mutation of state 'listeners' in ClosureLeakService::addListener()
 src/Service/DestructorLeakService.php | App\Service\DestructorLeakService::__destruct | ERROR | Usage of __destruct() magic method is dangerous in Worker mode.
+src/Service/DestructuringLeakService.php | App\Service\DestructuringLeakService::record | ERROR | Mutation of state 'lastVisitor' in DestructuringLeakService::record()
+src/Service/DestructuringLeakService.php | App\Service\DestructuringLeakService::record | ERROR | Mutation of state 'visits' in DestructuringLeakService::record()
 src/Service/FakeEntityManager.php | App\Service\FakeFilters::disable | ERROR | Mutation of state 'disabledFilters' in FakeFilters::disable()
 src/Service/IncompleteResetService.php | App\Service\IncompleteResetService::addData | WARNING | Property 'forgotten' of IncompleteResetService is mutated but not reset in reset().
 src/Service/LocalStaticService.php | App\Service\LocalStaticService::incrementAndGet | ERROR | Usage of local static variable is dangerous in Worker mode.

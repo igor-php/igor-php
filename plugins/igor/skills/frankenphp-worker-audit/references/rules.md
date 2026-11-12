@@ -11,7 +11,9 @@ the finding is a false positive. Framework details: `symfony.md`, `laravel-octan
 keyed (`$this->cache[$key] = ...`, see `cache_key`).
 
 **Why**: a shared service writes one of its properties (or a static) while serving a request. The
-value stays for the next requests.
+value stays for the next requests. A write through a destructuring (`[$this->a, $this->b] = $row`,
+`list(...)`, keyed and nested forms) or a `foreach` target (`foreach ($rows as $this->current)`)
+counts the same as a plain assignment.
 
 **Fix**, from best to acceptable:
 1. Make the value local: return it, or pass it as a method argument instead of storing it.

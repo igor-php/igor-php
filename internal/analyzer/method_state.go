@@ -317,6 +317,12 @@ func (s *stateSummarizer) foreach(n *sitter.Node) bool {
 	if n.ChildCount() <= 2 {
 		return false
 	}
+	// foreach ($rows as $this->current): the loop writes a property
+	for _, target := range foreachTargets(n) {
+		if s.writesState(target) {
+			return true
+		}
+	}
 	source := n.Child(2)
 	bound := map[string]bool{}
 	byRef := s.v.collectVariables(n, bound)

@@ -50,6 +50,70 @@ func (v *PHPVisitor) isResetMethodWrite(n, left, right *sitter.Node) bool {
 	return v.isEmptyValue(right)
 }
 
+// isExemptWrite reports an assignment that cannot carry state from one request to the next (#105).
+func (v *PHPVisitor) isExemptWrite(n, left, right *sitter.Node) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return v.isLazyInit(n, left, right) || v.isResetMethodWrite(n, left, right) || v.isResetMethodDestructuring(n, left, right)
+}
+
+// isResetMethodDestructuring is isResetMethodWrite for a destructuring: [$this->a, $this->b] =
+// [null, []] in clear(), close() or __destruct() empties each property it writes.
+func (v *PHPVisitor) isResetMethodDestructuring(n, left, right *sitter.Node) bool {
+	if n.Kind() != "assignment_expression" || left.Kind() != "list_literal" || right.Kind() != "array_creation_expression" {
+		return false
+	}
+	if !resetMethodNames[strings.ToLower(v.curMethod)] {
+		return false
+	}
+	for i := uint(0); i < right.NamedChildCount(); i++ {
+		element := right.NamedChild(i)
+		value := lastNamedChild(element)
+		if value == nil || !v.isEmptyValue(value) {
+			return false
+		}
+	}
+	return true
+}
+
+// destructuringTargets lists the variables a destructuring writes, in order. A keyed form
+// (['id' => $this->id]) puts each key before its target: the keys are read, not written.
+func destructuringTargets(list *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(0); i < list.ChildCount(); i++ {
+		c := list.Child(i)
+		if !c.IsNamed() {
+			continue
+		}
+		if next := list.Child(i + 1); next != nil && next.Kind() == "=>" {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// foreachTargets lists what a foreach writes on each iteration: its value, and its key when it
+// has one. They may be a property ($this->current), a destructuring or a reference.
+func foreachTargets(foreach *sitter.Node) []*sitter.Node {
+	var out []*sitter.Node
+	for i := uint(1); i < foreach.NamedChildCount(); i++ {
+		c := foreach.NamedChild(i)
+		if c.Kind() == "compound_statement" || c.Kind() == "colon_block" || strings.HasSuffix(c.Kind(), "_statement") {
+			break
+		}
+		if c.Kind() == "pair" {
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				out = append(out, c.NamedChild(j))
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // byRefParam names the parameter a function changes by reference: its position, or -1 when every
 // argument is passed by reference, and its name for named arguments.
 type byRefParam struct {
