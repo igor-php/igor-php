@@ -260,13 +260,19 @@ func (a *Auditor) overriddenBelow(class, method string) bool {
 // resolveMethodState finds the declaration of method on class or its parents. It gives up on a
 // class it has not audited and on a class using traits before the declaration is found, since a
 // trait method would take precedence over the parent's. stoppedAt names the class it has not
-// audited, when that is why it gave up.
+// audited, when that is why it gave up and no audited class on the way declares __call(): a call
+// it does not find may then be one of the application's own magic methods.
 func (a *Auditor) resolveMethodState(class, method string) (declaring string, state analyzer.MethodState, ok bool, stoppedAt string) {
 	visited := map[string]bool{}
+	magic := false
 	for class != "" && !visited[class] {
 		visited[class] = true
 		shape, audited := a.classShapes[class]
 		if !audited {
+			if magic {
+				// An inherited method wins over __call(), but this one may not exist up there
+				return "", analyzer.MethodState{}, false, ""
+			}
 			return "", analyzer.MethodState{}, false, class
 		}
 		if state, found := a.methodStates[class][method]; found {
@@ -274,6 +280,9 @@ func (a *Auditor) resolveMethodState(class, method string) (declaring string, st
 		}
 		if shape.UsesTraits {
 			return "", analyzer.MethodState{}, false, ""
+		}
+		if _, declared := a.methodStates[class]["__call"]; declared {
+			magic = true
 		}
 		class = a.classParents[class]
 	}

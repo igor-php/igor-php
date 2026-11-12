@@ -129,6 +129,28 @@ class QueueRepository extends EntityRepository {
     public function getQueue(): \Doctrine\Common\Collections\ArrayCollection|\App\Repository\Mutable { return $this->queue; }
     public function appendItem(object $item): void { $this->getQueue()->add($item); }
 }`,
+		"MagicRepository.php": `<?php
+namespace App\Repository;
+use Doctrine\ORM\EntityRepository;
+class MagicRepository extends EntityRepository {
+    private array $remembered = [];
+    public function __call(string $name, array $args): mixed { $this->remembered[] = $args; return null; }
+    public function appendItem(object $item): void { $this->noteItem($item); }
+    public function addItem(object $item): void { $this->getEntityManager()->persist($item); }
+}`,
+		"Imports.php": `<?php
+namespace Other {
+    use Doctrine\Common\Collections\ArrayCollection as Queue;
+    class Unrelated { public function q(): Queue {} }
+}
+namespace App\Repository {
+    class Queue { private array $items = []; public function add($i): void { $this->items[] = $i; } }
+    class QueueHolder extends \Doctrine\ORM\EntityRepository {
+        private Queue $queue;
+        public function getQueue(): Queue { return $this->queue; }
+        public function appendItem(object $item): void { $this->getQueue()->add($item); }
+    }
+}`,
 		"TurnStore.php": `<?php
 namespace App\Repository;
 use Doctrine\DBAL\Connection;
@@ -143,11 +165,13 @@ class Cart extends ArrayCollection {}`,
 		"ChatCompletion.php": `<?php
 namespace App\Chat;
 use App\Repository\Cart;
+use App\Repository\MagicRepository;
+use App\Repository\QueueHolder;
 use App\Repository\QueueRepository;
 use App\Repository\TurnRepository;
 use App\Repository\TurnStore;
 class ChatCompletion {
-    public function __construct(private TurnRepository $turns, private TurnStore $store, private Cart $cart, private QueueRepository $queues) {}
+    public function __construct(private TurnRepository $turns, private TurnStore $store, private Cart $cart, private QueueRepository $queues, private MagicRepository $magic, private QueueHolder $holder) {}
     public function viaEntityManagerConnection(object $turn): void { $this->turns->appendIfAbsent($turn); }
     public function viaPersistFlush(object $turn): void { $this->turns->addTurn($turn); }
     public function viaInjectedConnection(object $turn): void { $this->store->appendTurn($turn); }
@@ -155,6 +179,9 @@ class ChatCompletion {
     public function inheritedAdd(object $item): void { $this->cart->add($item); }
     public function inheritedRemoveElement(object $item): void { $this->cart->removeElement($item); }
     public function viaUnionGetter(object $item): void { $this->queues->appendItem($item); }
+    public function viaMagicCall(object $item): void { $this->magic->appendItem($item); }
+    public function viaMagicClassPersist(object $item): void { $this->magic->addItem($item); }
+    public function viaImportOfAnotherNamespace(object $item): void { $this->holder->appendItem($item); }
 }`,
 	})
 	aud := NewAuditor(config.Config{SafeNamespaces: []string{`Doctrine\`}})
@@ -167,12 +194,15 @@ class ChatCompletion {
 		`App\Repository\TurnStore`:                    paths["TurnStore.php"],
 		`App\Repository\Cart`:                         paths["Cart.php"],
 		`App\Repository\QueueRepository`:              paths["QueueRepository.php"],
+		`App\Repository\MagicRepository`:              paths["MagicRepository.php"],
+		`App\Repository\QueueHolder`:                  paths["Imports.php"],
+		`App\Repository\Queue`:                        paths["Imports.php"],
 		`App\Chat\ChatCompletion`:                     paths["ChatCompletion.php"],
 	}}
 
 	// The vendor files are not audited, as in a project that ignores its vendors
 	var results []symbol.AuditStatus
-	for _, name := range []string{"ChatCompletion.php", "TurnRepository.php", "TurnStore.php", "Cart.php", "QueueRepository.php"} {
+	for _, name := range []string{"ChatCompletion.php", "TurnRepository.php", "TurnStore.php", "Cart.php", "QueueRepository.php", "MagicRepository.php", "Imports.php"} {
 		findings, err := aud.Audit(paths[name], nil)
 		if err != nil {
 			t.Fatal(err)
@@ -195,6 +225,9 @@ class ChatCompletion {
 		{"inheritedAdd", true, "Cart inherits add() from a class igor does not read: its name decides"},
 		{"inheritedRemoveElement", true, "removeElement() is a mutator name, however the call is spelled"},
 		{"viaUnionGetter", true, "getQueue() may return an App object: a union is not a safe namespace"},
+		{"viaMagicCall", true, "noteItem() is not declared: the repository's own __call() stores the item"},
+		{"viaMagicClassPersist", true, "with its own __call(), igor cannot tell an inherited getEntityManager() from a magic call without reading the parent: it keeps the finding"},
+		{"viaImportOfAnotherNamespace", true, "Queue is App\\Repository\\Queue: the ArrayCollection import belongs to another namespace"},
 	}
 	for _, c := range cases {
 		if !before[c.method] {

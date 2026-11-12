@@ -845,9 +845,9 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			}
 
 			if normalizeClassName(fqcn) == normalizeClassName(className) {
-				parentClass = resolveParentClassFromNode(n, content, namespace)
-
-				lines := strings.Split(string(content), "\n")
+				// Only the imports of the namespace declaring the class apply to it
+				lines := namespaceLines(n, content)
+				parentClass = resolveParentClassFromNode(n, content, lines, namespace)
 				// Walk children to find method_declarations
 				var walkClassBody func(*sitter.Node)
 				walkClassBody = func(bodyNode *sitter.Node) {
@@ -877,7 +877,7 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 }
 
 // resolveParentClassFromNode extracts and resolves the parent class name from a class declaration node.
-func resolveParentClassFromNode(n *sitter.Node, content []byte, namespace string) string {
+func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, namespace string) string {
 	var parentClass string
 	for i := uint(0); i < n.ChildCount(); i++ {
 		child := n.Child(i)
@@ -894,10 +894,37 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, namespace string
 	}
 
 	if parentClass != "" {
-		lines := strings.Split(string(content), "\n")
 		return resolveFQCNInFile(parentClass, lines, namespace)
 	}
 	return ""
+}
+
+// namespaceLines returns the lines of the namespace a declaration belongs to, where its imports
+// are: the body of a bracketed namespace (namespace App { ... }), or the code from its namespace
+// statement to the next one. A file without namespace is returned whole.
+func namespaceLines(decl *sitter.Node, content []byte) []string {
+	start, end := uint(0), uint(len(content))
+	for p := decl.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "namespace_definition" && p.ChildByFieldName("body") != nil {
+			return strings.Split(string(content[p.StartByte():p.EndByte()]), "\n")
+		}
+		if p.Parent() == nil {
+			// The program: find the namespace statements around the declaration
+			for i := uint(0); i < p.ChildCount(); i++ {
+				c := p.Child(i)
+				if c.Kind() != "namespace_definition" {
+					continue
+				}
+				if c.StartByte() <= decl.StartByte() {
+					start = c.StartByte()
+				} else if c.StartByte() < end {
+					end = c.StartByte()
+					break
+				}
+			}
+		}
+	}
+	return strings.Split(string(content[start:end]), "\n")
 }
 
 // resolveTypeInFile resolves a type name written in a file: an imported name or alias, a qualified
