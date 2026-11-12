@@ -43,7 +43,7 @@ Like the legendary assistant, `igor` checks every connection and part of your ap
 - **🎯 Surgical Precision**: Detects complex state mutations (`$this->prop[]`, `static::$prop`, increments) without false positives.
 - **🧠 Intelligent**: Verifies not just the presence of `ResetInterface`, but ensures all mutated properties are correctly reset. Automatically ignores **`readonly` properties and classes** (PHP 8.1+) as they are immutable by design.
 - **🛡️ Safety First**: Catches dangerous `exit()` or `die()` calls, and warns about **PHP Superglobals** (`$_GET`, `$_POST`, etc.) or **local static variables** that could leak state between requests.
-- **🔇 Zero Noise**: Automatically ignores `Symfony\` and `Doctrine\` namespaces, and common data folders (`Entity`, `Dto`, `ApiResource`).
+- **🔇 Zero Noise**: Automatically ignores the `Symfony\` and `Doctrine\` namespaces, and audits only what the compiled container keeps: entities, DTOs and other data classes that Symfony never builds as services are not audited, even when a controller argument is typed with them.
 - **📦 Project vs. Vendor**: Clear separation between your code and third-party dependencies, with tailored recommendations for each.
 - **🎯 Reachability Ranking**: Cross-references every flagged mutator against your own call graph. Findings actually reachable from your application code are tagged `[HIGH]` and surface first; findings with no call site found are tagged `[INFO]`.
 - **🎯 Selective Ignore**: Skip specific lines using the `// @igor-ignore` comment, or target entire classes, methods, and properties using modern **PHP 8 Attributes** (`#[WorkerSafe]`).
@@ -820,7 +820,7 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
 - **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\`, `Doctrine\`, `Twig\`, or `ApiPlatform\`).
 
-> 💡 **Pro Tip**: If you notice **Entities, DTOs, or Data Models** appearing in the Igor audit, it means they are registered as "Shared Services" in your Symfony container. This is usually a configuration error in your `services.yaml`. You should exclude these directories from autowiring:
+> 💡 **Pro Tip**: Igor audits the classes the container keeps as services, with their parent classes and traits. Entities, DTOs and other data classes are not audited when Symfony does not register them as services: excluded from the `resource`, removed as unused, or only typed as a controller argument (Symfony then registers an `.errored.` placeholder, which no object is built from). If one appears in the audit anyway, run `igor-php . --verbose` to see under which service id it was collected, and exclude its directory from autowiring:
 >
 > ```yaml
 > # config/services.yaml

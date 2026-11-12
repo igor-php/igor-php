@@ -52,6 +52,7 @@ Most lab services are public so they are easy to explore, but `src/Model/` and `
 | `App\Model\Order` | Never injected: removed by `RemoveUnusedDefinitionsPass` | Not audited (it never exists at runtime) |
 | `App\Internal\OrphanStatefulHelper` | Never injected: removed by `RemoveUnusedDefinitionsPass` | Not audited (it never exists at runtime) |
 | `App\Internal\InlinedRequestCounter` | Injected only into `InlinedConsumerService`: inlined into that singleton | Audited as a shared service (`inlined.*` entry), its `$count` mutation is reported |
+| `App\Entity\Invoice` | Excluded from the services, but typed as an argument of `InvoiceController::pay()`: registered as an `.errored.` placeholder in the controller's argument locator. `InvoiceValueResolver` builds it for each request (`/invoice/{number}`) | Not audited (no service of it exists), although `markPaid()` changes its state |
 
 ## 🧹 Cleanup
 ```bash

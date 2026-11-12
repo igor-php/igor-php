@@ -3,6 +3,7 @@ package auditor
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -484,5 +485,77 @@ func TestAuditor_MissingResetTag(t *testing.T) {
 	}
 	if NewAuditor(config.Config{}).MissingResetTag(`App\Logger`) {
 		t.Error("MissingResetTag must be false without a service map")
+	}
+}
+
+// A service map written by an older bundle still holds the ".errored." placeholders Symfony
+// registers for unresolved references (a controller argument typed with an entity). The
+// reflection helper must not put their class in the class map: the collection step would audit
+// it as an inherited shared class.
+func TestSymfonyBridge_LegacyMapErroredPlaceholders(t *testing.T) {
+	if _, err := exec.LookPath("php"); err != nil {
+		t.Skip("skipping: `php` not found in PATH")
+	}
+	root := t.TempDir()
+	write := func(rel, code string) string {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	entity := write("src/Entity/Company.php", "<?php\nnamespace App\\Entity;\nclass Company { private string $name = ''; public function setName(string $n): void { $this->name = $n; } }\n")
+	base := write("src/Service/BaseMailer.php", "<?php\nnamespace App\\Service;\nabstract class BaseMailer {}\n")
+	mailer := write("src/Service/Mailer.php", "<?php\nnamespace App\\Service;\nclass Mailer extends BaseMailer {}\n")
+	write("vendor/autoload.php", `<?php
+spl_autoload_register(function (string $class): void {
+    $file = __DIR__ . '/../src/' . str_replace(['App\\', '\\'], ['', '/'], $class) . '.php';
+    if (is_file($file)) {
+        require $file;
+    }
+});
+`)
+	write("var/cache/dev/igor_service_map.json", `{
+    "definitions": {
+        "App\\Service\\Mailer": {"class": "App\\Service\\Mailer", "public": true, "shared": true, "arguments": [], "tags": []},
+        ".errored..service_locator.X5hqUYe.App\\Entity\\Company": {"class": "App\\Entity\\Company", "public": false, "shared": true, "arguments": [], "tags": []}
+    },
+    "aliases": {}
+}`)
+
+	sb := NewSymfonyBridge(root, "bin/console", config.Config{Env: "dev"})
+	loaded, err := sb.tryLoadFromAgent("dev")
+	if err != nil || !loaded {
+		t.Fatalf("expected the legacy map to load, got loaded=%v err=%v", loaded, err)
+	}
+	located := func(class string) string {
+		path := sb.ClassToFile[class]
+		if path == "" {
+			return ""
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return path
+		}
+		return resolved
+	}
+	sameFile := func(a, b string) bool {
+		resolved, err := filepath.EvalSymlinks(b)
+		if err != nil {
+			resolved = b
+		}
+		return a == resolved
+	}
+	if !sameFile(located(`App\Service\Mailer`), mailer) {
+		t.Errorf("a real service must stay in the class map, got %q", sb.ClassToFile[`App\Service\Mailer`])
+	}
+	if !sameFile(located(`App\Service\BaseMailer`), base) {
+		t.Errorf("the parent of a real service must stay in the class map, got %q", sb.ClassToFile[`App\Service\BaseMailer`])
+	}
+	if path, found := sb.ClassToFile[`App\Entity\Company`]; found {
+		t.Errorf("the class of an .errored. placeholder must not be in the class map, got %q (%s)", path, entity)
 	}
 }

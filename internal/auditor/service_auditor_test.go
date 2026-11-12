@@ -496,21 +496,7 @@ func TestAuditor_HelperMethods(t *testing.T) {
 		}
 	})
 
-	// 2. Test IsDataPath
-	t.Run("IsDataPath matching cases", func(t *testing.T) {
-		sep := "/"
-		if !a.IsDataPath("src" + sep + "Entity" + sep + "User.php") {
-			t.Error("Expected Entity path to match data path")
-		}
-		if !a.IsDataPath("src" + sep + "DTO" + sep + "Request.php") {
-			t.Error("Expected DTO path to match data path")
-		}
-		if a.IsDataPath("src" + sep + "Service" + sep + "MyService.php") {
-			t.Error("Expected Service path NOT to match data path")
-		}
-	})
-
-	// 3. Test ExtractFQCN
+	// 2. Test ExtractFQCN
 	t.Run("ExtractFQCN on StatelessService", func(t *testing.T) {
 		path := filepath.Join("..", "..", "test", "fixtures", "clean_code.php")
 		fqcn, err := a.ExtractFQCN(path)

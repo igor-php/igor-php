@@ -22,6 +22,11 @@ $classesToCheck = [];
 
 // 1. Classes from definitions
 foreach ($data['definitions'] ?? [] as $id => $def) {
+    // Placeholders for references Symfony could not resolve (".errored.<id>.<type>"): they carry
+    // a type, often an entity typed as a controller argument, but no service of it exists
+    if (str_starts_with((string) $id, '.errored.')) {
+        continue;
+    }
     if (isset($def['class']) && $def['class']) {
         $classesToCheck[$def['class']] = true;
     }
