@@ -443,18 +443,6 @@ func (a *Auditor) IsSafeNamespace(className string) bool {
 	return false
 }
 
-// IsDataPath returns true if the file path belongs to a directory that usually contains only data (Entity, DTO, etc.)
-func (a *Auditor) IsDataPath(path string) bool {
-	dataFolders := []string{"Entity", "DTO", "Dto", "ApiResource", "Migrations", "Document", "tests", "Tests"}
-	for _, folder := range dataFolders {
-		if strings.Contains(path, string(os.PathSeparator)+folder+string(os.PathSeparator)) ||
-			strings.HasSuffix(filepath.Dir(path), string(os.PathSeparator)+folder) {
-			return true
-		}
-	}
-	return false
-}
-
 func normalizeClassName(s string) string {
 	s = strings.ReplaceAll(s, "/", "\\")
 	s = strings.TrimSpace(s)

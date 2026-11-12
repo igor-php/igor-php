@@ -55,6 +55,13 @@ class IgorDiscoveryPass implements CompilerPassInterface
             return;
         }
 
+        // A reference Symfony could not resolve (a controller argument typed with an entity, a
+        // missing service) is replaced by a placeholder carrying the type and an error: no object
+        // of that class is ever built from it
+        if (str_starts_with($id, '.errored.') || $definition->hasErrors()) {
+            return;
+        }
+
         $class = $container->getParameterBag()->resolveValue($definition->getClass());
         if (!$class || !is_string($class)) {
             return;

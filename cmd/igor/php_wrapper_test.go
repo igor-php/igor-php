@@ -97,6 +97,7 @@ namespace Symfony\Component\DependencyInjection {
         public function isShared(): bool { return $this->shared; }
         public function isPublic(): bool { return $this->public; }
         public function isSynthetic(): bool { return $this->synthetic; }
+        public function hasErrors(): bool { return false; }
         public function hasTag(string $name): bool { return isset($this->tags[$name]); }
         public function getTag(string $name): array { return $this->tags[$name] ?? []; }
         public function getTags(): array { return $this->tags; }
@@ -368,6 +369,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\DependencyInjection\TypedReference;
 use IgorPhp\IgorBundle\IgorPhpBundle;
 
 $container = new ContainerBuilder();
@@ -418,6 +421,13 @@ $decorator->setPublic(true);
 $decorator->setDecoratedService('app.decorated');
 $container->setDefinition('debug.app.decorated', $decorator);
 
+// 8. A reference to a class that is not a service, as a controller argument typed with an
+// entity gives: ResolveInvalidReferencesPass replaces it with an ".errored." placeholder
+$consumer = new Definition('SplPriorityQueue');
+$consumer->setPublic(true);
+$consumer->setArguments([new TypedReference('SplFixedArray', 'SplFixedArray', ContainerInterface::RUNTIME_EXCEPTION_ON_INVALID_REFERENCE)]);
+$container->setDefinition('app.entity_consumer', $consumer);
+
 // Register bundle
 $bundle = new IgorPhpBundle();
 $bundle->build($container);
@@ -464,6 +474,18 @@ if (!in_array(['name' => 'container.decorator'], $data['definitions']['debug.app
 if (($data['definitions']['app.parent']['tags'] ?? null) !== []) {
     fwrite(STDERR, "An untagged service must export an empty tag list\n");
     exit(1);
+}
+
+$erroredInContainer = array_filter(array_keys($container->getDefinitions()), static fn (string $id): bool => str_starts_with($id, '.errored.'));
+if ($erroredInContainer === []) {
+    fwrite(STDERR, "The test expects Symfony to register an .errored. placeholder\n");
+    exit(1);
+}
+foreach ($data['definitions'] as $id => $def) {
+    if (str_starts_with($id, '.errored.') || $def['class'] === 'SplFixedArray') {
+        fwrite(STDERR, "An .errored. placeholder must not be exported as a service: $id\n");
+        exit(1);
+    }
 }
 
 $foundInlined = false;

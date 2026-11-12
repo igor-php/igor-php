@@ -10,6 +10,7 @@ services:
             - '../src/Kernel.php'
             - '../src/Model/'
             - '../src/Internal/'
+            - '../src/Entity/'
 
     # Private services, as in a standard Symfony application: Symfony removes the unused ones
     # and inlines the ones referenced only once (see the "Dead & inlined services" section of the README).
