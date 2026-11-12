@@ -10,7 +10,8 @@ of the container, then runs the listeners of `config/octane.php`.
 - **Per request**: `bind()` and `scoped()` bindings, bindings listed in `octane.flush`, and
   singletons first resolved during a request (they live in the sandbox).
 - **Without Octane** (a custom FrankenPHP worker loop reusing one application): every `singleton()`
-  and `scoped()` persists once resolved. Only `bind()` is per request.
+  and `scoped()` persists once resolved. Only `bind()` is per request. The container and the config
+  are the same for every request: a singleton keeping them is not stale, keeping the `Request` is.
 
 Igor learns this from `php artisan igor:dump` (registered by `IgorServiceProvider` through package
 discovery), which writes `bootstrap/cache/igor_service_map.json`. If the app cannot boot from the

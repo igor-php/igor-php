@@ -74,7 +74,8 @@ baseline, or type the property with the concrete class so igor can read the meth
 `... keeps the application container (...)`, `... keeps the configuration repository (...)`.
 
 **Why**: Octane clones the request, container and config for every request, but a singleton built
-at boot keeps the first request's copy for the whole worker life.
+at boot keeps the first request's copy for the whole worker life. Without Octane (a custom worker
+loop), the container and the config are shared by every request: only the request is reported.
 
 **Fix**: `request()`, `app()` or `config()` when the value is needed, pass the request to the
 method that uses it, or inject a closure (`fn () => app('request')`). With Octane, making the

@@ -98,6 +98,9 @@ final class ServiceMapBuilder
         }
 
         return [
+            // Under Octane, each request gets its own clone of the container and the config: a
+            // persistent service that keeps them keeps a stale copy. Without it, they are shared
+            'persistence' => $octane ? 'octane' : 'worker',
             'definitions' => $this->definitions,
             'aliases' => $aliases,
             'entrypoint_files' => array_keys($this->entrypointFiles),

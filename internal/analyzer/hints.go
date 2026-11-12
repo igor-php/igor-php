@@ -22,6 +22,12 @@ var laravelHints = map[string]string{
 }
 
 // SetFramework sets the framework of the audited project, which picks the wording of the hints.
+// SetPersistence supplies the worker model of the service map (symbol.PersistenceOctane or
+// symbol.PersistenceWorker, empty when unknown).
+func (v *PHPVisitor) SetPersistence(persistence string) {
+	v.persistence = persistence
+}
+
 func (v *PHPVisitor) SetFramework(framework string) {
 	v.framework = framework
 }

@@ -62,6 +62,7 @@ type PHPVisitor struct {
 	localWrapperVars map[string]bool
 	namespaceScopes  []namespaceScope
 	framework        string
+	persistence      string
 }
 
 type namespaceScope struct {

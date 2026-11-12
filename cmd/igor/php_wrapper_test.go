@@ -667,7 +667,7 @@ namespace {
     $map = (new \IgorPhp\Laravel\ServiceMapBuilder($app))->build();
     $shared = array_map(fn (array $definition) => $definition['shared'], $map['definitions']);
     ksort($shared);
-    echo json_encode($shared), "\n";
+    echo json_encode(['persistence' => $map['persistence'] ?? null, 'shared' => $shared]), "\n";
 }
 `
 
@@ -679,11 +679,19 @@ namespace {
 		if err != nil {
 			t.Fatalf("ServiceMapBuilder (%s) failed: %v\nOutput: %s", model, err, string(output))
 		}
-		var shared map[string]bool
-		if err := json.Unmarshal(output, &shared); err != nil {
+		var built struct {
+			Persistence string          `json:"persistence"`
+			Shared      map[string]bool `json:"shared"`
+		}
+		if err := json.Unmarshal(output, &built); err != nil {
 			t.Fatalf("ServiceMapBuilder (%s) printed no JSON: %v\nOutput: %s", model, err, string(output))
 		}
-		return shared
+		// The rule reads the model from the map: the container and the config are only
+		// per request under Octane (#121)
+		if built.Persistence != model {
+			t.Errorf("%s model: the map says persistence %q", model, built.Persistence)
+		}
+		return built.Shared
 	}
 
 	// Octane serves each request from a clone: only what the base application holds after boot persists
