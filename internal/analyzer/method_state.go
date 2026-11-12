@@ -598,7 +598,8 @@ func (s *stateSummarizer) onSafeNamespace(obj *sitter.Node) bool {
 		return false
 	}
 	class := s.v.resolveReceiverType(obj)
-	return class != "" && s.v.engine.IsSafeNamespace(class)
+	// A union or an intersection (Collection|Mutable) may be a class outside the safe namespace
+	return class != "" && !strings.ContainsAny(class, "|&()") && s.v.engine.IsSafeNamespace(class)
 }
 
 // receiverProperties gives the properties of $this a call receiver may be: $this->cursor, or a

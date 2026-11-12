@@ -65,6 +65,9 @@ func (a *Auditor) DropStatelessDependencyCalls(results []symbol.AuditStatus) boo
 type stateNode struct {
 	receiver, start, method string
 	shared                  string
+	// name is the method as the call spells it: whether it reads as a mutator (removeElement)
+	// depends on its case
+	name string
 }
 
 // sharedArgs is the set of argument positions of a call that hold persistent state.
@@ -153,7 +156,7 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 	for _, p := range sharedPositions {
 		root.positions[p] = true
 	}
-	queue := []stateNode{{class, class, strings.ToLower(method), root.key()}}
+	queue := []stateNode{{class, class, strings.ToLower(method), root.key(), method}}
 	seen := map[stateNode]bool{queue[0]: true}
 	push := func(n stateNode) {
 		if !seen[n] {
@@ -176,7 +179,7 @@ func (a *Auditor) mayMutate(class, method string, sharedPositions []int, unknown
 			return true
 		}
 		declaring, state, ok, stoppedAt := a.resolveMethodState(node.start, node.method)
-		if !ok && stoppedAt != "" && a.IsSafeNamespace(stoppedAt) && !analyzer.IsMutatorName(node.method) {
+		if !ok && stoppedAt != "" && a.IsSafeNamespace(stoppedAt) && !analyzer.IsMutatorName(node.name) {
 			// $this->getEntityManager(), inherited from a Doctrine repository igor does not audit.
 			// An inherited add() (class Cart extends ArrayCollection) still counts: its name decides
 			continue
@@ -200,14 +203,14 @@ func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.Met
 			// self::touch() runs the method as seen from the class declaring the caller
 			start = declaring
 		}
-		push(stateNode{node.receiver, start, strings.ToLower(c.Method), shared.through(c.Args).key()})
+		push(stateNode{node.receiver, start, strings.ToLower(c.Method), shared.through(c.Args).key(), c.Method})
 	}
 	for _, c := range state.ParentCalls {
 		parent := a.classParents[declaring]
 		if parent == "" {
 			return false
 		}
-		push(stateNode{node.receiver, parent, strings.ToLower(c.Method), shared.through(c.Args).key()})
+		push(stateNode{node.receiver, parent, strings.ToLower(c.Method), shared.through(c.Args).key(), c.Method})
 	}
 	for _, dep := range state.DepCalls {
 		c := normalizeClassName(dep.Class)
@@ -223,7 +226,7 @@ func (a *Auditor) pushCalls(node stateNode, declaring string, state analyzer.Met
 			}
 			continue
 		}
-		push(stateNode{c, c, strings.ToLower(dep.Method), shared.through(dep.Args).key()})
+		push(stateNode{c, c, strings.ToLower(dep.Method), shared.through(dep.Args).key(), dep.Method})
 	}
 	return true
 }

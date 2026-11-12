@@ -101,7 +101,11 @@ namespace Doctrine\DBAL;
 class Connection { public function insert(string $t, array $d): int { return 1; } }`,
 		"ArrayCollection.php": `<?php
 namespace Doctrine\Common\Collections;
-class ArrayCollection { private array $elements = []; public function add($e): void { $this->elements[] = $e; } }`,
+class ArrayCollection {
+    private array $elements = [];
+    public function add($e): void { $this->elements[] = $e; }
+    public function removeElement($e): bool { return true; }
+}`,
 		"TurnRepository.php": `<?php
 namespace App\Repository;
 use Doctrine\ORM\EntityRepository;
@@ -117,6 +121,14 @@ class TurnRepository extends EntityRepository {
     }
     public function addSeen(object $turn): void { $this->seen[] = $turn; }
 }`,
+		"QueueRepository.php": `<?php
+namespace App\Repository;
+use Doctrine\ORM\EntityRepository;
+class QueueRepository extends EntityRepository {
+    private Mutable $queue;
+    public function getQueue(): \Doctrine\Common\Collections\ArrayCollection|\App\Repository\Mutable { return $this->queue; }
+    public function appendItem(object $item): void { $this->getQueue()->add($item); }
+}`,
 		"TurnStore.php": `<?php
 namespace App\Repository;
 use Doctrine\DBAL\Connection;
@@ -131,15 +143,18 @@ class Cart extends ArrayCollection {}`,
 		"ChatCompletion.php": `<?php
 namespace App\Chat;
 use App\Repository\Cart;
+use App\Repository\QueueRepository;
 use App\Repository\TurnRepository;
 use App\Repository\TurnStore;
 class ChatCompletion {
-    public function __construct(private TurnRepository $turns, private TurnStore $store, private Cart $cart) {}
+    public function __construct(private TurnRepository $turns, private TurnStore $store, private Cart $cart, private QueueRepository $queues) {}
     public function viaEntityManagerConnection(object $turn): void { $this->turns->appendIfAbsent($turn); }
     public function viaPersistFlush(object $turn): void { $this->turns->addTurn($turn); }
     public function viaInjectedConnection(object $turn): void { $this->store->appendTurn($turn); }
     public function realWrite(object $turn): void { $this->turns->addSeen($turn); }
     public function inheritedAdd(object $item): void { $this->cart->add($item); }
+    public function inheritedRemoveElement(object $item): void { $this->cart->removeElement($item); }
+    public function viaUnionGetter(object $item): void { $this->queues->appendItem($item); }
 }`,
 	})
 	aud := NewAuditor(config.Config{SafeNamespaces: []string{`Doctrine\`}})
@@ -151,12 +166,13 @@ class ChatCompletion {
 		`App\Repository\TurnRepository`:               paths["TurnRepository.php"],
 		`App\Repository\TurnStore`:                    paths["TurnStore.php"],
 		`App\Repository\Cart`:                         paths["Cart.php"],
+		`App\Repository\QueueRepository`:              paths["QueueRepository.php"],
 		`App\Chat\ChatCompletion`:                     paths["ChatCompletion.php"],
 	}}
 
 	// The vendor files are not audited, as in a project that ignores its vendors
 	var results []symbol.AuditStatus
-	for _, name := range []string{"ChatCompletion.php", "TurnRepository.php", "TurnStore.php", "Cart.php"} {
+	for _, name := range []string{"ChatCompletion.php", "TurnRepository.php", "TurnStore.php", "Cart.php", "QueueRepository.php"} {
 		findings, err := aud.Audit(paths[name], nil)
 		if err != nil {
 			t.Fatal(err)
@@ -177,6 +193,8 @@ class ChatCompletion {
 		{"viaInjectedConnection", false, "appendTurn() inserts through an injected Doctrine connection"},
 		{"realWrite", true, "addSeen() writes $this->seen"},
 		{"inheritedAdd", true, "Cart inherits add() from a class igor does not read: its name decides"},
+		{"inheritedRemoveElement", true, "removeElement() is a mutator name, however the call is spelled"},
+		{"viaUnionGetter", true, "getQueue() may return an App object: a union is not a safe namespace"},
 	}
 	for _, c := range cases {
 		if !before[c.method] {
