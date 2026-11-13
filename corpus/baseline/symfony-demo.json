@@ -1,0 +1,12 @@
+{
+    "project": "symfony-demo",
+    "commit": "f42980c690b4bf335fa41bbafdb075bb67b719c2",
+    "files": 13,
+    "counts": {
+        "DetectSingletonMutation ERROR": 3,
+        "IncompleteReset WARNING": 7,
+        "MagicMethodDestruct ERROR": 1,
+        "ProcessStateMutation WARNING": 3,
+        "StateMutation ERROR": 21
+    }
+}

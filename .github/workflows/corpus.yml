@@ -1,0 +1,71 @@
+name: Corpus
+
+# Regression corpus (#152): igor on real open-source applications pinned in corpus/projects.json.
+# A broken invariant, or findings that differ from corpus/baseline/, fail the job: the pull request
+# that changes the findings runs `make corpus-update` and explains the difference.
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**.md', 'docs/**' ]
+  pull_request:
+    paths-ignore: [ '**.md', 'docs/**' ]
+  workflow_dispatch:
+
+# The projects run their own code (composer install, cache:clear): no secret, read-only token
+permissions:
+  contents: read
+
+concurrency:
+  group: corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  projects:
+    name: List the projects
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "names=$(jq -c '[.[].name]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
+
+  corpus:
+    name: Corpus (${{ matrix.project }})
+    needs: projects
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.projects.outputs.names) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Outside the checkout, which installs igor in the projects; an absolute path without "..",
+      # as actions/upload-artifact requires
+      - name: Corpus directory
+        run: echo "IGOR_CORPUS_DIR=$RUNNER_TEMP/corpus" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: ctype, dom, gd, iconv, intl, json, mbstring, pdo_sqlite, zip
+          tools: composer
+
+      - name: Run the corpus
+        run: scripts/corpus.sh --strict "${{ matrix.project }}"
+
+      - name: Upload the findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.project }}
+          path: ${{ env.IGOR_CORPUS_DIR }}/results/
+          if-no-files-found: ignore

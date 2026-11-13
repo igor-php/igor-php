@@ -1,4 +1,4 @@
-.PHONY: build test lint ci clean run explain debug update-labs
+.PHONY: build test lint ci clean run explain debug update-labs corpus corpus-update
 
 # Build the main binary
 build:
@@ -25,6 +25,17 @@ test:
 # IGOR_LABS_REQUIRED fails instead of skipping a lab, so no snapshot can be left stale.
 update-labs:
 	IGOR_LABS_REQUIRED=1 go test ./cmd/igor -run TestLabsRegression -count=1 -update-labs
+
+# Run igor on the regression corpus of real applications (corpus/projects.json, #152), check the
+# invariants and compare the findings with corpus/baseline/. Usage: make corpus [PROJECT=part-db]
+# The projects are installed once in IGOR_CORPUS_DIR (default: ~/.cache/igor-php/corpus).
+PROJECT ?=
+corpus:
+	scripts/corpus.sh $(PROJECT)
+
+# Rewrite the corpus baselines after an intended change in the findings
+corpus-update:
+	scripts/corpus.sh --update $(PROJECT)
 
 # Run the linter locally
 # Note: If this fails due to a Go compiler version mismatch, use 'make docker-lint' or reinstall locally with:
