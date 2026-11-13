@@ -29,7 +29,9 @@ type Auditor struct {
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
 	// classDecls caches the parsed declarations read by the type lookups, by normalized class name.
-	classDecls           map[string]classDecl
+	classDecls map[string]classDecl
+	// sharedTypes caches, by interface or abstract class, whether a shared service is of that type.
+	sharedTypes          map[string]bool
 	FileContentOverrides map[string][]byte
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
@@ -634,12 +636,82 @@ func (a *Auditor) isResetByDecorator(id string) bool {
 	return false
 }
 
-// IsSharedService checks if a class name is a shared service in Symfony.
+// IsSharedService reports whether an object of type className may be a shared service: a class with
+// a shared definition, or an interface or abstract class that the container aliases to a shared
+// service, or that a shared service implements or extends. A getter declared to return
+// FactoryRegistryInterface or an abstract Factory can return a shared service: only a concrete
+// class without a shared definition names a per-call object.
 func (a *Auditor) IsSharedService(className string) bool {
 	if a.Symfony == nil {
 		return true
 	}
-	return a.Symfony.IsSharedService(className)
+	if a.Symfony.IsSharedService(className) {
+		return true
+	}
+	if a.Symfony.Container == nil {
+		return false
+	}
+	name := normalizeClassName(className)
+	a.mu.Lock()
+	shared, cached := a.sharedTypes[name]
+	a.mu.Unlock()
+	if !cached {
+		shared = a.sharedSubtype(name)
+		a.mu.Lock()
+		if a.sharedTypes == nil {
+			a.sharedTypes = make(map[string]bool)
+		}
+		a.sharedTypes[name] = shared
+		a.mu.Unlock()
+	}
+	return shared
+}
+
+// sharedSubtype reports whether the interface or abstract class t is aliased to a shared service,
+// or implemented or extended by one.
+func (a *Auditor) sharedSubtype(t string) bool {
+	decl, ok := a.classDeclaration(t)
+	if !ok || !decl.abstract {
+		return false
+	}
+	defs := a.Symfony.Container.Definitions
+	for id, target := range a.Symfony.Container.Aliases {
+		if strings.EqualFold(normalizeClassName(id), t) {
+			if def, exists := defs[resolveAliasTarget(target)]; exists && def.Shared && !def.IsExcluded() {
+				return true
+			}
+		}
+	}
+	for _, def := range defs {
+		if !def.Shared || def.IsExcluded() || def.Class == "" {
+			continue
+		}
+		if a.isSubtype(normalizeClassName(def.Class), t, map[string]bool{}) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSubtype reports whether class is ancestor, or extends or implements it.
+func (a *Auditor) isSubtype(class, ancestor string, visited map[string]bool) bool {
+	if strings.EqualFold(class, ancestor) {
+		return true
+	}
+	if class == "" || visited[class] {
+		return false
+	}
+	visited[class] = true
+	decl, ok := a.classDeclaration(class)
+	if !ok {
+		return false
+	}
+	for _, super := range append([]string{decl.parent}, decl.supertypes...) {
+		if super != "" && a.isSubtype(normalizeClassName(super), ancestor, visited) {
+			return true
+		}
+	}
+	return false
 }
 
 func isDevPackageMatch(relPathLower string, devPackages []string) bool {
@@ -874,6 +946,10 @@ type classDecl struct {
 	props map[string]string
 	// privateProps are its private properties, which its subclasses do not inherit.
 	privateProps map[string]bool
+	// abstract is true for an interface or an abstract class: no object has exactly this type.
+	abstract bool
+	// supertypes are the interfaces it implements, and the interfaces an interface extends.
+	supertypes []string
 	// insteadof gives the trait a method is taken from when traits conflict (B::current insteadof A).
 	insteadof map[string]string
 	// aliases are the methods renamed from a trait (A::current as oldCurrent).
@@ -931,6 +1007,7 @@ func (a *Auditor) parseClassDecl(className, filePath string) (classDecl, error) 
 				// before it: "use SomeTrait;" in its body is not an import
 				lines := importLines(n, content)
 				decl.parent = resolveParentClassFromNode(n, content, lines, namespace)
+				readSupertypes(n, content, lines, namespace, &decl)
 				readClassMembers(n, content, lines, namespace, className, &decl)
 				return
 			}
@@ -1044,6 +1121,25 @@ func readTraitUse(use *sitter.Node, content []byte, lines []string, namespace st
 						decl.aliases = map[string]traitMethod{}
 					}
 					decl.aliases[text(last)] = source
+				}
+			}
+		}
+	}
+}
+
+// readSupertypes reads whether a declaration is abstract (an interface or an abstract class), and
+// the interfaces it implements or extends.
+func readSupertypes(n *sitter.Node, content []byte, lines []string, namespace string, decl *classDecl) {
+	decl.abstract = n.Kind() == "interface_declaration"
+	for i := uint(0); i < n.ChildCount(); i++ {
+		child := n.Child(i)
+		switch {
+		case child.Kind() == "abstract_modifier":
+			decl.abstract = true
+		case child.Kind() == "class_interface_clause" || (child.Kind() == "base_clause" && n.Kind() == "interface_declaration"):
+			for j := uint(0); j < child.NamedChildCount(); j++ {
+				if t := child.NamedChild(j); t.Kind() == "name" || t.Kind() == "qualified_name" {
+					decl.supertypes = append(decl.supertypes, resolveDeclaredType(string(content[t.StartByte():t.EndByte()]), lines, namespace, ""))
 				}
 			}
 		}

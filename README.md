@@ -569,6 +569,7 @@ To prevent false positives on ephemeral objects (like OpenTelemetry Spans or Tra
   - If the type is **NOT** a shared service (e.g., `Span`), Igor classifies it as a **transient/ephemeral object**.
   - Subsequent mutations on this variable (e.g., `$span->setAttribute('key', 'value')`) are deemed **100% safe** and bypassed, ensuring zero false positives on safe request-scoped data.
   - If the return type is indeed a shared service (e.g., a shared `EntityManager`), mutations remain strictly protected.
+  - An **interface or abstract class** counts as shared when the container aliases it to a shared service, or when a shared service implements or extends it: a registry declared to return `FactoryInterface` can hand out a shared factory. It is transient only when no shared service has that type (e.g., `AbstractUnicodeString`).
 
 ### 4. Call-Site Reachability Ranking
 Not every flagged mutator matters equally: a setter on a vendor class might never be called anywhere in your application, while another is hit on every request. Igor ranks findings accordingly:
