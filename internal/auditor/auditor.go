@@ -710,8 +710,17 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 		return retType
 	}
 	// A trait method takes precedence over the parent's
-	if retType, found := a.fromTraits(normClass, decl.traits, func(trait string) string {
-		return a.getMethodReturnTypeWithDepth(trait, methodName, visited)
+	traits, traitMethodName := decl.traits, methodName
+	if alias, ok := decl.aliases[methodName]; ok {
+		traitMethodName = alias.method
+		if alias.trait != "" {
+			traits = []string{alias.trait}
+		}
+	} else if chosen, ok := decl.insteadof[methodName]; ok {
+		traits = []string{chosen}
+	}
+	if retType, found := a.fromTraits(normClass, traits, func(trait string) string {
+		return a.getMethodReturnTypeWithDepth(trait, traitMethodName, visited)
 	}); found {
 		return retType
 	}
@@ -859,6 +868,15 @@ type classDecl struct {
 	traits  []string
 	// props are the declared types of its properties (promoted constructor parameters included).
 	props map[string]string
+	// insteadof gives the trait a method is taken from when traits conflict (B::current insteadof A).
+	insteadof map[string]string
+	// aliases are the methods renamed from a trait (A::current as oldCurrent).
+	aliases map[string]traitMethod
+}
+
+// traitMethod is a method of a trait, or of any trait the class uses when trait is "".
+type traitMethod struct {
+	trait, method string
 }
 
 func (a *Auditor) parseClassDecl(className, filePath string) (classDecl, error) {
@@ -932,11 +950,7 @@ func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace,
 		member := body.NamedChild(i)
 		switch member.Kind() {
 		case "use_declaration":
-			for j := uint(0); j < member.NamedChildCount(); j++ {
-				if t := member.NamedChild(j); t.Kind() == "name" || t.Kind() == "qualified_name" {
-					decl.traits = append(decl.traits, resolveDeclaredType(text(t), lines, namespace, className))
-				}
-			}
+			readTraitUse(member, content, lines, namespace, decl)
 		case "property_declaration":
 			typeNode := member.ChildByFieldName("type")
 			for j := uint(0); j < member.NamedChildCount(); j++ {
@@ -970,6 +984,47 @@ func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace,
 	}
 }
 
+// readTraitUse reads the traits of a use declaration in a class body, and its conflict resolution
+// and aliases: use A, B { B::current insteadof A; A::current as oldCurrent; }
+func readTraitUse(use *sitter.Node, content []byte, lines []string, namespace string, decl *classDecl) {
+	text := func(x *sitter.Node) string { return string(content[x.StartByte():x.EndByte()]) }
+	traitName := func(x *sitter.Node) string { return resolveDeclaredType(text(x), lines, namespace, "") }
+	for j := uint(0); j < use.NamedChildCount(); j++ {
+		child := use.NamedChild(j)
+		switch child.Kind() {
+		case "name", "qualified_name":
+			decl.traits = append(decl.traits, traitName(child))
+		case "use_list":
+			for k := uint(0); k < child.NamedChildCount(); k++ {
+				rule := child.NamedChild(k)
+				first, last := rule.NamedChild(0), rule.NamedChild(rule.NamedChildCount()-1)
+				if first == nil || last == nil {
+					continue
+				}
+				var source traitMethod
+				if first.Kind() == "class_constant_access_expression" && first.NamedChildCount() == 2 {
+					source = traitMethod{trait: traitName(first.NamedChild(0)), method: text(first.NamedChild(1))}
+				} else {
+					source.method = text(first)
+				}
+				switch {
+				case rule.Kind() == "use_instead_of_clause" && source.trait != "":
+					if decl.insteadof == nil {
+						decl.insteadof = map[string]string{}
+					}
+					decl.insteadof[source.method] = source.trait
+				case rule.Kind() == "use_as_clause" && last.Kind() == "name" && last != first:
+					// "as protected" alone changes the visibility, not the name
+					if decl.aliases == nil {
+						decl.aliases = map[string]traitMethod{}
+					}
+					decl.aliases[text(last)] = source
+				}
+			}
+		}
+	}
+}
+
 // resolveParentClassFromNode extracts and resolves the parent class name from a class declaration node.
 func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, namespace string) string {
 	var parentClass string
@@ -993,12 +1048,37 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, 
 	return ""
 }
 
-// importLines returns the lines of the namespace a declaration belongs to that come before it,
-// where its imports are: from the namespace statement (or the start of a bracketed namespace, or of
-// a file without namespace) to the declaration.
+// importLines returns the namespace imports (use Foo\Bar;) that apply to a declaration: those of
+// its namespace written before it, one per line.
 func importLines(decl *sitter.Node, content []byte) []string {
 	start, _ := namespaceRange(decl, content)
-	return strings.Split(string(content[start:decl.StartByte()]), "\n")
+	root := decl
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	// The namespace imports only: not the "use SomeTrait;" lines in the body of a class before it
+	var lines []string
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			if c.StartByte() >= decl.StartByte() {
+				return
+			}
+			if c.EndByte() <= start {
+				continue
+			}
+			switch c.Kind() {
+			case "namespace_use_declaration":
+				// One line per import, even written over several lines
+				lines = append(lines, strings.Join(strings.Fields(string(content[c.StartByte():c.EndByte()])), " "))
+			case "namespace_definition", "compound_statement":
+				walk(c)
+			}
+		}
+	}
+	walk(root)
+	return lines
 }
 
 // namespaceRange returns the byte range of the namespace a declaration belongs to.

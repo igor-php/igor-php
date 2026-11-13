@@ -141,26 +141,31 @@ final class Counter extends BaseService
 	}
 }
 
-// self in a trait names the class using it; two traits declaring the same method with different
-// types (a conflict solved by insteadof) leave the type unknown; a trait of the class's namespace
-// used without import is not mistaken for the "use" line of the class body; a local named like an
-// inherited property keeps the type of what it was assigned.
+// self in a trait names the class using it; a conflict between traits is solved as PHP does
+// (insteadof, as); a trait of the class's namespace used without import is not mistaken for the
+// "use" line of a class body; a local named like an inherited property keeps the type of what it
+// was assigned.
 func TestTraitAndLocalTypes(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"Traits.php": `<?php
 namespace App\Support;
 trait CurrentTrait { public function current(): self { return $this; } }
-trait LoggerTrait { public function handler(): Logger { return new Logger(); } }
+trait LoggerTrait { public function handler() { return new Logger(); } }
 trait CacheTrait { public function handler(): Cache { return new Cache(); } }
 trait HelperTrait { protected Helper $helper; }`,
 		"Registry.php": `<?php
 namespace App\Support;
+class Before
+{
+    use HelperTrait;
+}
 class Registry
 {
     use CurrentTrait;
     use LoggerTrait, CacheTrait {
-        CacheTrait::handler insteadof LoggerTrait;
+        LoggerTrait::handler insteadof CacheTrait;
+        CacheTrait::handler as cacheHandler;
     }
     use HelperTrait;
     private array $values = [];
@@ -212,10 +217,13 @@ final class LocalValidator extends \Symfony\Component\Validator\ConstraintValida
 		t.Errorf("self in a trait is the class using it, got %q", got)
 	}
 	if got := aud.GetMethodReturnType(`App\Support\Registry`, "handler"); got != "" {
-		t.Errorf("handler() is declared by two traits with different types, got %q", got)
+		t.Errorf("handler() is LoggerTrait's (insteadof), which has no return type, got %q", got)
+	}
+	if got := aud.GetMethodReturnType(`App\Support\Registry`, "cacheHandler"); got != `App\Support\Cache` {
+		t.Errorf("cacheHandler() is CacheTrait::handler renamed, got %q", got)
 	}
 	if got := aud.GetPropertyType(`App\Support\Registry`, "helper"); got != `App\Support\Helper` {
-		t.Errorf("HelperTrait is in the namespace of Registry, got %q", got)
+		t.Errorf("HelperTrait is in the namespace of Registry, and the use line of Before is not an import, got %q", got)
 	}
 
 	findings, err := aud.Audit(paths["App.php"], nil)
