@@ -28,6 +28,8 @@ type Auditor struct {
 	classParents         map[string]string
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
+	// classDecls caches the parsed declarations read by the type lookups, by normalized class name.
+	classDecls           map[string]classDecl
 	FileContentOverrides map[string][]byte
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
@@ -700,69 +702,122 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 	}
 	visited[normClass] = true
 
-	a.mu.Lock()
-	// Check if present in cache
-	if classCache, exists := a.methodSignatureCache[normClass]; exists {
-		if retType, found := classCache[methodName]; found && retType != "" {
-			a.mu.Unlock()
-			return retType
-		}
-		if parentClass, hasParent := a.parentClassCache[normClass]; hasParent && parentClass != "" {
-			a.mu.Unlock()
-			return a.getMethodReturnTypeWithDepth(parentClass, methodName, visited)
-		}
-		a.mu.Unlock()
+	decl, ok := a.classDeclaration(normClass)
+	if !ok {
 		return ""
 	}
-	a.mu.Unlock()
-
-	// Not in cache, try to locate file
-	if a.Symfony == nil || a.Symfony.ClassToFile == nil {
-		return ""
-	}
-
-	filePath, exists := a.Symfony.ClassToFile[className]
-	if !exists {
-		// Try normalized lookup
-		for k, v := range a.Symfony.ClassToFile {
-			if normalizeClassName(k) == normClass {
-				filePath = v
-				exists = true
-				break
-			}
-		}
-	}
-
-	if !exists {
-		return ""
-	}
-
-	// Parse class methods
-	signatures, parentClass, err := a.parseClassMethodSignatures(className, filePath)
-
-	a.mu.Lock()
-	if err != nil {
-		// Cache empty map to avoid re-parsing on error
-		a.methodSignatureCache[normClass] = make(map[string]string)
-		a.mu.Unlock()
-		return ""
-	}
-
-	a.methodSignatureCache[normClass] = signatures
-	if parentClass != "" {
-		a.parentClassCache[normClass] = parentClass
-	}
-	a.mu.Unlock()
-
-	if retType, found := signatures[methodName]; found && retType != "" {
+	if retType := decl.methods[methodName]; retType != "" {
 		return retType
 	}
+	// A trait method takes precedence over the parent's
+	traits, traitMethodName := decl.traits, methodName
+	if alias, ok := decl.aliases[methodName]; ok {
+		traitMethodName = alias.method
+		if alias.trait != "" {
+			traits = []string{alias.trait}
+		}
+	} else if chosen, ok := decl.insteadof[methodName]; ok {
+		traits = []string{chosen}
+	}
+	if retType, found := a.fromTraits(normClass, traits, func(trait string) string {
+		return a.getMethodReturnTypeWithDepth(trait, traitMethodName, visited)
+	}); found {
+		return retType
+	}
+	if decl.parent != "" {
+		return a.getMethodReturnTypeWithDepth(decl.parent, methodName, visited)
+	}
+	return ""
+}
 
-	if parentClass != "" {
-		return a.getMethodReturnTypeWithDepth(parentClass, methodName, visited)
+// GetPropertyType returns the declared type (an FQCN, or a scalar or union as written) of a property
+// a class declares or inherits: from its traits, then from its parents. ConstraintValidator's
+// $context and DenormalizerAwareTrait's $denormalizer are declared outside the class using them.
+func (a *Auditor) GetPropertyType(className, propertyName string) string {
+	return a.propertyTypeWithDepth(normalizeClassName(className), propertyName, map[string]bool{}, false)
+}
+
+// propertyTypeWithDepth looks prop up in class, its traits, then its parents. inherited is true in
+// the parents, where a private property is not the one the subclass reads.
+func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]bool, inherited bool) string {
+	if class == "" || visited[class] {
+		return ""
+	}
+	visited[class] = true
+	decl, ok := a.classDeclaration(class)
+	if !ok {
+		return ""
+	}
+	if t, declared := decl.props[prop]; declared && !(inherited && decl.privateProps[prop]) {
+		// Declared here, typed or not: a parent's property of the same name is not this one
+		return t
+	}
+	if t, found := a.fromTraits(class, decl.traits, func(trait string) string {
+		return a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited, inherited)
+	}); found {
+		return t
+	}
+	return a.propertyTypeWithDepth(normalizeClassName(decl.parent), prop, visited, true)
+}
+
+// fromTraits returns the type lookup finds in the traits class uses. self and static in a trait
+// name the class using it. found is true as soon as a trait declares the member: two traits
+// declaring it with different types (a conflict solved by insteadof) give "", the type is unknown.
+func (a *Auditor) fromTraits(class string, traits []string, lookup func(trait string) string) (string, bool) {
+	var result string
+	found := false
+	for _, trait := range traits {
+		t := lookup(trait)
+		if t == "" {
+			continue
+		}
+		if strings.EqualFold(normalizeClassName(t), normalizeClassName(trait)) {
+			// A trait is not a type: its self
+			t = class
+		}
+		if found && !strings.EqualFold(t, result) {
+			return "", true
+		}
+		result, found = t, true
+	}
+	return result, found
+}
+
+// classDeclaration parses the file declaring class (located through the framework class map, the
+// audited files, then Composer) once, and caches what the type lookups read from it.
+func (a *Auditor) classDeclaration(class string) (classDecl, bool) {
+	a.mu.Lock()
+	if decl, cached := a.classDecls[class]; cached {
+		a.mu.Unlock()
+		return decl, decl.methods != nil
+	}
+	a.mu.Unlock()
+
+	var decl classDecl
+	if filePath := a.classFile(class); filePath != "" {
+		if parsed, err := a.parseClassDecl(class, filePath); err == nil {
+			decl = parsed
+		}
+	}
+	if decl.methods == nil {
+		// Cache the miss too: the file is not parsed again
+		decl = classDecl{}
 	}
 
-	return ""
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.classDecls == nil {
+		a.classDecls = make(map[string]classDecl)
+	}
+	a.classDecls[class] = decl
+	a.methodSignatureCache[class] = decl.methods
+	if decl.methods == nil {
+		a.methodSignatureCache[class] = map[string]string{}
+	}
+	if decl.parent != "" {
+		a.parentClassCache[class] = decl.parent
+	}
+	return decl, decl.methods != nil
 }
 
 func isBuiltinType(t string) bool {
@@ -781,33 +836,60 @@ func parseMethodDeclaration(node *sitter.Node, content []byte, lines []string, n
 		return "", ""
 	}
 	mName := string(content[nameNode.StartByte():nameNode.EndByte()])
-	retNode := node.ChildByFieldName("return_type")
 	var retType string
-	if retNode != nil {
-		retType = strings.TrimPrefix(strings.TrimSpace(string(content[retNode.StartByte():retNode.EndByte()])), "?")
-		qualified := strings.HasPrefix(retType, "\\")
-		retType = strings.TrimPrefix(retType, "\\")
-
-		// Resolve self and static
-		switch {
-		case retType == "self" || retType == "static":
-			retType = className
-		case isBuiltinType(retType) || strings.ContainsAny(retType, "|&()"):
-			// A union or intersection names no single class
-		case qualified:
-			// Fully qualified: \Doctrine\ORM\EntityManagerInterface
-		default:
-			// EntityManagerInterface comes from a use import of this file, not from its namespace
-			retType = resolveTypeInFile(retType, lines, namespace)
-		}
+	if retNode := node.ChildByFieldName("return_type"); retNode != nil {
+		retType = resolveDeclaredType(string(content[retNode.StartByte():retNode.EndByte()]), lines, namespace, className)
 	}
 	return mName, retType
 }
 
-func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[string]string, string, error) {
+// resolveDeclaredType resolves a type written in a declaration (?Foo, \Foo\Bar, Foo, self) against the
+// imports and namespace of its file. Unions, intersections and scalar types are returned as written.
+func resolveDeclaredType(raw string, lines []string, namespace, className string) string {
+	t := strings.TrimPrefix(strings.TrimSpace(raw), "?")
+	qualified := strings.HasPrefix(t, "\\")
+	t = strings.TrimPrefix(t, "\\")
+	switch {
+	case t == "self" || t == "static":
+		return className
+	case isBuiltinType(t) || strings.ContainsAny(t, "|&()"):
+		// A union or intersection names no single class
+		return t
+	case qualified:
+		// Fully qualified: \Doctrine\ORM\EntityManagerInterface
+		return t
+	}
+	// EntityManagerInterface comes from a use import of this file, not from its namespace
+	return resolveTypeInFile(t, lines, namespace)
+}
+
+// classDecl is what the type lookups read from the declaration of a class, an interface or a trait.
+type classDecl struct {
+	// methods are the return types of its methods, by name.
+	methods map[string]string
+	parent  string
+	traits  []string
+	// props are the declared types of its properties (promoted constructor parameters included),
+	// "" for an untyped one.
+	props map[string]string
+	// privateProps are its private properties, which its subclasses do not inherit.
+	privateProps map[string]bool
+	// insteadof gives the trait a method is taken from when traits conflict (B::current insteadof A).
+	insteadof map[string]string
+	// aliases are the methods renamed from a trait (A::current as oldCurrent).
+	aliases map[string]traitMethod
+}
+
+// traitMethod is a method of a trait, or of any trait the class uses when trait is "".
+type traitMethod struct {
+	trait, method string
+}
+
+func (a *Auditor) parseClassDecl(className, filePath string) (classDecl, error) {
+	decl := classDecl{methods: map[string]string{}, props: map[string]string{}}
 	content, err := a.getFileContent(filePath)
 	if err != nil {
-		return nil, "", err
+		return decl, err
 	}
 
 	p := sitter.NewParser()
@@ -816,14 +898,11 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 
 	tree := p.Parse(content, nil)
 	if tree == nil {
-		return nil, "", fmt.Errorf("failed to parse %s", filePath)
+		return decl, fmt.Errorf("failed to parse %s", filePath)
 	}
 	defer tree.Close()
 
-	signatures := make(map[string]string)
 	var namespace string
-	var parentClass string
-
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
 		if n == nil {
@@ -836,7 +915,7 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			}
 		}
 
-		if kind == "class_declaration" || kind == "interface_declaration" {
+		if kind == "class_declaration" || kind == "interface_declaration" || kind == "trait_declaration" {
 			var declName string
 			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 				declName = string(content[nameNode.StartByte():nameNode.EndByte()])
@@ -848,25 +927,12 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			}
 
 			if normalizeClassName(fqcn) == normalizeClassName(className) {
-				// Only the imports of the namespace declaring the class apply to it
-				lines := namespaceLines(n, content)
-				parentClass = resolveParentClassFromNode(n, content, lines, namespace)
-				// Walk children to find method_declarations
-				var walkClassBody func(*sitter.Node)
-				walkClassBody = func(bodyNode *sitter.Node) {
-					if bodyNode == nil {
-						return
-					}
-					if bodyNode.Kind() == "method_declaration" {
-						if mName, retType := parseMethodDeclaration(bodyNode, content, lines, namespace, className); mName != "" {
-							signatures[mName] = retType
-						}
-					}
-					for i := uint(0); i < bodyNode.ChildCount(); i++ {
-						walkClassBody(bodyNode.Child(i))
-					}
-				}
-				walkClassBody(n)
+				// Only the imports of the namespace declaring the class apply to it, and they come
+				// before it: "use SomeTrait;" in its body is not an import
+				lines := importLines(n, content)
+				decl.parent = resolveParentClassFromNode(n, content, lines, namespace)
+				readClassMembers(n, content, lines, namespace, className, &decl)
+				return
 			}
 		}
 
@@ -876,7 +942,112 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 	}
 	walk(tree.RootNode())
 
-	return signatures, parentClass, nil
+	return decl, nil
+}
+
+// readClassMembers reads the methods, properties and used traits of a class-like declaration.
+func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace, className string, decl *classDecl) {
+	text := func(x *sitter.Node) string { return string(content[x.StartByte():x.EndByte()]) }
+	body := n.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		member := body.NamedChild(i)
+		switch member.Kind() {
+		case "use_declaration":
+			readTraitUse(member, content, lines, namespace, decl)
+		case "property_declaration":
+			typeNode := member.ChildByFieldName("type")
+			for j := uint(0); j < member.NamedChildCount(); j++ {
+				element := member.NamedChild(j)
+				if element.Kind() != "property_element" {
+					continue
+				}
+				if name := element.ChildByFieldName("name"); name != nil {
+					decl.recordProp(member, text(name), typeNode, content, lines, namespace, className)
+				}
+			}
+		case "method_declaration":
+			mName, retType := parseMethodDeclaration(member, content, lines, namespace, className)
+			if mName == "" {
+				continue
+			}
+			decl.methods[mName] = retType
+			if !strings.EqualFold(mName, "__construct") {
+				continue
+			}
+			if params := member.ChildByFieldName("parameters"); params != nil {
+				for j := uint(0); j < params.NamedChildCount(); j++ {
+					param := params.NamedChild(j)
+					typeNode, name := param.ChildByFieldName("type"), param.ChildByFieldName("name")
+					if param.Kind() == "property_promotion_parameter" && name != nil {
+						decl.recordProp(param, text(name), typeNode, content, lines, namespace, className)
+					}
+				}
+			}
+		}
+	}
+}
+
+// recordProp records a property declared by member (a property declaration or a promoted
+// parameter): its type, "" when it has none, and whether it is private.
+func (decl *classDecl) recordProp(member *sitter.Node, name string, typeNode *sitter.Node, content []byte, lines []string, namespace, className string) {
+	name = strings.TrimPrefix(name, "$")
+	var t string
+	if typeNode != nil {
+		t = resolveDeclaredType(string(content[typeNode.StartByte():typeNode.EndByte()]), lines, namespace, className)
+	}
+	decl.props[name] = t
+	for i := uint(0); i < member.NamedChildCount(); i++ {
+		if c := member.NamedChild(i); c.Kind() == "visibility_modifier" && strings.EqualFold(string(content[c.StartByte():c.EndByte()]), "private") {
+			if decl.privateProps == nil {
+				decl.privateProps = map[string]bool{}
+			}
+			decl.privateProps[name] = true
+		}
+	}
+}
+
+// readTraitUse reads the traits of a use declaration in a class body, and its conflict resolution
+// and aliases: use A, B { B::current insteadof A; A::current as oldCurrent; }
+func readTraitUse(use *sitter.Node, content []byte, lines []string, namespace string, decl *classDecl) {
+	text := func(x *sitter.Node) string { return string(content[x.StartByte():x.EndByte()]) }
+	traitName := func(x *sitter.Node) string { return resolveDeclaredType(text(x), lines, namespace, "") }
+	for j := uint(0); j < use.NamedChildCount(); j++ {
+		child := use.NamedChild(j)
+		switch child.Kind() {
+		case "name", "qualified_name":
+			decl.traits = append(decl.traits, traitName(child))
+		case "use_list":
+			for k := uint(0); k < child.NamedChildCount(); k++ {
+				rule := child.NamedChild(k)
+				first, last := rule.NamedChild(0), rule.NamedChild(rule.NamedChildCount()-1)
+				if first == nil || last == nil {
+					continue
+				}
+				var source traitMethod
+				if first.Kind() == "class_constant_access_expression" && first.NamedChildCount() == 2 {
+					source = traitMethod{trait: traitName(first.NamedChild(0)), method: text(first.NamedChild(1))}
+				} else {
+					source.method = text(first)
+				}
+				switch {
+				case rule.Kind() == "use_instead_of_clause" && source.trait != "":
+					if decl.insteadof == nil {
+						decl.insteadof = map[string]string{}
+					}
+					decl.insteadof[source.method] = source.trait
+				case rule.Kind() == "use_as_clause" && last.Kind() == "name" && last != first:
+					// "as protected" alone changes the visibility, not the name
+					if decl.aliases == nil {
+						decl.aliases = map[string]traitMethod{}
+					}
+					decl.aliases[text(last)] = source
+				}
+			}
+		}
+	}
 }
 
 // resolveParentClassFromNode extracts and resolves the parent class name from a class declaration node.
@@ -887,7 +1058,7 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, 
 		if child.Kind() == "base_clause" {
 			for j := uint(0); j < child.ChildCount(); j++ {
 				grandChild := child.Child(j)
-				if grandChild.Kind() == "name" {
+				if grandChild.Kind() == "name" || grandChild.Kind() == "qualified_name" {
 					parentClass = string(content[grandChild.StartByte():grandChild.EndByte()])
 					break
 				}
@@ -902,14 +1073,67 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, 
 	return ""
 }
 
-// namespaceLines returns the lines of the namespace a declaration belongs to, where its imports
-// are: the body of a bracketed namespace (namespace App { ... }), or the code from its namespace
-// statement to the next one. A file without namespace is returned whole.
-func namespaceLines(decl *sitter.Node, content []byte) []string {
+// importLines returns the namespace imports (use Foo\Bar;) that apply to a declaration: those of
+// its namespace written before it, one per line.
+func importLines(decl *sitter.Node, content []byte) []string {
+	start, _ := namespaceRange(decl, content)
+	root := decl
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	// The namespace imports only: not the "use SomeTrait;" lines in the body of a class before it
+	var lines []string
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			if c.StartByte() >= decl.StartByte() {
+				return
+			}
+			if c.EndByte() <= start {
+				continue
+			}
+			switch c.Kind() {
+			case "namespace_use_declaration":
+				lines = append(lines, expandImport(string(content[c.StartByte():c.EndByte()]))...)
+			case "namespace_definition", "compound_statement":
+				walk(c)
+			}
+		}
+	}
+	walk(root)
+	return lines
+}
+
+// expandImport returns one "use Foo\Bar;" or "use Foo\Bar as Baz;" line per class a use statement
+// imports: a list (use A, B;) and a group (use App\State\{Registry, Cache as C};) give several,
+// even written over several lines. Functions and constants import no class.
+func expandImport(stmt string) []string {
+	stmt = strings.Join(strings.Fields(stmt), " ")
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(stmt, "use "), ";"))
+	if strings.HasPrefix(body, "function ") || strings.HasPrefix(body, "const ") {
+		return nil
+	}
+	prefix := ""
+	if open := strings.Index(body, "{"); open >= 0 {
+		prefix = strings.TrimPrefix(strings.TrimSpace(body[:open]), "\\")
+		body = strings.TrimSuffix(strings.TrimSpace(body[open+1:]), "}")
+	}
+	var lines []string
+	for _, item := range strings.Split(body, ",") {
+		if item = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(item), "\\")); item != "" {
+			lines = append(lines, "use "+prefix+item+";")
+		}
+	}
+	return lines
+}
+
+// namespaceRange returns the byte range of the namespace a declaration belongs to.
+func namespaceRange(decl *sitter.Node, content []byte) (uint, uint) {
 	start, end := uint(0), uint(len(content))
 	for p := decl.Parent(); p != nil; p = p.Parent() {
 		if p.Kind() == "namespace_definition" && p.ChildByFieldName("body") != nil {
-			return strings.Split(string(content[p.StartByte():p.EndByte()]), "\n")
+			return p.StartByte(), p.EndByte()
 		}
 		if p.Parent() == nil {
 			// The program: find the namespace statements around the declaration
@@ -927,7 +1151,7 @@ func namespaceLines(decl *sitter.Node, content []byte) []string {
 			}
 		}
 	}
-	return strings.Split(string(content[start:end]), "\n")
+	return start, end
 }
 
 // resolveTypeInFile resolves a type name written in a file: an imported name or alias, a qualified

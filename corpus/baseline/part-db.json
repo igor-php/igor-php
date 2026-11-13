@@ -1,11 +1,11 @@
 {
     "project": "part-db",
     "commit": "eddccadacf3aaf8508fc6eef1b117c70fe23e161",
-    "files": 133,
+    "files": 129,
     "counts": {
         "DetectClosureStateLeak ERROR": 1,
         "DetectClosureStateLeak WARNING": 2,
-        "DetectSingletonMutation ERROR": 107,
+        "DetectSingletonMutation ERROR": 98,
         "ExecutionTerminator ERROR": 1,
         "IncompleteReset WARNING": 13,
         "LocalStaticVariable ERROR": 8,
