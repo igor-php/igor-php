@@ -4,13 +4,14 @@
  * Regression corpus report (#152), called by scripts/corpus.sh for each project.
  *
  * It checks the invariants (blocking), counts the findings per rule and severity, and compares the
- * counts with the project's baseline (a warning, not a failure). The report is printed as Markdown,
- * and appended to $GITHUB_STEP_SUMMARY in CI.
+ * counts with the project's baseline: a warning, or a failure with --strict (the corpus workflow).
+ * The report is printed as Markdown, and appended to $GITHUB_STEP_SUMMARY in CI.
  *
- * Exit code: 1 when an invariant fails, 0 otherwise.
+ * Exit code: 1 when an invariant fails, or with --strict when the findings differ from the baseline
+ * (or there is none) and --update is not given; 0 otherwise.
  */
 
-$options = getopt('', ['name:', 'framework:', 'commit:', 'dir:', 'results:', 'log:', 'igor-status:', 'baseline:', 'update']);
+$options = getopt('', ['name:', 'framework:', 'commit:', 'dir:', 'results:', 'log:', 'igor-status:', 'baseline:', 'update', 'strict']);
 foreach (['name', 'framework', 'commit', 'dir', 'results', 'log', 'igor-status', 'baseline'] as $required) {
     if (!isset($options[$required])) {
         fwrite(STDERR, "missing --$required\n");
@@ -131,7 +132,17 @@ echo "\n", $report;
 if ($summary = getenv('GITHUB_STEP_SUMMARY')) {
     file_put_contents($summary, $report."\n", FILE_APPEND);
 }
-if ($changed && getenv('GITHUB_ACTIONS')) {
+$strict = isset($options['strict']) && !isset($options['update']);
+if ($strict && ($changed || $before === null)) {
+    // The pull request that changes the findings updates the baseline and explains the difference
+    $failures[] = $before === null
+        ? 'no baseline: run `make corpus-update` and commit it'
+        : 'the findings differ from the baseline: run `make corpus-update` if the change is intended, and explain it in the pull request';
+    fwrite(STDERR, "❌ $name: ".end($failures)."\n");
+    if (getenv('GITHUB_ACTIONS')) {
+        echo "::error title=Corpus $name::".end($failures)."\n";
+    }
+} elseif ($changed && getenv('GITHUB_ACTIONS')) {
     echo "::warning title=Corpus $name::The findings changed from the baseline\n";
 }
 

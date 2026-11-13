@@ -1,0 +1,106 @@
+name: Corpus
+
+# Regression corpus (#152): igor on real open-source applications pinned in corpus/projects.json.
+# A broken invariant, or findings that differ from corpus/baseline/, fail the job: the pull request
+# that changes the findings runs `make corpus-update` and explains the difference.
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**.md', 'docs/**' ]
+  pull_request:
+    paths-ignore: [ '**.md', 'docs/**' ]
+  workflow_dispatch:
+
+# The projects run their own code (composer install, cache:clear): no secret, read-only token
+permissions:
+  contents: read
+
+concurrency:
+  group: corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IGOR_CORPUS_DIR: ${{ github.workspace }}/../corpus
+
+jobs:
+  projects:
+    name: List the projects
+    runs-on: ubuntu-latest
+    outputs:
+      names: ${{ steps.list.outputs.names }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "names=$(jq -c '[.[].name]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
+
+  corpus:
+    name: Corpus (${{ matrix.project }})
+    needs: projects
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.projects.outputs.names) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: ctype, dom, gd, iconv, intl, json, mbstring, pdo_sqlite, zip
+          tools: composer
+
+      # The project's clone and vendor/ only change with its pinned commit
+      - name: Cache key
+        id: key
+        run: |
+          commit=$(jq -r --arg name "${{ matrix.project }}" '.[] | select(.name == $name) | .commit' corpus/projects.json)
+          echo "key=corpus-${{ matrix.project }}-$commit-${{ hashFiles('corpus/projects.json') }}" >> "$GITHUB_OUTPUT"
+          echo "prefix=corpus-${{ matrix.project }}-$commit-" >> "$GITHUB_OUTPUT"
+          echo "composer=$(composer config --global cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the project
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ env.IGOR_CORPUS_DIR }}/${{ matrix.project }}
+            ${{ steps.key.outputs.composer }}
+          key: ${{ steps.key.outputs.key }}
+          restore-keys: ${{ steps.key.outputs.prefix }}
+
+      - name: Run the corpus
+        run: scripts/corpus.sh --strict "${{ matrix.project }}"
+
+      - name: Check the install
+        id: installed
+        if: always()
+        run: |
+          if [ -f "$IGOR_CORPUS_DIR/${{ matrix.project }}/vendor/autoload.php" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Saved even when the findings differ, so that the next run of the pull request is fast
+      - name: Save the project
+        if: always() && steps.restore.outputs.cache-hit != 'true' && steps.installed.outputs.ok == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ env.IGOR_CORPUS_DIR }}/${{ matrix.project }}
+            ${{ steps.key.outputs.composer }}
+          key: ${{ steps.key.outputs.key }}
+
+      - name: Upload the findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.project }}
+          path: ${{ env.IGOR_CORPUS_DIR }}/results/
+          if-no-files-found: ignore

@@ -3,9 +3,10 @@
 # corpus/projects.json, checks the invariants, and compares the findings per rule with
 # corpus/baseline/<project>.json.
 #
-#   scripts/corpus.sh [--update] [project...]     (make corpus / make corpus-update)
+#   scripts/corpus.sh [--update|--strict] [project...]     (make corpus / make corpus-update)
 #
-# --update rewrites the baselines after an intended change. The projects are cloned and installed
+# --update rewrites the baselines after an intended change. --strict (the corpus workflow) fails
+# when the findings differ from the baselines, instead of warning. The projects are cloned and installed
 # in IGOR_CORPUS_DIR (default: ~/.cache/igor-php/corpus) and kept between runs, so only the first
 # run pays for composer install. Each project runs its own code (composer install, cache:clear):
 # they are pinned to a commit, and Composer scripts are disabled.
@@ -17,10 +18,12 @@ WORK=${IGOR_CORPUS_DIR:-$HOME/.cache/igor-php/corpus}
 mkdir -p "$WORK"
 WORK=$(cd "$WORK" && pwd)
 UPDATE=0
+STRICT=0
 ONLY=()
 for arg in "$@"; do
     case $arg in
         --update) UPDATE=1 ;;
+        --strict) STRICT=1 ;;
         -*) echo "unknown option: $arg" >&2; exit 2 ;;
         *) ONLY+=("$arg") ;;
     esac
@@ -135,6 +138,7 @@ while IFS= read -r project; do
         --dir "$dir" --results "$WORK/results/$name.json" --log "$WORK/results/$name.log"
         --igor-status "$igor_status" --baseline "$ROOT/corpus/baseline/$name.json")
     [ "$UPDATE" -eq 1 ] && args+=(--update)
+    [ "$STRICT" -eq 1 ] && args+=(--strict)
     php "$ROOT/scripts/corpus-report.php" "${args[@]}" || status=1
 done < <(jq -c '.[]' "$ROOT/corpus/projects.json")
 
