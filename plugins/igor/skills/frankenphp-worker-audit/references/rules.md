@@ -60,7 +60,11 @@ event or a request attribute. If a per-request callback is needed, remove it in 
 
 **Severity**: igor reads the method the closure is passed to (vendor code included, an interface
 resolved to its service through the container map). It reports an ERROR when that method stores
-the closure, and nothing when it only calls it (`wrapInTransaction()`, `CacheInterface::get()`).
+the closure, and nothing when it only calls it (`wrapInTransaction()`, `CacheInterface::get()`,
+Sentry's `Hub::withScope()`). A closure given to a constructor in the call's arguments
+(`new ArrayModifier($source, [$closure])`) is judged in that constructor first: one that only calls
+it drops the finding, one that stores it in the new object leaves the decision to what the call
+does with that object.
 A WARNING means igor could not read the method (interface without a container map, abstract
 class, untyped property, named argument) and its name does not say it registers a callback: read
 the method yourself.

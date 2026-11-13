@@ -20,6 +20,9 @@ const (
 	retentionKept
 	// retentionUnknown: the method could not be read to the end.
 	retentionUnknown
+	// retentionHeld: a constructor stores the closure in the object it builds, and nowhere else:
+	// the closure lives as long as that object.
+	retentionHeld
 )
 
 // maxRetentionNodes bounds the methods followed to decide one call.
@@ -61,18 +64,15 @@ func (a *Auditor) ResolveClosureLeaks(results []symbol.AuditStatus) bool {
 				kept = append(kept, f)
 				continue
 			}
-			verdict, class := a.closureRetention(ref, f.ContextClass)
-			if verdict == retentionUnknown && isSynchronousCallback(ref.Class, class, ref.Method) {
-				verdict = retentionNone
-			}
+			verdict, unread, class := a.closureVerdict(ref, f.ContextClass)
 			switch verdict {
 			case retentionNone:
 				changed = true
 				continue
 			case retentionUnknown:
-				if !isRegistrationName(ref.Method) && f.Severity == "ERROR" {
+				if !isRegistrationName(outermost(ref).Method) && f.Severity == "ERROR" {
 					f.Severity = "WARNING"
-					f.Remediation = strings.Replace(unreadClosureHint, "%s", describeCall(ref, class), 1)
+					f.Remediation = strings.Replace(unreadClosureHint, "%s", describeCall(unread, class), 1)
 					changed = true
 				}
 			}
@@ -81,6 +81,51 @@ func (a *Auditor) ResolveClosureLeaks(results []symbol.AuditStatus) bool {
 		results[i].Findings = kept
 	}
 	return changed
+}
+
+// closureVerdict tells what happens to the closure of ref: kept, dropped, or unknown, with the
+// call igor could not read and the class it resolved. A closure given to a constructor is judged
+// there first: if the new object only holds it, what the outer call does with the object decides.
+func (a *Auditor) closureVerdict(ref *symbol.ClosureArgRef, callerClass string) (retention, *symbol.ClosureArgRef, string) {
+	return a.verdictOf(ref, callerClass, false)
+}
+
+// verdictOf is closureVerdict for ref. carrier is true when ref receives an object holding the
+// closure rather than the closure itself.
+func (a *Auditor) verdictOf(ref *symbol.ClosureArgRef, callerClass string, carrier bool) (retention, *symbol.ClosureArgRef, string) {
+	verdict, class := a.closureRetention(ref, callerClass)
+	if verdict == retentionUnknown && isSynchronousCallback(ref.Class, class, ref.Method) {
+		verdict = retentionNone
+	}
+	if carrier && ref.Outer != nil && verdict == retentionNone {
+		// new Envelope(new Box($closure)): Envelope may copy what the box holds ($box->callback),
+		// which the summary does not follow. The envelope may hold the closure: the call decides
+		verdict = retentionHeld
+	}
+	switch {
+	case ref.Outer == nil && verdict == retentionHeld:
+		return retentionUnknown, ref, class
+	case ref.Outer == nil, verdict == retentionNone, verdict == retentionKept:
+		return verdict, ref, class
+	}
+	outer, unread, outerClass := a.verdictOf(ref.Outer, callerClass, true)
+	if verdict == retentionHeld {
+		return outer, unread, outerClass
+	}
+	// The constructor could not be read: the object may hold the closure, so a call that keeps
+	// the object keeps it too
+	if outer == retentionKept {
+		return retentionKept, unread, outerClass
+	}
+	return retentionUnknown, ref, class
+}
+
+// outermost returns the call made on the dependency, for a closure given to a constructor.
+func outermost(ref *symbol.ClosureArgRef) *symbol.ClosureArgRef {
+	for ref.Outer != nil {
+		ref = ref.Outer
+	}
+	return ref
 }
 
 func describeCall(ref *symbol.ClosureArgRef, class string) string {
@@ -136,6 +181,8 @@ var synchronousCallbacks = []struct {
 	{"illuminate\\database\\", map[string]bool{"transaction": true}},
 	{"illuminate\\contracts\\cache\\", map[string]bool{"remember": true, "rememberforever": true, "sear": true, "flexible": true}},
 	{"illuminate\\cache\\", map[string]bool{"remember": true, "rememberforever": true, "sear": true, "flexible": true}},
+	// Hub::withScope() pushes a scope, calls the callback and pops it; configureScope() calls it
+	{"sentry\\state\\hub", map[string]bool{"withscope": true, "configurescope": true}},
 }
 
 // isSynchronousCallback reports a call listed in synchronousCallbacks, by the declared type of
@@ -164,6 +211,10 @@ type retentionNode struct {
 	receiver, start, method string
 	pos                     int
 	static, fresh           bool
+	// site is true for the constructor of the call site (new X($closure) in the arguments of the
+	// dependency call) and the methods it calls on that object: what they store stays in the
+	// object, whose fate the outer call decides.
+	site bool
 }
 
 // methodLookup is the outcome of looking a method up on a class.
@@ -188,21 +239,15 @@ type resolvedMethod struct {
 // closureRetention tells whether the method named by ref keeps the closure it is given, following
 // the methods it passes the closure on to. It also returns the class the receiver resolved to.
 func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string) (retention, string) {
-	if ref.Class == "" || ref.Method == "" || !ref.Positional {
-		return retentionUnknown, ""
-	}
-	root, exact := a.concreteClassFor(ref.Class, callerClass)
-	if root == "" {
-		return retentionUnknown, ""
-	}
-	if !exact && a.overriddenInSubclass(root, ref.Method) {
-		// The property may hold a subclass whose method does something else
+	start, ok := a.retentionStart(ref, callerClass)
+	root := start.receiver
+	if !ok {
 		return retentionUnknown, root
 	}
 
-	queue := []retentionNode{{receiver: root, start: root, method: strings.ToLower(ref.Method), pos: ref.Pos}}
+	queue := []retentionNode{start}
 	seen := map[retentionNode]bool{queue[0]: true}
-	unknown := false
+	unknown, held := false, false
 	for len(queue) > 0 {
 		if len(seen) > maxRetentionNodes {
 			return retentionUnknown, root
@@ -213,6 +258,10 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 		found, fate, ok := a.paramFate(node)
 		if fate.Global || (fate.Retained && !node.fresh) {
 			return retentionKept, root
+		}
+		if fate.Retained && node.site {
+			// Stored in the object built at the call site
+			held = true
 		}
 		if !ok || fate.Unknown {
 			unknown = true
@@ -229,10 +278,32 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 			}
 		}
 	}
-	if unknown {
+	switch {
+	case unknown:
 		return retentionUnknown, root
+	case held:
+		return retentionHeld, root
 	}
 	return retentionNone, root
+}
+
+// retentionStart gives the method to read first for ref. ok is false when it cannot be read; the
+// node still names the class the receiver resolved to, when it did.
+func (a *Auditor) retentionStart(ref *symbol.ClosureArgRef, callerClass string) (retentionNode, bool) {
+	start := retentionNode{method: strings.ToLower(ref.Method), pos: ref.Pos}
+	if ref.Class == "" || ref.Method == "" || !ref.Positional {
+		return start, false
+	}
+	if ref.Outer != nil {
+		// new X(...): the very class, built for this call
+		start.receiver, start.start = normalizeClassName(ref.Class), normalizeClassName(ref.Class)
+		start.static, start.fresh, start.site = true, true, true
+		return start, true
+	}
+	root, exact := a.concreteClassFor(ref.Class, callerClass)
+	start.receiver, start.start = root, root
+	// The property may hold a subclass whose method does something else
+	return start, root != "" && (exact || !a.overriddenInSubclass(root, ref.Method))
 }
 
 // paramFate reads what the method of node does with the argument at its position. ok is false
@@ -329,14 +400,14 @@ func (a *Auditor) forwardNode(node retentionNode, found resolvedMethod, f analyz
 			// self:: in a trait is the class using it
 			start = found.owner
 		}
-		return retentionNode{receiver: node.receiver, start: start, method: method, pos: f.Pos, static: node.static, fresh: node.fresh}, true
+		return retentionNode{receiver: node.receiver, start: start, method: method, pos: f.Pos, static: node.static, fresh: node.fresh, site: node.site}, true
 	case analyzer.ForwardParent:
 		// parent:: in a trait is the parent of the class using it
 		class, ok := a.classCallables(found.owner)
 		if !ok || class.Parent == "" {
 			return retentionNode{}, false
 		}
-		return retentionNode{receiver: node.receiver, start: class.Parent, method: method, pos: f.Pos, static: node.static, fresh: node.fresh}, true
+		return retentionNode{receiver: node.receiver, start: class.Parent, method: method, pos: f.Pos, static: node.static, fresh: node.fresh, site: node.site}, true
 	case analyzer.ForwardDependency:
 		class, exact := a.concreteClassFor(f.Class, node.receiver)
 		if class == "" || (!exact && a.overriddenInSubclass(class, f.Method)) {

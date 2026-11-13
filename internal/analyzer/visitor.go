@@ -1480,41 +1480,25 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 
 // detectClosureStateLeak flags anonymous functions capturing local scope via use() passed as arguments to singleton dependencies.
 // Whether the called method keeps the closure or only calls it is not known here: the finding
-// names the call, and the auditor drops it once it has read that method.
+// names the call, and the auditor drops it once it has read that method. A closure given to a
+// constructor in those arguments (new ArrayModifier(..., $closure)) names the constructor first.
 func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 	argsNode := n.ChildByFieldName("arguments")
 	if argsNode == nil {
 		return
 	}
 
-	ref := symbol.ClosureArgRef{Class: v.resolveReceiverType(n.ChildByFieldName("object")), Positional: true}
+	ref := symbol.ClosureArgRef{Class: v.resolveReceiverType(n.ChildByFieldName("object"))}
 	if nameNode := n.ChildByFieldName("name"); nameNode != nil && nameNode.Kind() == "name" {
 		ref.Method = v.getContent(nameNode)
 	}
+	v.findClosuresInArguments(argsNode, ref)
+}
 
-	var findClosures func(*sitter.Node)
-	findClosures = func(node *sitter.Node) {
-		if node == nil {
-			return
-		}
-		// If the node is an anonymous function (closure)
-		if node.Kind() == "anonymous_function" {
-			// And it has a "use" capture clause (use ($var))
-			if hasUseClause(node) {
-				msg := "Potential Memory Leak: Injection of a closure capturing local state into a shared service."
-				before := len(v.findings)
-				v.addFinding(node, symbol.RuleClosureStateLeak, msg, "Avoid injecting closures that capture local state via use() into shared services.", "ERROR")
-				if len(v.findings) > before {
-					arg := ref
-					v.findings[before].ClosureArg = &arg
-				}
-			}
-		}
-		// Recursive walk of argument node children (e.g., in a nested array)
-		for i := uint(0); i < node.ChildCount(); i++ {
-			findClosures(node.Child(i))
-		}
-	}
+// findClosuresInArguments reports the capturing closures of a call's arguments, each with the
+// position of the argument holding it.
+func (v *PHPVisitor) findClosuresInArguments(argsNode *sitter.Node, ref symbol.ClosureArgRef) {
+	ref.Positional = true
 	for i := uint(0); i < argsNode.NamedChildCount(); i++ {
 		arg := argsNode.NamedChild(i)
 		value := lastNamedChild(arg)
@@ -1523,8 +1507,60 @@ func (v *PHPVisitor) detectClosureStateLeak(n *sitter.Node) {
 			ref.Positional = false
 		}
 		ref.Pos = int(i)
-		findClosures(arg)
+		v.findClosures(arg, ref)
 	}
+}
+
+func (v *PHPVisitor) findClosures(node *sitter.Node, ref symbol.ClosureArgRef) {
+	if node == nil {
+		return
+	}
+	switch node.Kind() {
+	case "anonymous_function":
+		// A closure with a "use" capture clause (use ($var))
+		if hasUseClause(node) {
+			msg := "Potential Memory Leak: Injection of a closure capturing local state into a shared service."
+			before := len(v.findings)
+			v.addFinding(node, symbol.RuleClosureStateLeak, msg, "Avoid injecting closures that capture local state via use() into shared services.", "ERROR")
+			if len(v.findings) > before {
+				arg := ref
+				v.findings[before].ClosureArg = &arg
+			}
+		}
+	case "object_creation_expression":
+		// new ArrayModifier($source, ['rates' => $closure]): the constructor receives the closure,
+		// and the call receives the object
+		if class, args := v.constructedClass(node); class != "" && args != nil {
+			outer := ref
+			v.findClosuresInArguments(args, symbol.ClosureArgRef{Class: class, Method: "__construct", Outer: &outer})
+			return
+		}
+	}
+	// Recursive walk of argument node children (e.g., in a nested array)
+	for i := uint(0); i < node.ChildCount(); i++ {
+		v.findClosures(node.Child(i), ref)
+	}
+}
+
+// constructedClass returns the class a new expression builds and its arguments, or "" for an
+// anonymous class, new $class() and new self/static/parent.
+func (v *PHPVisitor) constructedClass(n *sitter.Node) (string, *sitter.Node) {
+	var class string
+	var args *sitter.Node
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		c := n.NamedChild(i)
+		switch c.Kind() {
+		case "name", "qualified_name":
+			switch strings.ToLower(v.getContent(c)) {
+			case "self", "static", "parent":
+				return "", nil
+			}
+			class = v.resolveFQCN(v.getContent(c))
+		case "arguments":
+			args = c
+		}
+	}
+	return class, args
 }
 
 func isDoctrineManager(className string) bool {
