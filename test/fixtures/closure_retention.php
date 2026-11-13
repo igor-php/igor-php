@@ -264,6 +264,24 @@ final class HoldingBox
     }
 }
 
+final class PublicBox
+{
+    public function __construct(public \Closure $callback)
+    {
+    }
+}
+
+// Copies the closure the box carries: it holds it too
+final class Envelope
+{
+    private \Closure $callback;
+
+    public function __construct(PublicBox $box)
+    {
+        $this->callback = $box->callback;
+    }
+}
+
 final class ShutdownBox
 {
     public function __construct(callable $callback)
@@ -506,6 +524,20 @@ final class Consumer
         $this->objects->keepObject(new HoldingBox(function () use ($optin) {
             return $optin;
         }));
+    }
+
+    public function nestedWrapperTheCallKeeps(string $optin): void
+    {
+        $this->objects->keepObject(new Envelope(new PublicBox(function () use ($optin) {
+            return $optin;
+        })));
+    }
+
+    public function nestedWrapperTheCallDrops(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new Envelope(new PublicBox(function () use ($optin) {
+            return $optin;
+        })));
     }
 
     public function registeredByAConstructorAtTheCallSite(string $optin): void

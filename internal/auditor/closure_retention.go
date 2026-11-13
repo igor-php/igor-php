@@ -87,9 +87,20 @@ func (a *Auditor) ResolveClosureLeaks(results []symbol.AuditStatus) bool {
 // call igor could not read and the class it resolved. A closure given to a constructor is judged
 // there first: if the new object only holds it, what the outer call does with the object decides.
 func (a *Auditor) closureVerdict(ref *symbol.ClosureArgRef, callerClass string) (retention, *symbol.ClosureArgRef, string) {
+	return a.verdictOf(ref, callerClass, false)
+}
+
+// verdictOf is closureVerdict for ref. carrier is true when ref receives an object holding the
+// closure rather than the closure itself.
+func (a *Auditor) verdictOf(ref *symbol.ClosureArgRef, callerClass string, carrier bool) (retention, *symbol.ClosureArgRef, string) {
 	verdict, class := a.closureRetention(ref, callerClass)
 	if verdict == retentionUnknown && isSynchronousCallback(ref.Class, class, ref.Method) {
 		verdict = retentionNone
+	}
+	if carrier && ref.Outer != nil && verdict == retentionNone {
+		// new Envelope(new Box($closure)): Envelope may copy what the box holds ($box->callback),
+		// which the summary does not follow. The envelope may hold the closure: the call decides
+		verdict = retentionHeld
 	}
 	switch {
 	case ref.Outer == nil && verdict == retentionHeld:
@@ -97,7 +108,7 @@ func (a *Auditor) closureVerdict(ref *symbol.ClosureArgRef, callerClass string) 
 	case ref.Outer == nil, verdict == retentionNone, verdict == retentionKept:
 		return verdict, ref, class
 	}
-	outer, unread, outerClass := a.closureVerdict(ref.Outer, callerClass)
+	outer, unread, outerClass := a.verdictOf(ref.Outer, callerClass, true)
 	if verdict == retentionHeld {
 		return outer, unread, outerClass
 	}

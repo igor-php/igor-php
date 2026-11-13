@@ -71,6 +71,8 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"heldByAnObjectForAnUnreadableMapper", "WARNING", "HoldingBox keeps the closure, and map() cannot be read"},
 		{"heldByAnObjectTheCallDrops", "", "HoldingBox keeps the closure, but map() does not keep the box"},
 		{"heldByAnObjectTheCallKeeps", "ERROR", "HoldingBox keeps the closure, and keepObject() keeps the box"},
+		{"nestedWrapperTheCallKeeps", "ERROR", "Envelope copies the closure PublicBox holds, and keepObject() keeps the envelope"},
+		{"nestedWrapperTheCallDrops", "", "Envelope may hold the closure, but map() does not keep the envelope"},
 		{"registeredByAConstructorAtTheCallSite", "ERROR", "ShutdownBox registers the closure as a shutdown function"},
 		{"unreadableConstructorTheCallKeeps", "ERROR", "the box may hold the closure, and keepObject() keeps the box"},
 		{"unreadableConstructorTheCallDrops", "WARNING", "the constructor cannot be read"},
