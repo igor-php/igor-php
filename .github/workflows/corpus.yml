@@ -19,9 +19,6 @@ concurrency:
   group: corpus-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  IGOR_CORPUS_DIR: ${{ github.workspace }}/../corpus
-
 jobs:
   projects:
     name: List the projects
@@ -44,6 +41,11 @@ jobs:
         project: ${{ fromJSON(needs.projects.outputs.names) }}
     steps:
       - uses: actions/checkout@v4
+
+      # Outside the checkout, which installs igor in the projects; an absolute path without "..",
+      # as actions/cache and actions/upload-artifact require
+      - name: Corpus directory
+        run: echo "IGOR_CORPUS_DIR=$RUNNER_TEMP/corpus" >> "$GITHUB_ENV"
 
       - name: Set up Go
         uses: actions/setup-go@v5
