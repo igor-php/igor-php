@@ -114,9 +114,11 @@ make corpus-update           # rewrite corpus/baseline/ after an intended change
 
 For each project, `scripts/corpus.sh` clones it at its commit, runs `composer install --no-scripts`, installs igor from your checkout through a Composer `path` repository (as a user would with `composer require --dev igor-php/igor-php`), builds the service map (`cache:clear` with the bundle registered, on Symfony), and runs the binary built from your checkout. `scripts/corpus-report.php` then:
 - checks the **invariants**, which fail the run: igor runs the Deep Audit without error, the Symfony service map holds no `.errored.` placeholder, and no Doctrine entity has a finding;
-- compares the **number of findings per rule and severity** with `corpus/baseline/<project>.json`. A difference is reported, not a failure: when it is intended, run `make corpus-update` and explain the new counts in your pull request.
+- compares the **number of findings per rule and severity** with `corpus/baseline/<project>.json`. Locally, a difference is reported, not a failure.
 
-The projects are installed once in `IGOR_CORPUS_DIR` (default `~/.cache/igor-php/corpus`), so only the first run pays for `composer install` (more than ten minutes for Part-DB); the full report of each run is in `results/` there. It needs `git`, `composer`, `php` (8.4, the version the pinned locks require), `go` and `jq`. Each project runs its own code (`composer install`, `cache:clear`): keep them pinned to a commit.
+The `Corpus` workflow (`.github/workflows/corpus.yml`) runs it on every pull request, one job per project, with `scripts/corpus.sh --strict`, without cache (Part-DB installs and runs in about a minute on a GitHub runner): there, a difference with the baseline fails the job too. When the change is intended, run `make corpus-update`, commit the baselines and explain the new counts in your pull request, as for the labs snapshots. The job summary shows the table, and the full reports are uploaded as the `corpus-<project>` artifact.
+
+The projects are installed once in `IGOR_CORPUS_DIR` (default `~/.cache/igor-php/corpus`), so only the first run pays for `composer install`; the full report of each run is in `results/` there. It needs `git`, `composer`, `php` (8.4, the version the pinned locks require), `go` and `jq`. Each project runs its own code (`composer install`, `cache:clear`): keep them pinned to a commit.
 
 A project entry can also set `"framework": "laravel"`, `setup` commands (`cp .env.example .env`, `php artisan key:generate`) and `env` variables, for the applications that need them to boot.
 
