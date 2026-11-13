@@ -1,0 +1,16 @@
+[
+    {
+        "name": "symfony-demo",
+        "repo": "https://github.com/symfony/demo.git",
+        "commit": "f42980c690b4bf335fa41bbafdb075bb67b719c2",
+        "framework": "symfony",
+        "memory": "512M"
+    },
+    {
+        "name": "part-db",
+        "repo": "https://github.com/Part-DB/Part-DB-server.git",
+        "commit": "eddccadacf3aaf8508fc6eef1b117c70fe23e161",
+        "framework": "symfony",
+        "memory": "1G"
+    }
+]
