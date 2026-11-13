@@ -68,6 +68,9 @@ func TestResolveClosureLeaks(t *testing.T) {
 
 		{"calledByAConstructor", "", "ArrayModifier calls the closure while it is built and keeps only the result"},
 		{"calledByAConstructorForAnUnreadableMapper", "", "the case of #139: the constructor only calls the closure, whatever map() does"},
+		{"calledByADelegatingConstructor", "", "replace() gets the modifiers and only returns the transformed source"},
+		{"heldThroughAReturningMethodForAnUnreadableMapper", "WARNING", "keepAll() returns the modifiers, the object keeps them, and map() cannot be read"},
+		{"heldThroughAReturningMethodTheCallDrops", "", "the object keeps the modifiers, but map() does not keep the object"},
 		{"heldByAnObjectForAnUnreadableMapper", "WARNING", "HoldingBox keeps the closure, and map() cannot be read"},
 		{"heldByAnObjectTheCallDrops", "", "HoldingBox keeps the closure, but map() does not keep the box"},
 		{"heldByAnObjectTheCallKeeps", "ERROR", "HoldingBox keeps the closure, and keepObject() keeps the box"},
@@ -76,6 +79,8 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"registeredByAConstructorAtTheCallSite", "ERROR", "ShutdownBox registers the closure as a shutdown function"},
 		{"unreadableConstructorTheCallKeeps", "ERROR", "the box may hold the closure, and keepObject() keeps the box"},
 		{"unreadableConstructorTheCallDrops", "WARNING", "the constructor cannot be read"},
+		{"sentryScopeOnANullableProperty", "", "?HubInterface is HubInterface"},
+		{"sentryScopeOnANullableAlias", "", "a local alias of a nullable property, as in the reporter's code"},
 		{"sentryScope", "", "Sentry's Hub::withScope() calls the callback and returns"},
 
 		{"registeredThroughAnInterface", "ERROR", "an interface cannot be read, and addListener() registers"},

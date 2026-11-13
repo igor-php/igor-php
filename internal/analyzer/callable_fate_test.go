@@ -24,6 +24,8 @@ func fateOf(t *testing.T, body string, param int) ParamFate {
 
 func TestParamFate(t *testing.T) {
 	invoked := ParamFate{}
+	wrap := ParamForward{Kind: ForwardSelf, Method: "wrap", Pos: 0}
+	decorate := ParamForward{Kind: ForwardDependency, Class: "Vendor\\Registry", Method: "decorate", Pos: 0}
 	retained := ParamFate{Retained: true}
 	global := ParamFate{Retained: true, Global: true}
 	unknown := ParamFate{Unknown: true}
@@ -38,13 +40,13 @@ func TestParamFate(t *testing.T) {
 		{"unused", `return 1;`, invoked},
 		{"call_user_func", `return \call_user_func($callback, 1);`, invoked},
 		{"array_map", `return array_map($callback, $options);`, ParamFate{Trusts: []string{"App\\array_map"}}},
-		{"tested and returned", `if (null === $callback || !is_callable($callback)) { return null; } return $callback;`, invoked},
+		{"tested and returned", `if (null === $callback || !is_callable($callback)) { return null; } return $callback;`, ParamFate{Returned: true}},
 		{"local alias called", `$fn = $callback; return $fn();`, invoked},
 		{"closure around it, called", `$wrapped = function () use ($callback) { return $callback(); }; return $wrapped();`, invoked},
 		{"arrow function around it, called", `$wrapped = fn () => $callback(); return $wrapped();`, invoked},
 		{"local array, iterated", `$all = [$callback]; foreach ($all as $one) { $one(); }`, invoked},
 		{"local array filled then iterated", `$all = []; $all['first'] = $callback; foreach ($all as $one) { $one(); }`, invoked},
-		{"local object given it", `$box = new Box(); $box->callback = $callback; return $box;`, invoked},
+		{"local object given it", `$box = new Box(); $box->callback = $callback; return $box;`, ParamFate{Returned: true}},
 		{"method called on it", `$callback->handle($options);`, invoked},
 		{"local alias cleared before it is stored", `$fn = $callback; $fn = null; $this->untyped = $fn;`, invoked},
 		{"local replaced by an unrelated value before it is stored", `$fn = $callback; $fn = $options['fallback']; $this->untyped = $fn;`, invoked},
@@ -75,15 +77,15 @@ func TestParamFate(t *testing.T) {
 		{"copy of a property cleared before it is stored back", `$all = $this->listeners; $all[] = $callback; $all = []; $this->listeners = $all;`, unknown},
 		{"parameter replaced by a closure around it", `$callback = \Closure::fromCallable($callback); $this->untyped = $callback;`, retained},
 		{"parameter replaced by a wrapper of it", `$callback = $this->wrap($callback); $this->untyped = $callback;`,
-			ParamFate{Retained: true, Unknown: true, Forwards: []ParamForward{{Kind: ForwardSelf, Method: "wrap", Pos: 0}}}},
+			ParamFate{Retained: true, Forwards: []ParamForward{wrap}, ResultKept: &ParamFate{Retained: true, Forwards: []ParamForward{wrap}}, ResultFrom: []ParamForward{wrap}}},
 		{"result of a method given it, stored", `$wrapped = $this->wrap($callback); $this->untyped = $wrapped;`,
-			ParamFate{Unknown: true, Forwards: []ParamForward{{Kind: ForwardSelf, Method: "wrap", Pos: 0}}}},
+			ParamFate{Forwards: []ParamForward{wrap}, ResultKept: &ParamFate{Retained: true}, ResultFrom: []ParamForward{wrap}}},
 		{"result of a method given it, replacing a local, stored", `$fn = $callback; $wrapped = $this->wrap($fn); $fn = $wrapped; $this->untyped = $fn;`,
-			ParamFate{Unknown: true, Forwards: []ParamForward{{Kind: ForwardSelf, Method: "wrap", Pos: 0}}}},
+			ParamFate{Forwards: []ParamForward{wrap}, ResultKept: &ParamFate{Retained: true, Forwards: []ParamForward{wrap}}, ResultFrom: []ParamForward{wrap}}},
 		{"result of a dependency given it, stored", `$this->listeners[] = $this->registry->decorate($callback);`,
-			ParamFate{Unknown: true, Forwards: []ParamForward{{Kind: ForwardDependency, Class: "Vendor\\Registry", Method: "decorate", Pos: 0}}}},
+			ParamFate{Forwards: []ParamForward{decorate}, ResultKept: &ParamFate{Retained: true}, ResultFrom: []ParamForward{decorate}}},
 		{"result of a method given it, returned", `$result = $this->wrap($callback); return $result;`,
-			ParamFate{Forwards: []ParamForward{{Kind: ForwardSelf, Method: "wrap", Pos: 0}}}},
+			ParamFate{Returned: true, Forwards: []ParamForward{wrap}}},
 		{"local replaced by a value built from another variable", `$fn = $callback; $fn = $options['wrap']($fn); $this->untyped = $fn;`,
 			ParamFate{Retained: true, Unknown: true}},
 		{"local replaced by another holder of it", `$all = [$callback]; $fn = null; $fn = $all[0]; $this->untyped = $fn;`, retained},
