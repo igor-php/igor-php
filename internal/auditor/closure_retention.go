@@ -256,6 +256,11 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 		queue = queue[1:]
 
 		found, fate, ok := a.paramFate(node)
+		if fate.ResultKept != nil && a.resultMayReturn(node, found, fate.ResultFrom) {
+			// $this->source = $this->replace($modifiers): what happens to the result counts
+			// only if replace() may return the closure
+			fate = mergeResultFate(fate)
+		}
 		if fate.Global || (fate.Retained && !node.fresh) {
 			return retentionKept, root
 		}
@@ -304,6 +309,32 @@ func (a *Auditor) retentionStart(ref *symbol.ClosureArgRef, callerClass string) 
 	start.receiver, start.start = root, root
 	// The property may hold a subclass whose method does something else
 	return start, root != "" && (exact || !a.overriddenInSubclass(root, ref.Method))
+}
+
+// resultMayReturn reports whether one of the methods the value is passed to may return it: one
+// that returns it, or one that cannot be read.
+func (a *Auditor) resultMayReturn(node retentionNode, found resolvedMethod, from []analyzer.ParamForward) bool {
+	for _, f := range from {
+		next, ok := a.forwardNode(node, found, f)
+		if !ok {
+			return true
+		}
+		if _, fate, readable := a.paramFate(next); !readable || fate.Returned {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeResultFate adds to a parameter's fate what the method does with a call result that may
+// hold it.
+func mergeResultFate(fate analyzer.ParamFate) analyzer.ParamFate {
+	result := *fate.ResultKept
+	fate.Retained = fate.Retained || result.Retained
+	fate.Global = fate.Global || result.Global
+	// Passed on again: where it goes from there is not followed
+	fate.Unknown = fate.Unknown || result.Unknown || len(result.Forwards) > 0
+	return fate
 }
 
 // paramFate reads what the method of node does with the argument at its position. ok is false

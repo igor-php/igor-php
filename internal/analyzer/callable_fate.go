@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"slices"
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -50,6 +51,13 @@ type ParamFate struct {
 	// summary to hold: the body calls array_map() unqualified, which PHP resolves to a function
 	// of the namespace before the built-in one.
 	Trusts []string
+	// Returned is true when the method may return the value, or something holding it.
+	Returned bool
+	// ResultKept is what the method does with the result of the calls in ResultFrom, which were
+	// given the value: $wrapped = $this->wrap($callback); $this->kept = $wrapped. It only applies
+	// when one of those methods may return what it was given.
+	ResultKept *ParamFate
+	ResultFrom []ParamForward
 }
 
 // MethodCallables is the fate of each parameter of a method.
@@ -280,6 +288,39 @@ func (v *PHPVisitor) importsName(n *sitter.Node, name string) bool {
 	return false
 }
 
+// keepResults folds the fate of the call results that may hold a parameter (the slots after
+// count) into that parameter: $wrapped = $this->wrap($callback); $this->kept = $wrapped is kept
+// if wrap() returns it.
+func (s *fateScanner) keepResults() {
+	for i := 0; i < s.count; i++ {
+		maybe := s.fates[s.count+i]
+		if len(s.resultFrom[i]) > 0 && (maybe.Retained || maybe.Global || maybe.Unknown || len(maybe.Forwards) > 0) {
+			kept := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Forwards: maybe.Forwards}
+			s.fates[i].ResultKept = &kept
+			s.fates[i].ResultFrom = s.resultFrom[i]
+		}
+		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
+	}
+	s.fates = s.fates[:s.count]
+}
+
+// isGenerator reports a body that yields, outside the closures it declares: calling the method
+// returns a Generator.
+func isGenerator(n *sitter.Node) bool {
+	switch n.Kind() {
+	case "yield_expression":
+		return true
+	case "anonymous_function", "arrow_function", "function_definition", "class_declaration", "anonymous_class":
+		return false
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if isGenerator(n.Child(i)) {
+			return true
+		}
+	}
+	return false
+}
+
 // fateScanner follows the parameters of one method through its body.
 type fateScanner struct {
 	v      *PHPVisitor
@@ -295,9 +336,9 @@ type fateScanner struct {
 	grew   bool
 	opaque bool
 	// count is the number of parameters. The index count+i stands for a value that may hold
-	// parameter i: the result of a method that was given it. Whatever happens to that value
-	// makes the fate of parameter i unknown.
-	count int
+	// parameter i: the result of a method that was given it, listed in resultFrom[i].
+	count      int
+	resultFrom map[int][]ParamForward
 	// arrayParams are the parameters that are arrays passed by value (array $options, a
 	// variadic): writing an entry changes the method's own copy.
 	arrayParams map[string]bool
@@ -341,6 +382,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	}
 	count := len(s.params)
 	s.count = count
+	s.resultFrom = map[int][]ParamForward{}
 	body := method.ChildByFieldName("body")
 	if body == nil {
 		out.Params = make([]ParamFate, count)
@@ -354,27 +396,27 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	// set of locals holding a parameter stops growing
 	for round := 0; round < 8; round++ {
 		s.fates = make([]ParamFate, 2*count)
+		s.resultFrom = map[int][]ParamForward{}
 		s.grew = false
 		s.scan(body)
 		if !s.grew {
 			break
 		}
 	}
-	for i := 0; i < count; i++ {
-		// $wrapped = $this->wrap($callback); $this->kept = $wrapped; may keep it
-		maybe := s.fates[count+i]
-		if maybe.Retained || maybe.Unknown || len(maybe.Forwards) > 0 {
-			s.fates[i].Unknown = true
-		}
-		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
-	}
-	s.fates = s.fates[:count]
+	s.keepResults()
 	for _, i := range promoted {
 		// public function __construct(private \Closure $callback): stored as a property
 		s.fates[i].Retained = true
 	}
 	for _, i := range byRef {
 		s.fates[i].Unknown = true
+	}
+	if isGenerator(body) {
+		// A generator keeps its whole frame, arguments included, until it is consumed: what it is
+		// given lives as long as the generator the caller gets back
+		for i := range s.fates {
+			s.fates[i].Returned = true
+		}
 	}
 	out.Params = s.fates
 	out.Opaque = s.opaque
@@ -659,6 +701,9 @@ func (s *fateScanner) step(p, cur *sitter.Node, indexes []int) *sitter.Node {
 		s.unknown(indexes)
 	case "static_variable_declaration":
 		s.retainGlobally(indexes)
+	case "return_statement", "yield_expression":
+		// The caller gets it back: what the caller does with the result decides
+		s.returned(indexes)
 	case "foreach_statement":
 		// foreach ($listeners as $listener): the loop variables hold what the source holds
 		if p.NamedChildCount() > 0 && sameNode(p.NamedChild(0), cur) {
@@ -935,15 +980,29 @@ func (s *fateScanner) constructorArgument(call *sitter.Node, pos int, positional
 
 // resultMayHold follows the result of a call that was given the value: wrap($callback) may
 // return it, or something built around it.
-func (s *fateScanner) resultMayHold(call *sitter.Node, indexes []int) {
+func (s *fateScanner) resultMayHold(call *sitter.Node, indexes []int, f ParamForward) {
 	maybe := make([]int, len(indexes))
 	for i, index := range indexes {
 		maybe[i] = index
 		if index < s.count {
 			maybe[i] = index + s.count
 		}
+		param := maybe[i] - s.count
+		if !slices.Contains(s.resultFrom[param], f) {
+			s.resultFrom[param] = append(s.resultFrom[param], f)
+		}
 	}
 	s.follow(call, maybe)
+}
+
+// returned records a value the method may return: a parameter, or the result of a call given one.
+func (s *fateScanner) returned(indexes []int) {
+	for _, i := range indexes {
+		if i >= s.count {
+			i -= s.count
+		}
+		s.fates[i].Returned = true
+	}
 }
 
 // trust records that the fate of the parameters relies on name() being the PHP function.
@@ -1018,14 +1077,16 @@ func (s *fateScanner) methodArgument(call *sitter.Node, pos int, positional bool
 	}
 	method := v.getContent(nameNode)
 	if isThisVariable(v, obj) {
-		s.forward(indexes, ParamForward{Kind: ForwardSelf, Method: method, Pos: pos})
-		s.resultMayHold(call, indexes)
+		f := ParamForward{Kind: ForwardSelf, Method: method, Pos: pos}
+		s.forward(indexes, f)
+		s.resultMayHold(call, indexes, f)
 		return
 	}
 	if prop, ok := v.isPropertyFetchOnThis(obj); ok && isThisVariable(v, obj.ChildByFieldName("object")) {
 		if class := v.propertyClass(prop); class != "" {
-			s.forward(indexes, ParamForward{Kind: ForwardDependency, Class: class, Method: method, Pos: pos})
-			s.resultMayHold(call, indexes)
+			f := ParamForward{Kind: ForwardDependency, Class: class, Method: method, Pos: pos}
+			s.forward(indexes, f)
+			s.resultMayHold(call, indexes, f)
 			return
 		}
 	}
@@ -1049,20 +1110,22 @@ func (s *fateScanner) staticArgument(call *sitter.Node, pos int, positional bool
 		s.unknown(indexes)
 		return nil
 	}
+	var f ParamForward
 	switch strings.ToLower(scopeName) {
 	case "self":
-		s.forward(indexes, ParamForward{Kind: ForwardSelf, Method: method, Pos: pos, Self: true})
+		f = ParamForward{Kind: ForwardSelf, Method: method, Pos: pos, Self: true}
 	case "static":
-		s.forward(indexes, ParamForward{Kind: ForwardSelf, Method: method, Pos: pos})
+		f = ParamForward{Kind: ForwardSelf, Method: method, Pos: pos}
 	case "parent":
-		s.forward(indexes, ParamForward{Kind: ForwardParent, Method: method, Pos: pos})
+		f = ParamForward{Kind: ForwardParent, Method: method, Pos: pos}
 	default:
 		if scope.Kind() != "name" && scope.Kind() != "qualified_name" {
 			s.unknown(indexes)
 			return nil
 		}
-		s.forward(indexes, ParamForward{Kind: ForwardStatic, Class: v.resolveFQCN(scopeName), Method: method, Pos: pos})
+		f = ParamForward{Kind: ForwardStatic, Class: v.resolveFQCN(scopeName), Method: method, Pos: pos}
 	}
-	s.resultMayHold(call, indexes)
+	s.forward(indexes, f)
+	s.resultMayHold(call, indexes, f)
 	return nil
 }

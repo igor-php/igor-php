@@ -752,12 +752,18 @@ func (v *PHPVisitor) propertyClass(propName string) string {
 	if !ok {
 		return ""
 	}
+	return v.typeClass(t)
+}
+
+// typeClass returns the FQCN a declared type names (?HubInterface included), or "" when it is not
+// a single class type: a union, an intersection, a scalar or self.
+func (v *PHPVisitor) typeClass(t string) string {
 	t = strings.TrimPrefix(strings.TrimSpace(t), "?")
 	if t == "" || strings.ContainsAny(t, "|&()") {
 		return ""
 	}
-	switch strings.ToLower(t) {
-	case "self", "static", "mixed", "object", "array", "iterable", "callable", "string", "int", "float", "bool":
+	switch strings.ToLower(strings.TrimPrefix(t, "\\")) {
+	case "self", "static", "mixed", "object", "array", "iterable", "callable", "string", "int", "float", "bool", "null", "void", "never", "false", "true":
 		return ""
 	}
 	return v.resolveFQCN(t)

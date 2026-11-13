@@ -995,8 +995,8 @@ func (v *PHPVisitor) isTransientOrEphemeral(leftContent, leftLower, rightLower, 
 			if receiverClass != "" && methodName != "" {
 				retType := v.engine.GetMethodReturnType(receiverClass, methodName)
 				if retType != "" {
-					// Save type in local variable tracking
-					v.localVarTypes[leftContent] = retType
+					// Save type in local variable tracking: a return type is already fully qualified
+					v.localVarTypes[leftContent] = "\\" + retType
 
 					// If the return type is not a shared service, it is transient!
 					if !v.engine.IsSharedService(retType) {
@@ -1023,7 +1023,7 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 	// Case 1: property fetch on $this, e.g. $this->tracer
 	if propName, ok := v.isPropertyFetchOnThis(n); ok {
 		if typeName, exists := v.propertyTypes[propName]; exists {
-			return v.resolveFQCN(typeName)
+			return v.typeClass(typeName)
 		}
 	}
 
@@ -1038,7 +1038,7 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 			return fullName
 		}
 		if typeName, exists := v.localVarTypes[content]; exists {
-			return v.resolveFQCN(typeName)
+			return v.typeClass(typeName)
 		}
 	}
 
@@ -1445,7 +1445,7 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 	}
 
 	if hasType {
-		fqcn := v.resolveFQCN(typeName)
+		fqcn := v.typeClass(typeName)
 		if v.engine != nil {
 			if v.engine.IsSafeNamespace(fqcn) {
 				isResettable = true

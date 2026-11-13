@@ -257,6 +257,62 @@ final class ArrayModifier
     }
 }
 
+// The reporter's shape: the constructor hands the modifiers to a private method and keeps its result
+final class DelegatingModifier
+{
+    private array $source;
+
+    public function __construct(array $source, array $modifiers)
+    {
+        $this->source = $this->replace($source, $modifiers);
+    }
+
+    private function replace(array $source, array $modifiers): array
+    {
+        foreach ($modifiers as $key => $modifier) {
+            $source[$key] = $modifier($source[$key] ?? null);
+        }
+
+        return $source;
+    }
+}
+
+// The constructor stores a generator: it holds the modifiers until it is consumed, without
+// returning or yielding them
+final class GeneratorModifier
+{
+    private \Generator $rows;
+
+    public function __construct(array $modifiers)
+    {
+        $this->rows = $this->apply($modifiers);
+    }
+
+    private function apply(array $modifiers): \Generator
+    {
+        yield 1;
+        foreach ($modifiers as $modifier) {
+            $modifier();
+        }
+    }
+}
+
+// The same shape, but the private method returns the modifiers: the object holds them
+final class ReturningModifier
+{
+    private array $modifiers;
+
+    public function __construct(array $modifiers)
+    {
+        $this->modifiers = $this->keepAll($modifiers);
+    }
+
+    private function keepAll(array $modifiers): array
+    {
+        return $modifiers;
+    }
+}
+
 final class HoldingBox
 {
     public function __construct(private \Closure $callback)
@@ -321,6 +377,7 @@ final class Consumer
         private TreeMapper $treeMapper,
         private ObjectRegistry $objects,
         private \Sentry\State\HubInterface $hub,
+        private ?\Sentry\State\HubInterface $nullableHub,
         private Edges $edges,
         private Adapted $adapted,
         private Relay $relay,
@@ -505,6 +562,42 @@ final class Consumer
         ]));
     }
 
+    public function calledByADelegatingConstructor(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new DelegatingModifier([], [
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldThroughAReturningMethodForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new ReturningModifier([
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldByAStoredGeneratorForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new GeneratorModifier([
+            'rates' => static function () use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldThroughAReturningMethodTheCallDrops(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new ReturningModifier([
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
     public function heldByAnObjectForAnUnreadableMapper(string $optin): void
     {
         $this->treeMapper->map(Consumer::class, new HoldingBox(function () use ($optin) {
@@ -559,6 +652,23 @@ final class Consumer
         $this->mapper->map(Consumer::class, new \Vendor\Unknown\Thing(function () use ($optin) {
             return $optin;
         }));
+    }
+
+    public function sentryScopeOnANullableProperty(string $optin): void
+    {
+        $this->nullableHub->withScope(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    public function sentryScopeOnANullableAlias(string $optin): void
+    {
+        $sentry = $this->nullableHub;
+        if ($sentry !== null) {
+            $sentry->withScope(static function () use ($sentry, $optin) {
+                return $optin;
+            });
+        }
     }
 
     public function sentryScope(string $optin): void
