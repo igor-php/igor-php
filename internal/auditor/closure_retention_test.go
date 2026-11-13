@@ -66,6 +66,16 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"storedThroughParentInATrait", "ERROR", "parent:: in a trait is the parent of the class using it"},
 		{"storedThroughSelfInATrait", "ERROR", "self:: in a trait is the class using it"},
 
+		{"calledByAConstructor", "", "ArrayModifier calls the closure while it is built and keeps only the result"},
+		{"calledByAConstructorForAnUnreadableMapper", "", "the case of #139: the constructor only calls the closure, whatever map() does"},
+		{"heldByAnObjectForAnUnreadableMapper", "WARNING", "HoldingBox keeps the closure, and map() cannot be read"},
+		{"heldByAnObjectTheCallDrops", "", "HoldingBox keeps the closure, but map() does not keep the box"},
+		{"heldByAnObjectTheCallKeeps", "ERROR", "HoldingBox keeps the closure, and keepObject() keeps the box"},
+		{"registeredByAConstructorAtTheCallSite", "ERROR", "ShutdownBox registers the closure as a shutdown function"},
+		{"unreadableConstructorTheCallKeeps", "ERROR", "the box may hold the closure, and keepObject() keeps the box"},
+		{"unreadableConstructorTheCallDrops", "WARNING", "the constructor cannot be read"},
+		{"sentryScope", "", "Sentry's Hub::withScope() calls the callback and returns"},
+
 		{"registeredThroughAnInterface", "ERROR", "an interface cannot be read, and addListener() registers"},
 		{"visitedThroughAnInterface", "WARNING", "an interface cannot be read, and visit() says nothing"},
 		{"calledOnAnAbstractClass", "WARNING", "an abstract class may be any subclass"},
@@ -88,6 +98,9 @@ func TestResolveClosureLeaks(t *testing.T) {
 	for _, f := range results[0].Findings {
 		if f.Rule == symbol.RuleClosureStateLeak && f.Severity == "WARNING" && !strings.Contains(f.Remediation, "could not read") {
 			t.Errorf("%s: a downgraded finding must say igor could not read the method: %q", f.ContextMethod, f.Remediation)
+		}
+		if f.ContextMethod == "unreadableConstructorTheCallDrops" && !strings.Contains(f.Remediation, `Vendor\Unknown\Thing::__construct()`) {
+			t.Errorf("the warning must name the constructor igor could not read: %q", f.Remediation)
 		}
 	}
 }

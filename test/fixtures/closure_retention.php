@@ -244,9 +244,65 @@ final class Relay extends KeepingBase
     }
 }
 
+// Applies the modifiers while it is built and keeps only the result, like Valinor's ArrayModifier
+final class ArrayModifier
+{
+    private array $result = [];
+
+    public function __construct(mixed $source, array $modifiers)
+    {
+        foreach ($modifiers as $key => $modifier) {
+            $this->result[$key] = $modifier($source);
+        }
+    }
+}
+
+final class HoldingBox
+{
+    public function __construct(private \Closure $callback)
+    {
+    }
+}
+
+final class ShutdownBox
+{
+    public function __construct(callable $callback)
+    {
+        register_shutdown_function($callback);
+    }
+}
+
+final class Mapper
+{
+    public function map(string $class, object $source): object
+    {
+        return $source;
+    }
+}
+
+// An interface without implementation igor can read, like Valinor's TreeMapper
+interface TreeMapper
+{
+    public function map(string $signature, mixed $source): mixed;
+}
+
+final class ObjectRegistry
+{
+    private array $objects = [];
+
+    public function keepObject(object $object): void
+    {
+        $this->objects[] = $object;
+    }
+}
+
 final class Consumer
 {
     public function __construct(
+        private Mapper $mapper,
+        private TreeMapper $treeMapper,
+        private ObjectRegistry $objects,
+        private \Sentry\State\HubInterface $hub,
         private Edges $edges,
         private Adapted $adapted,
         private Relay $relay,
@@ -408,6 +464,74 @@ final class Consumer
     public function storedThroughSelfInATrait(string $optin): void
     {
         $this->relay->relayToSelf(function () use ($optin) {
+            return $optin;
+        });
+    }
+
+    // The closure is given to a constructor in the arguments of the dependency call
+    public function calledByAConstructor(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new ArrayModifier([], [
+            'rates' => function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function calledByAConstructorForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new ArrayModifier([], [
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldByAnObjectForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new HoldingBox(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function heldByAnObjectTheCallDrops(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new HoldingBox(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function heldByAnObjectTheCallKeeps(string $optin): void
+    {
+        $this->objects->keepObject(new HoldingBox(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function registeredByAConstructorAtTheCallSite(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new ShutdownBox(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function unreadableConstructorTheCallKeeps(string $optin): void
+    {
+        $this->objects->keepObject(new \Vendor\Unknown\Thing(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function unreadableConstructorTheCallDrops(string $optin): void
+    {
+        $this->mapper->map(Consumer::class, new \Vendor\Unknown\Thing(function () use ($optin) {
+            return $optin;
+        }));
+    }
+
+    public function sentryScope(string $optin): void
+    {
+        $this->hub->withScope(function () use ($optin) {
             return $optin;
         });
     }

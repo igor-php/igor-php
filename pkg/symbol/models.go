@@ -52,6 +52,9 @@ type ClosureArgRef struct {
 	// Positional is false when that argument, or one before it, is named or spread: Pos cannot
 	// be trusted.
 	Positional bool
+	// Outer is set when the closure is given to a constructor (Method is __construct): the call
+	// that receives the new object, $this->mapper->map(..., new ArrayModifier(..., $closure)).
+	Outer *ClosureArgRef
 }
 
 // CallRef names a method of a class.
