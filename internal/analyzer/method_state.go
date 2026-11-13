@@ -748,11 +748,31 @@ func (s *stateSummarizer) scopedCall(n *sitter.Node) {
 // propertyClass returns the FQCN of a property's declared type, or "" when it is not a
 // single class type.
 func (v *PHPVisitor) propertyClass(propName string) string {
-	t, ok := v.propertyTypes[propName]
+	t, ok := v.propertyType(propName)
 	if !ok {
 		return ""
 	}
 	return v.typeClass(t)
+}
+
+// propertyType returns the declared type of a property of $this: declared in the class, or inherited
+// from a parent class or a trait (ConstraintValidator's $context, DenormalizerAwareTrait's
+// $denormalizer). An inherited type is fully qualified.
+func (v *PHPVisitor) propertyType(propName string) (string, bool) {
+	if t, ok := v.propertyTypes[propName]; ok {
+		return t, true
+	}
+	if v.engine == nil || v.curClass == "" {
+		return "", false
+	}
+	fullName := v.curClass
+	if v.namespace != "" {
+		fullName = v.namespace + "\\" + v.curClass
+	}
+	if t := v.engine.GetPropertyType(fullName, propName); t != "" {
+		return "\\" + t, true
+	}
+	return "", false
 }
 
 // typeClass returns the FQCN a declared type names (?HubInterface included), or "" when it is not

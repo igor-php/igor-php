@@ -28,6 +28,8 @@ type Auditor struct {
 	classParents         map[string]string
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
+	// classDecls caches the parsed declarations read by the type lookups, by normalized class name.
+	classDecls           map[string]classDecl
 	FileContentOverrides map[string][]byte
 	classShapes          map[string]analyzer.ClassShape
 	methodStates         map[string]map[string]analyzer.MethodState
@@ -700,69 +702,87 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 	}
 	visited[normClass] = true
 
-	a.mu.Lock()
-	// Check if present in cache
-	if classCache, exists := a.methodSignatureCache[normClass]; exists {
-		if retType, found := classCache[methodName]; found && retType != "" {
-			a.mu.Unlock()
-			return retType
-		}
-		if parentClass, hasParent := a.parentClassCache[normClass]; hasParent && parentClass != "" {
-			a.mu.Unlock()
-			return a.getMethodReturnTypeWithDepth(parentClass, methodName, visited)
-		}
-		a.mu.Unlock()
+	decl, ok := a.classDeclaration(normClass)
+	if !ok {
 		return ""
 	}
-	a.mu.Unlock()
-
-	// Not in cache, try to locate file
-	if a.Symfony == nil || a.Symfony.ClassToFile == nil {
-		return ""
-	}
-
-	filePath, exists := a.Symfony.ClassToFile[className]
-	if !exists {
-		// Try normalized lookup
-		for k, v := range a.Symfony.ClassToFile {
-			if normalizeClassName(k) == normClass {
-				filePath = v
-				exists = true
-				break
-			}
-		}
-	}
-
-	if !exists {
-		return ""
-	}
-
-	// Parse class methods
-	signatures, parentClass, err := a.parseClassMethodSignatures(className, filePath)
-
-	a.mu.Lock()
-	if err != nil {
-		// Cache empty map to avoid re-parsing on error
-		a.methodSignatureCache[normClass] = make(map[string]string)
-		a.mu.Unlock()
-		return ""
-	}
-
-	a.methodSignatureCache[normClass] = signatures
-	if parentClass != "" {
-		a.parentClassCache[normClass] = parentClass
-	}
-	a.mu.Unlock()
-
-	if retType, found := signatures[methodName]; found && retType != "" {
+	if retType := decl.methods[methodName]; retType != "" {
 		return retType
 	}
+	// A trait method takes precedence over the parent's
+	for _, trait := range decl.traits {
+		if retType := a.getMethodReturnTypeWithDepth(trait, methodName, visited); retType != "" {
+			return retType
+		}
+	}
+	if decl.parent != "" {
+		return a.getMethodReturnTypeWithDepth(decl.parent, methodName, visited)
+	}
+	return ""
+}
 
-	if parentClass != "" {
-		return a.getMethodReturnTypeWithDepth(parentClass, methodName, visited)
+// GetPropertyType returns the declared type (an FQCN, or a scalar or union as written) of a property
+// a class declares or inherits: from its traits, then from its parents. ConstraintValidator's
+// $context and DenormalizerAwareTrait's $denormalizer are declared outside the class using them.
+func (a *Auditor) GetPropertyType(className, propertyName string) string {
+	return a.propertyTypeWithDepth(normalizeClassName(className), propertyName, map[string]bool{})
+}
+
+func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]bool) string {
+	if class == "" || visited[class] {
+		return ""
+	}
+	visited[class] = true
+	decl, ok := a.classDeclaration(class)
+	if !ok {
+		return ""
+	}
+	if t := decl.props[prop]; t != "" {
+		return t
+	}
+	for _, trait := range decl.traits {
+		if t := a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited); t != "" {
+			return t
+		}
+	}
+	return a.propertyTypeWithDepth(normalizeClassName(decl.parent), prop, visited)
+}
+
+// classDeclaration parses the file declaring class (located through the framework class map, the
+// audited files, then Composer) once, and caches what the type lookups read from it.
+func (a *Auditor) classDeclaration(class string) (classDecl, bool) {
+	a.mu.Lock()
+	if decl, cached := a.classDecls[class]; cached {
+		a.mu.Unlock()
+		return decl, decl.methods != nil
+	}
+	a.mu.Unlock()
+
+	var decl classDecl
+	if filePath := a.classFile(class); filePath != "" {
+		if parsed, err := a.parseClassDecl(class, filePath); err == nil {
+			decl = parsed
+		}
+	}
+	if decl.methods == nil {
+		// Cache the miss too: the file is not parsed again
+		decl = classDecl{}
 	}
 
-	return ""
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.classDecls == nil {
+		a.classDecls = make(map[string]classDecl)
+	}
+	a.classDecls[class] = decl
+	a.methodSignatureCache[class] = decl.methods
+	if decl.methods == nil {
+		a.methodSignatureCache[class] = map[string]string{}
+	}
+	if decl.parent != "" {
+		a.parentClassCache[class] = decl.parent
+	}
+	return decl, decl.methods != nil
 }
 
 func isBuiltinType(t string) bool {
@@ -781,33 +801,48 @@ func parseMethodDeclaration(node *sitter.Node, content []byte, lines []string, n
 		return "", ""
 	}
 	mName := string(content[nameNode.StartByte():nameNode.EndByte()])
-	retNode := node.ChildByFieldName("return_type")
 	var retType string
-	if retNode != nil {
-		retType = strings.TrimPrefix(strings.TrimSpace(string(content[retNode.StartByte():retNode.EndByte()])), "?")
-		qualified := strings.HasPrefix(retType, "\\")
-		retType = strings.TrimPrefix(retType, "\\")
-
-		// Resolve self and static
-		switch {
-		case retType == "self" || retType == "static":
-			retType = className
-		case isBuiltinType(retType) || strings.ContainsAny(retType, "|&()"):
-			// A union or intersection names no single class
-		case qualified:
-			// Fully qualified: \Doctrine\ORM\EntityManagerInterface
-		default:
-			// EntityManagerInterface comes from a use import of this file, not from its namespace
-			retType = resolveTypeInFile(retType, lines, namespace)
-		}
+	if retNode := node.ChildByFieldName("return_type"); retNode != nil {
+		retType = resolveDeclaredType(string(content[retNode.StartByte():retNode.EndByte()]), lines, namespace, className)
 	}
 	return mName, retType
 }
 
-func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[string]string, string, error) {
+// resolveDeclaredType resolves a type written in a declaration (?Foo, \Foo\Bar, Foo, self) against the
+// imports and namespace of its file. Unions, intersections and scalar types are returned as written.
+func resolveDeclaredType(raw string, lines []string, namespace, className string) string {
+	t := strings.TrimPrefix(strings.TrimSpace(raw), "?")
+	qualified := strings.HasPrefix(t, "\\")
+	t = strings.TrimPrefix(t, "\\")
+	switch {
+	case t == "self" || t == "static":
+		return className
+	case isBuiltinType(t) || strings.ContainsAny(t, "|&()"):
+		// A union or intersection names no single class
+		return t
+	case qualified:
+		// Fully qualified: \Doctrine\ORM\EntityManagerInterface
+		return t
+	}
+	// EntityManagerInterface comes from a use import of this file, not from its namespace
+	return resolveTypeInFile(t, lines, namespace)
+}
+
+// classDecl is what the type lookups read from the declaration of a class, an interface or a trait.
+type classDecl struct {
+	// methods are the return types of its methods, by name.
+	methods map[string]string
+	parent  string
+	traits  []string
+	// props are the declared types of its properties (promoted constructor parameters included).
+	props map[string]string
+}
+
+func (a *Auditor) parseClassDecl(className, filePath string) (classDecl, error) {
+	decl := classDecl{methods: map[string]string{}, props: map[string]string{}}
 	content, err := a.getFileContent(filePath)
 	if err != nil {
-		return nil, "", err
+		return decl, err
 	}
 
 	p := sitter.NewParser()
@@ -816,14 +851,11 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 
 	tree := p.Parse(content, nil)
 	if tree == nil {
-		return nil, "", fmt.Errorf("failed to parse %s", filePath)
+		return decl, fmt.Errorf("failed to parse %s", filePath)
 	}
 	defer tree.Close()
 
-	signatures := make(map[string]string)
 	var namespace string
-	var parentClass string
-
 	var walk func(*sitter.Node)
 	walk = func(n *sitter.Node) {
 		if n == nil {
@@ -836,7 +868,7 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			}
 		}
 
-		if kind == "class_declaration" || kind == "interface_declaration" {
+		if kind == "class_declaration" || kind == "interface_declaration" || kind == "trait_declaration" {
 			var declName string
 			if nameNode := n.ChildByFieldName("name"); nameNode != nil {
 				declName = string(content[nameNode.StartByte():nameNode.EndByte()])
@@ -850,23 +882,9 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 			if normalizeClassName(fqcn) == normalizeClassName(className) {
 				// Only the imports of the namespace declaring the class apply to it
 				lines := namespaceLines(n, content)
-				parentClass = resolveParentClassFromNode(n, content, lines, namespace)
-				// Walk children to find method_declarations
-				var walkClassBody func(*sitter.Node)
-				walkClassBody = func(bodyNode *sitter.Node) {
-					if bodyNode == nil {
-						return
-					}
-					if bodyNode.Kind() == "method_declaration" {
-						if mName, retType := parseMethodDeclaration(bodyNode, content, lines, namespace, className); mName != "" {
-							signatures[mName] = retType
-						}
-					}
-					for i := uint(0); i < bodyNode.ChildCount(); i++ {
-						walkClassBody(bodyNode.Child(i))
-					}
-				}
-				walkClassBody(n)
+				decl.parent = resolveParentClassFromNode(n, content, lines, namespace)
+				readClassMembers(n, content, lines, namespace, className, &decl)
+				return
 			}
 		}
 
@@ -876,7 +894,56 @@ func (a *Auditor) parseClassMethodSignatures(className, filePath string) (map[st
 	}
 	walk(tree.RootNode())
 
-	return signatures, parentClass, nil
+	return decl, nil
+}
+
+// readClassMembers reads the methods, properties and used traits of a class-like declaration.
+func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace, className string, decl *classDecl) {
+	text := func(x *sitter.Node) string { return string(content[x.StartByte():x.EndByte()]) }
+	body := n.ChildByFieldName("body")
+	if body == nil {
+		return
+	}
+	for i := uint(0); i < body.NamedChildCount(); i++ {
+		member := body.NamedChild(i)
+		switch member.Kind() {
+		case "use_declaration":
+			for j := uint(0); j < member.NamedChildCount(); j++ {
+				if t := member.NamedChild(j); t.Kind() == "name" || t.Kind() == "qualified_name" {
+					decl.traits = append(decl.traits, resolveDeclaredType(text(t), lines, namespace, className))
+				}
+			}
+		case "property_declaration":
+			typeNode := member.ChildByFieldName("type")
+			for j := uint(0); j < member.NamedChildCount(); j++ {
+				element := member.NamedChild(j)
+				if element.Kind() != "property_element" || typeNode == nil {
+					continue
+				}
+				if name := element.ChildByFieldName("name"); name != nil {
+					decl.props[strings.TrimPrefix(text(name), "$")] = resolveDeclaredType(text(typeNode), lines, namespace, className)
+				}
+			}
+		case "method_declaration":
+			mName, retType := parseMethodDeclaration(member, content, lines, namespace, className)
+			if mName == "" {
+				continue
+			}
+			decl.methods[mName] = retType
+			if !strings.EqualFold(mName, "__construct") {
+				continue
+			}
+			if params := member.ChildByFieldName("parameters"); params != nil {
+				for j := uint(0); j < params.NamedChildCount(); j++ {
+					param := params.NamedChild(j)
+					typeNode, name := param.ChildByFieldName("type"), param.ChildByFieldName("name")
+					if param.Kind() == "property_promotion_parameter" && typeNode != nil && name != nil {
+						decl.props[strings.TrimPrefix(text(name), "$")] = resolveDeclaredType(text(typeNode), lines, namespace, className)
+					}
+				}
+			}
+		}
+	}
 }
 
 // resolveParentClassFromNode extracts and resolves the parent class name from a class declaration node.
@@ -887,7 +954,7 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, 
 		if child.Kind() == "base_clause" {
 			for j := uint(0); j < child.ChildCount(); j++ {
 				grandChild := child.Child(j)
-				if grandChild.Kind() == "name" {
+				if grandChild.Kind() == "name" || grandChild.Kind() == "qualified_name" {
 					parentClass = string(content[grandChild.StartByte():grandChild.EndByte()])
 					break
 				}

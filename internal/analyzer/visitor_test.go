@@ -17,6 +17,7 @@ import (
 type mockEngine struct {
 	auditedClasses    []string
 	methodReturnTypes map[string]string
+	propertyTypes     map[string]string
 	recordedCalls     []string
 	recordedParents   map[string]string
 	declaredMethods   map[string][]string
@@ -52,6 +53,10 @@ func (m *mockEngine) IsExplicitlyNonShared(_ string) bool {
 
 func (m *mockEngine) IsSafeNamespace(_ string) bool {
 	return false
+}
+
+func (m *mockEngine) GetPropertyType(className, propertyName string) string {
+	return m.propertyTypes[className+"::"+propertyName]
 }
 
 func (m *mockEngine) GetMethodReturnType(className, methodName string) string {

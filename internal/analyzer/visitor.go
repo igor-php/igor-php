@@ -18,6 +18,9 @@ type Engine interface {
 	HasServiceDefinition(className string) bool
 	MissingResetTag(className string) bool
 	GetMethodReturnType(className, methodName string) string
+	// GetPropertyType returns the declared type of a property a class inherits from a parent class
+	// or a trait, or "" when it is unknown.
+	GetPropertyType(className, propertyName string) string
 	IsSharedService(className string) bool
 	RecordMethodCall(callerClass, callerMethod, calleeClass, calleeMethod string)
 	RecordClassParent(className, parentClassName string)
@@ -942,7 +945,7 @@ func (v *PHPVisitor) handleAssignment(n *sitter.Node) {
 
 			// Resolve and track local variable type from property fetch on $this or variable assignment
 			if propName, ok := v.isPropertyFetchOnThis(right); ok {
-				if typeName, exists := v.propertyTypes[propName]; exists {
+				if typeName, exists := v.propertyType(propName); exists {
 					v.localVarTypes[leftContent] = typeName
 				}
 			} else if right.Kind() == "variable" || right.Kind() == "variable_name" {
@@ -1022,7 +1025,7 @@ func (v *PHPVisitor) resolveReceiverType(n *sitter.Node) string {
 
 	// Case 1: property fetch on $this, e.g. $this->tracer
 	if propName, ok := v.isPropertyFetchOnThis(n); ok {
-		if typeName, exists := v.propertyTypes[propName]; exists {
+		if typeName, exists := v.propertyType(propName); exists {
 			return v.typeClass(typeName)
 		}
 	}
@@ -1440,6 +1443,10 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 		typeName = t
 		hasType = true
 	} else if t, ok := v.localVarTypes["$"+propName]; ok {
+		typeName = t
+		hasType = true
+	} else if t, ok := v.propertyType(propName); ok {
+		// $this->context of a ConstraintValidator: declared in the parent class
 		typeName = t
 		hasType = true
 	}
