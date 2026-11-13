@@ -3,6 +3,7 @@ package auditor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/igor-php/igor-php/internal/config"
@@ -238,5 +239,94 @@ final class LocalValidator extends \Symfony\Component\Validator\ConstraintValida
 	}
 	if !reported {
 		t.Errorf("$context is a local holding $this->untypedRegistry, not the inherited $this->context: %+v", findings)
+	}
+}
+
+// A property the class declares itself, typed or not, hides the parent's, and a private property
+// of a parent is not inherited: $this->context of the subclass is not the parent's
+// ExecutionContextInterface. Grouped imports name the class they import.
+func TestOwnPropertiesAndGroupedImports(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Base.php": `<?php
+namespace App\Support;
+use Symfony\Component\Validator\Context\ExecutionContextInterface;
+abstract class Base
+{
+    private ExecutionContextInterface $context;
+    private ExecutionContextInterface $hidden;
+    protected ExecutionContextInterface $shared;
+}`,
+		"Child.php": `<?php
+namespace App\Support;
+class Child extends Base
+{
+    private $context;
+}`,
+		"CurrentTrait.php": `<?php
+namespace App\Support;
+use App\State\{Cache, Registry as SharedRegistry};
+trait CurrentTrait
+{
+    public function current(): SharedRegistry { return $this->registry; }
+    public function cache(): Cache { return $this->cache; }
+}`,
+		"Holder.php": `<?php
+namespace App\Support;
+class Holder { use CurrentTrait; }`,
+	}
+	paths := map[string]string{}
+	for name, code := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths[name] = path
+	}
+	aud := NewAuditor(config.Config{})
+	aud.Symfony = &SymfonyBridge{
+		Container: &symbol.SymfonyContainer{Definitions: map[string]symbol.SymfonyService{}},
+		ClassToFile: map[string]string{
+			`App\Support\Base`:         paths["Base.php"],
+			`App\Support\Child`:        paths["Child.php"],
+			`App\Support\CurrentTrait`: paths["CurrentTrait.php"],
+			`App\Support\Holder`:       paths["Holder.php"],
+		},
+	}
+
+	for prop, want := range map[string]string{
+		"context": "", // declared untyped by Child
+		"hidden":  "", // private to Base
+		"shared":  `Symfony\Component\Validator\Context\ExecutionContextInterface`,
+	} {
+		if got := aud.GetPropertyType(`App\Support\Child`, prop); got != want {
+			t.Errorf("Child::$%s: got %q, want %q", prop, got, want)
+		}
+	}
+	if got := aud.GetPropertyType(`App\Support\Base`, "context"); got != `Symfony\Component\Validator\Context\ExecutionContextInterface` {
+		t.Errorf("Base reads its own private $context, got %q", got)
+	}
+	for method, want := range map[string]string{
+		"current": `App\State\Registry`,
+		"cache":   `App\State\Cache`,
+	} {
+		if got := aud.GetMethodReturnType(`App\Support\Holder`, method); got != want {
+			t.Errorf("Holder::%s(): got %q, want %q", method, got, want)
+		}
+	}
+}
+
+func TestExpandImport(t *testing.T) {
+	for stmt, want := range map[string][]string{
+		`use Foo\Bar;`:                                      {`use Foo\Bar;`},
+		"use \\Foo\\Bar as B, Baz\\Qux;":                    {`use Foo\Bar as B;`, `use Baz\Qux;`},
+		"use App\\State\\{\n  Registry,\n  Cache as C,\n};": {`use App\State\Registry;`, `use App\State\Cache as C;`},
+		`use function App\helper;`:                          nil,
+		`use const App\LIMIT;`:                              nil,
+	} {
+		got := expandImport(stmt)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Errorf("expandImport(%q) = %q, want %q", stmt, got, want)
+		}
 	}
 }

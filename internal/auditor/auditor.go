@@ -734,10 +734,12 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 // a class declares or inherits: from its traits, then from its parents. ConstraintValidator's
 // $context and DenormalizerAwareTrait's $denormalizer are declared outside the class using them.
 func (a *Auditor) GetPropertyType(className, propertyName string) string {
-	return a.propertyTypeWithDepth(normalizeClassName(className), propertyName, map[string]bool{})
+	return a.propertyTypeWithDepth(normalizeClassName(className), propertyName, map[string]bool{}, false)
 }
 
-func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]bool) string {
+// propertyTypeWithDepth looks prop up in class, its traits, then its parents. inherited is true in
+// the parents, where a private property is not the one the subclass reads.
+func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]bool, inherited bool) string {
 	if class == "" || visited[class] {
 		return ""
 	}
@@ -746,15 +748,16 @@ func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]b
 	if !ok {
 		return ""
 	}
-	if t := decl.props[prop]; t != "" {
+	if t, declared := decl.props[prop]; declared && !(inherited && decl.privateProps[prop]) {
+		// Declared here, typed or not: a parent's property of the same name is not this one
 		return t
 	}
 	if t, found := a.fromTraits(class, decl.traits, func(trait string) string {
-		return a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited)
+		return a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited, inherited)
 	}); found {
 		return t
 	}
-	return a.propertyTypeWithDepth(normalizeClassName(decl.parent), prop, visited)
+	return a.propertyTypeWithDepth(normalizeClassName(decl.parent), prop, visited, true)
 }
 
 // fromTraits returns the type lookup finds in the traits class uses. self and static in a trait
@@ -866,8 +869,11 @@ type classDecl struct {
 	methods map[string]string
 	parent  string
 	traits  []string
-	// props are the declared types of its properties (promoted constructor parameters included).
+	// props are the declared types of its properties (promoted constructor parameters included),
+	// "" for an untyped one.
 	props map[string]string
+	// privateProps are its private properties, which its subclasses do not inherit.
+	privateProps map[string]bool
 	// insteadof gives the trait a method is taken from when traits conflict (B::current insteadof A).
 	insteadof map[string]string
 	// aliases are the methods renamed from a trait (A::current as oldCurrent).
@@ -955,11 +961,11 @@ func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace,
 			typeNode := member.ChildByFieldName("type")
 			for j := uint(0); j < member.NamedChildCount(); j++ {
 				element := member.NamedChild(j)
-				if element.Kind() != "property_element" || typeNode == nil {
+				if element.Kind() != "property_element" {
 					continue
 				}
 				if name := element.ChildByFieldName("name"); name != nil {
-					decl.props[strings.TrimPrefix(text(name), "$")] = resolveDeclaredType(text(typeNode), lines, namespace, className)
+					decl.recordProp(member, text(name), typeNode, content, lines, namespace, className)
 				}
 			}
 		case "method_declaration":
@@ -975,11 +981,30 @@ func readClassMembers(n *sitter.Node, content []byte, lines []string, namespace,
 				for j := uint(0); j < params.NamedChildCount(); j++ {
 					param := params.NamedChild(j)
 					typeNode, name := param.ChildByFieldName("type"), param.ChildByFieldName("name")
-					if param.Kind() == "property_promotion_parameter" && typeNode != nil && name != nil {
-						decl.props[strings.TrimPrefix(text(name), "$")] = resolveDeclaredType(text(typeNode), lines, namespace, className)
+					if param.Kind() == "property_promotion_parameter" && name != nil {
+						decl.recordProp(param, text(name), typeNode, content, lines, namespace, className)
 					}
 				}
 			}
+		}
+	}
+}
+
+// recordProp records a property declared by member (a property declaration or a promoted
+// parameter): its type, "" when it has none, and whether it is private.
+func (decl *classDecl) recordProp(member *sitter.Node, name string, typeNode *sitter.Node, content []byte, lines []string, namespace, className string) {
+	name = strings.TrimPrefix(name, "$")
+	var t string
+	if typeNode != nil {
+		t = resolveDeclaredType(string(content[typeNode.StartByte():typeNode.EndByte()]), lines, namespace, className)
+	}
+	decl.props[name] = t
+	for i := uint(0); i < member.NamedChildCount(); i++ {
+		if c := member.NamedChild(i); c.Kind() == "visibility_modifier" && strings.EqualFold(string(content[c.StartByte():c.EndByte()]), "private") {
+			if decl.privateProps == nil {
+				decl.privateProps = map[string]bool{}
+			}
+			decl.privateProps[name] = true
 		}
 	}
 }
@@ -1070,14 +1095,36 @@ func importLines(decl *sitter.Node, content []byte) []string {
 			}
 			switch c.Kind() {
 			case "namespace_use_declaration":
-				// One line per import, even written over several lines
-				lines = append(lines, strings.Join(strings.Fields(string(content[c.StartByte():c.EndByte()])), " "))
+				lines = append(lines, expandImport(string(content[c.StartByte():c.EndByte()]))...)
 			case "namespace_definition", "compound_statement":
 				walk(c)
 			}
 		}
 	}
 	walk(root)
+	return lines
+}
+
+// expandImport returns one "use Foo\Bar;" or "use Foo\Bar as Baz;" line per class a use statement
+// imports: a list (use A, B;) and a group (use App\State\{Registry, Cache as C};) give several,
+// even written over several lines. Functions and constants import no class.
+func expandImport(stmt string) []string {
+	stmt = strings.Join(strings.Fields(stmt), " ")
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(stmt, "use "), ";"))
+	if strings.HasPrefix(body, "function ") || strings.HasPrefix(body, "const ") {
+		return nil
+	}
+	prefix := ""
+	if open := strings.Index(body, "{"); open >= 0 {
+		prefix = strings.TrimPrefix(strings.TrimSpace(body[:open]), "\\")
+		body = strings.TrimSuffix(strings.TrimSpace(body[open+1:]), "}")
+	}
+	var lines []string
+	for _, item := range strings.Split(body, ",") {
+		if item = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(item), "\\")); item != "" {
+			lines = append(lines, "use "+prefix+item+";")
+		}
+	}
 	return lines
 }
 
