@@ -558,4 +558,17 @@ spl_autoload_register(function (string $class): void {
 	if path, found := sb.ClassToFile[`App\Entity\Company`]; found {
 		t.Errorf("the class of an .errored. placeholder must not be in the class map, got %q (%s)", path, entity)
 	}
+	// Nor anywhere else: a binary newer than the bundle would take the entity for a shared
+	// service (#149)
+	for id := range sb.Container.Definitions {
+		if strings.HasPrefix(id, ".errored.") {
+			t.Errorf("an .errored. placeholder must be dropped when the map is loaded: %s", id)
+		}
+	}
+	if sb.IsSharedService(`App\Entity\Company`) {
+		t.Error("the class of an .errored. placeholder is not a shared service")
+	}
+	if !sb.IsSharedService(`App\Service\Mailer`) {
+		t.Error("a real service stays shared")
+	}
 }
