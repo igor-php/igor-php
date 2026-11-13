@@ -34,7 +34,7 @@ jobs:
     name: Corpus (${{ matrix.project }})
     needs: projects
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Outside the checkout, which installs igor in the projects; an absolute path without "..",
-      # as actions/cache and actions/upload-artifact require
+      # as actions/upload-artifact requires
       - name: Corpus directory
         run: echo "IGOR_CORPUS_DIR=$RUNNER_TEMP/corpus" >> "$GITHUB_ENV"
 
@@ -59,45 +59,8 @@ jobs:
           extensions: ctype, dom, gd, iconv, intl, json, mbstring, pdo_sqlite, zip
           tools: composer
 
-      # The project's clone and vendor/ only change with its pinned commit
-      - name: Cache key
-        id: key
-        run: |
-          commit=$(jq -r --arg name "${{ matrix.project }}" '.[] | select(.name == $name) | .commit' corpus/projects.json)
-          echo "key=corpus-${{ matrix.project }}-$commit-${{ hashFiles('corpus/projects.json') }}" >> "$GITHUB_OUTPUT"
-          echo "prefix=corpus-${{ matrix.project }}-$commit-" >> "$GITHUB_OUTPUT"
-          echo "composer=$(composer config --global cache-files-dir)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the project
-        id: restore
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ${{ env.IGOR_CORPUS_DIR }}/${{ matrix.project }}
-            ${{ steps.key.outputs.composer }}
-          key: ${{ steps.key.outputs.key }}
-          restore-keys: ${{ steps.key.outputs.prefix }}
-
       - name: Run the corpus
         run: scripts/corpus.sh --strict "${{ matrix.project }}"
-
-      - name: Check the install
-        id: installed
-        if: always()
-        run: |
-          if [ -f "$IGOR_CORPUS_DIR/${{ matrix.project }}/vendor/autoload.php" ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      # Saved even when the findings differ, so that the next run of the pull request is fast
-      - name: Save the project
-        if: always() && steps.restore.outputs.cache-hit != 'true' && steps.installed.outputs.ok == 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ env.IGOR_CORPUS_DIR }}/${{ matrix.project }}
-            ${{ steps.key.outputs.composer }}
-          key: ${{ steps.key.outputs.key }}
 
       - name: Upload the findings
         if: always()
