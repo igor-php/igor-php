@@ -288,6 +288,22 @@ func (v *PHPVisitor) importsName(n *sitter.Node, name string) bool {
 	return false
 }
 
+// keepResults folds the fate of the call results that may hold a parameter (the slots after
+// count) into that parameter: $wrapped = $this->wrap($callback); $this->kept = $wrapped is kept
+// if wrap() returns it.
+func (s *fateScanner) keepResults() {
+	for i := 0; i < s.count; i++ {
+		maybe := s.fates[s.count+i]
+		if len(s.resultFrom[i]) > 0 && (maybe.Retained || maybe.Global || maybe.Unknown || len(maybe.Forwards) > 0) {
+			kept := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Forwards: maybe.Forwards}
+			s.fates[i].ResultKept = &kept
+			s.fates[i].ResultFrom = s.resultFrom[i]
+		}
+		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
+	}
+	s.fates = s.fates[:s.count]
+}
+
 // isGenerator reports a body that yields, outside the closures it declares: calling the method
 // returns a Generator.
 func isGenerator(n *sitter.Node) bool {
@@ -387,17 +403,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 			break
 		}
 	}
-	for i := 0; i < count; i++ {
-		// $wrapped = $this->wrap($callback); $this->kept = $wrapped: kept if wrap() returns it
-		maybe := s.fates[count+i]
-		if len(s.resultFrom[i]) > 0 && (maybe.Retained || maybe.Global || maybe.Unknown || len(maybe.Forwards) > 0) {
-			kept := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Forwards: maybe.Forwards}
-			s.fates[i].ResultKept = &kept
-			s.fates[i].ResultFrom = s.resultFrom[i]
-		}
-		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
-	}
-	s.fates = s.fates[:count]
+	s.keepResults()
 	for _, i := range promoted {
 		// public function __construct(private \Closure $callback): stored as a property
 		s.fates[i].Retained = true
