@@ -1436,20 +1436,7 @@ func (v *PHPVisitor) detectSingletonMutation(n *sitter.Node, propName, methodNam
 
 	// Otherwise, check if the injected type implements ResetInterface in the Symfony container
 	isResettable := false
-	typeName := ""
-	hasType := false
-
-	if t, ok := v.propertyTypes[propName]; ok {
-		typeName = t
-		hasType = true
-	} else if t, ok := v.localVarTypes["$"+propName]; ok {
-		typeName = t
-		hasType = true
-	} else if t, ok := v.propertyType(propName); ok {
-		// $this->context of a ConstraintValidator: declared in the parent class
-		typeName = t
-		hasType = true
-	}
+	typeName, hasType := v.mutatedReceiverType(n, propName)
 
 	if hasType {
 		fqcn := v.typeClass(typeName)
@@ -1630,6 +1617,37 @@ func (v *PHPVisitor) isPropertyFetchOnThis(n *sitter.Node) (string, bool) {
 
 // resolveRootProperty traverses down a chain of member calls, member accesses, and subscripts
 // to find if the root is a property fetch on $this (or a tracked local shared variable).
+// mutatedReceiverType returns the declared type of the property or local a mutation call is made on.
+func (v *PHPVisitor) mutatedReceiverType(n *sitter.Node, propName string) (string, bool) {
+	if t, ok := v.propertyTypes[propName]; ok {
+		return t, true
+	}
+	if t, ok := v.localVarTypes["$"+propName]; ok {
+		return t, true
+	}
+	if v.rootedInThis(n.ChildByFieldName("object")) {
+		// $this->context of a ConstraintValidator: declared in the parent class. Not a local
+		// $context, which holds whatever it was assigned
+		return v.propertyType(propName)
+	}
+	return "", false
+}
+
+// rootedInThis reports whether a receiver chain starts at $this ($this->a->b()), not at a local.
+func (v *PHPVisitor) rootedInThis(n *sitter.Node) bool {
+	for n != nil {
+		switch n.Kind() {
+		case "member_call_expression", "nullsafe_member_call_expression", "member_access_expression", "nullsafe_member_access_expression":
+			n = n.ChildByFieldName("object")
+		case "subscript_expression", "parenthesized_expression":
+			n = n.NamedChild(0)
+		default:
+			return v.getContent(n) == "$this"
+		}
+	}
+	return false
+}
+
 func (v *PHPVisitor) resolveRootProperty(n *sitter.Node) (string, bool) {
 	curr := n
 	for curr != nil {

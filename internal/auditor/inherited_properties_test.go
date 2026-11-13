@@ -140,3 +140,95 @@ final class Counter extends BaseService
 		}
 	}
 }
+
+// self in a trait names the class using it; two traits declaring the same method with different
+// types (a conflict solved by insteadof) leave the type unknown; a trait of the class's namespace
+// used without import is not mistaken for the "use" line of the class body; a local named like an
+// inherited property keeps the type of what it was assigned.
+func TestTraitAndLocalTypes(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Traits.php": `<?php
+namespace App\Support;
+trait CurrentTrait { public function current(): self { return $this; } }
+trait LoggerTrait { public function handler(): Logger { return new Logger(); } }
+trait CacheTrait { public function handler(): Cache { return new Cache(); } }
+trait HelperTrait { protected Helper $helper; }`,
+		"Registry.php": `<?php
+namespace App\Support;
+class Registry
+{
+    use CurrentTrait;
+    use LoggerTrait, CacheTrait {
+        CacheTrait::handler insteadof LoggerTrait;
+    }
+    use HelperTrait;
+    private array $values = [];
+    public function setValue(mixed $v): void { $this->values[] = $v; }
+}`,
+		"ConstraintValidator.php": `<?php
+namespace Symfony\Component\Validator;
+abstract class ConstraintValidator { protected \Symfony\Component\Validator\Context\ExecutionContextInterface $context; }`,
+		"App.php": `<?php
+namespace App\Validator;
+
+final class LocalValidator extends \Symfony\Component\Validator\ConstraintValidator
+{
+    public function __construct(private $untypedRegistry) {}
+
+    public function validate(mixed $value): void
+    {
+        $context = $this->untypedRegistry;
+        $context->setValue($value);
+    }
+}`,
+	}
+	paths := map[string]string{}
+	for name, code := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		paths[name] = path
+	}
+
+	aud := NewAuditor(config.Config{SafeNamespaces: []string{`Symfony\`}})
+	aud.Symfony = &SymfonyBridge{
+		Container: &symbol.SymfonyContainer{Definitions: map[string]symbol.SymfonyService{
+			`App\Validator\LocalValidator`: {Class: `App\Validator\LocalValidator`, Shared: true},
+		}},
+		ClassToFile: map[string]string{
+			`App\Support\Registry`:                            paths["Registry.php"],
+			`App\Support\CurrentTrait`:                        paths["Traits.php"],
+			`App\Support\LoggerTrait`:                         paths["Traits.php"],
+			`App\Support\CacheTrait`:                          paths["Traits.php"],
+			`App\Support\HelperTrait`:                         paths["Traits.php"],
+			`Symfony\Component\Validator\ConstraintValidator`: paths["ConstraintValidator.php"],
+			`App\Validator\LocalValidator`:                    paths["App.php"],
+		},
+	}
+
+	if got := aud.GetMethodReturnType(`App\Support\Registry`, "current"); got != `App\Support\Registry` {
+		t.Errorf("self in a trait is the class using it, got %q", got)
+	}
+	if got := aud.GetMethodReturnType(`App\Support\Registry`, "handler"); got != "" {
+		t.Errorf("handler() is declared by two traits with different types, got %q", got)
+	}
+	if got := aud.GetPropertyType(`App\Support\Registry`, "helper"); got != `App\Support\Helper` {
+		t.Errorf("HelperTrait is in the namespace of Registry, got %q", got)
+	}
+
+	findings, err := aud.Audit(paths["App.php"], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	for _, f := range findings {
+		if f.Rule == symbol.RuleSingletonMutation && f.ContextMethod == "validate" {
+			reported = true
+		}
+	}
+	if !reported {
+		t.Errorf("$context is a local holding $this->untypedRegistry, not the inherited $this->context: %+v", findings)
+	}
+}

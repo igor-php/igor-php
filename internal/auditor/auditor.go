@@ -710,10 +710,10 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 		return retType
 	}
 	// A trait method takes precedence over the parent's
-	for _, trait := range decl.traits {
-		if retType := a.getMethodReturnTypeWithDepth(trait, methodName, visited); retType != "" {
-			return retType
-		}
+	if retType, found := a.fromTraits(normClass, decl.traits, func(trait string) string {
+		return a.getMethodReturnTypeWithDepth(trait, methodName, visited)
+	}); found {
+		return retType
 	}
 	if decl.parent != "" {
 		return a.getMethodReturnTypeWithDepth(decl.parent, methodName, visited)
@@ -740,12 +740,35 @@ func (a *Auditor) propertyTypeWithDepth(class, prop string, visited map[string]b
 	if t := decl.props[prop]; t != "" {
 		return t
 	}
-	for _, trait := range decl.traits {
-		if t := a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited); t != "" {
-			return t
-		}
+	if t, found := a.fromTraits(class, decl.traits, func(trait string) string {
+		return a.propertyTypeWithDepth(normalizeClassName(trait), prop, visited)
+	}); found {
+		return t
 	}
 	return a.propertyTypeWithDepth(normalizeClassName(decl.parent), prop, visited)
+}
+
+// fromTraits returns the type lookup finds in the traits class uses. self and static in a trait
+// name the class using it. found is true as soon as a trait declares the member: two traits
+// declaring it with different types (a conflict solved by insteadof) give "", the type is unknown.
+func (a *Auditor) fromTraits(class string, traits []string, lookup func(trait string) string) (string, bool) {
+	var result string
+	found := false
+	for _, trait := range traits {
+		t := lookup(trait)
+		if t == "" {
+			continue
+		}
+		if strings.EqualFold(normalizeClassName(t), normalizeClassName(trait)) {
+			// A trait is not a type: its self
+			t = class
+		}
+		if found && !strings.EqualFold(t, result) {
+			return "", true
+		}
+		result, found = t, true
+	}
+	return result, found
 }
 
 // classDeclaration parses the file declaring class (located through the framework class map, the
@@ -880,8 +903,9 @@ func (a *Auditor) parseClassDecl(className, filePath string) (classDecl, error) 
 			}
 
 			if normalizeClassName(fqcn) == normalizeClassName(className) {
-				// Only the imports of the namespace declaring the class apply to it
-				lines := namespaceLines(n, content)
+				// Only the imports of the namespace declaring the class apply to it, and they come
+				// before it: "use SomeTrait;" in its body is not an import
+				lines := importLines(n, content)
 				decl.parent = resolveParentClassFromNode(n, content, lines, namespace)
 				readClassMembers(n, content, lines, namespace, className, &decl)
 				return
@@ -969,14 +993,20 @@ func resolveParentClassFromNode(n *sitter.Node, content []byte, lines []string, 
 	return ""
 }
 
-// namespaceLines returns the lines of the namespace a declaration belongs to, where its imports
-// are: the body of a bracketed namespace (namespace App { ... }), or the code from its namespace
-// statement to the next one. A file without namespace is returned whole.
-func namespaceLines(decl *sitter.Node, content []byte) []string {
+// importLines returns the lines of the namespace a declaration belongs to that come before it,
+// where its imports are: from the namespace statement (or the start of a bracketed namespace, or of
+// a file without namespace) to the declaration.
+func importLines(decl *sitter.Node, content []byte) []string {
+	start, _ := namespaceRange(decl, content)
+	return strings.Split(string(content[start:decl.StartByte()]), "\n")
+}
+
+// namespaceRange returns the byte range of the namespace a declaration belongs to.
+func namespaceRange(decl *sitter.Node, content []byte) (uint, uint) {
 	start, end := uint(0), uint(len(content))
 	for p := decl.Parent(); p != nil; p = p.Parent() {
 		if p.Kind() == "namespace_definition" && p.ChildByFieldName("body") != nil {
-			return strings.Split(string(content[p.StartByte():p.EndByte()]), "\n")
+			return p.StartByte(), p.EndByte()
 		}
 		if p.Parent() == nil {
 			// The program: find the namespace statements around the declaration
@@ -994,7 +1024,7 @@ func namespaceLines(decl *sitter.Node, content []byte) []string {
 			}
 		}
 	}
-	return strings.Split(string(content[start:end]), "\n")
+	return start, end
 }
 
 // resolveTypeInFile resolves a type name written in a file: an imported name or alias, a qualified
