@@ -140,7 +140,6 @@ func loadAuditProject(rootPath string, cfg config.Config) (*auditProject, error)
 // onCollected, if set, receives the number of files to audit before the audit starts.
 func (p *auditProject) audit(cfg *config.Config, onCollected func(files int)) ([]symbol.AuditStatus, config.Baseline) {
 	aud := auditor.NewAuditor(*cfg)
-	aud.Root = p.rootPath
 	if cfg.StdinContent != nil && cfg.TargetFile != "" {
 		aud.SetFileOverride(cfg.TargetFile, cfg.StdinContent)
 	}

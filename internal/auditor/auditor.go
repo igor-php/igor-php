@@ -29,12 +29,9 @@ type Auditor struct {
 	declaredMethods      map[string]map[string]bool
 	parentClassCache     map[string]string
 	FileContentOverrides map[string][]byte
-	// Root is the project root: without a framework map, classes are located through its Composer
-	// autoloader.
-	Root         string
-	classShapes  map[string]analyzer.ClassShape
-	methodStates map[string]map[string]analyzer.MethodState
-	subclasses   map[string][]string
+	classShapes          map[string]analyzer.ClassShape
+	methodStates         map[string]map[string]analyzer.MethodState
+	subclasses           map[string][]string
 	// classFiles maps every audited class to its file: the closure rule reads the methods a
 	// closure is passed to, in files the container map does not list.
 	classFiles map[string]string
@@ -638,8 +635,7 @@ func (a *Auditor) isResetByDecorator(id string) bool {
 // IsSharedService checks if a class name is a shared service in Symfony.
 func (a *Auditor) IsSharedService(className string) bool {
 	if a.Symfony == nil {
-		// Without a framework map, only a container dump says a class is not shared
-		return !a.NonSharedServices[normalizeClassName(className)]
+		return true
 	}
 	return a.Symfony.IsSharedService(className)
 }
@@ -721,9 +717,23 @@ func (a *Auditor) getMethodReturnTypeWithDepth(className, methodName string, vis
 	a.mu.Unlock()
 
 	// Not in cache, try to locate file
-	// The framework class map, the audited files, then the project's Composer autoloader
-	filePath := a.classFile(normClass)
-	if filePath == "" {
+	if a.Symfony == nil || a.Symfony.ClassToFile == nil {
+		return ""
+	}
+
+	filePath, exists := a.Symfony.ClassToFile[className]
+	if !exists {
+		// Try normalized lookup
+		for k, v := range a.Symfony.ClassToFile {
+			if normalizeClassName(k) == normClass {
+				filePath = v
+				exists = true
+				break
+			}
+		}
+	}
+
+	if !exists {
 		return ""
 	}
 

@@ -471,8 +471,6 @@ igor-php --no-agent --container-dump igor-container.json .
 
 By convention, keep `igor-container.json` at the project root, side-by-side with `igor.json`. Any class listed with `"shared": false` is treated as transient and its state mutations are **skipped** — exactly as the Symfony bridge already skips non-shared (prototype) services. Classes marked `"shared": true`, or absent from the file, continue to be audited normally. The optional `"aliases"` map tells Igor which interface FQCN resolves to which concrete class, so reachability ranking can follow calls made through an interface type-hint. You can also set the path in `igor.json` via `"container_dump": "igor-container.json"`.
 
-The dump also tells Igor what a dependency hands back: with `$thing = $this->provider->get(); $thing->setName(...)`, Igor reads the return type of `Provider::get()` (classes are located through the project's Composer autoload, or its `composer.json` when dependencies are not installed). If that class is listed with `"shared": false`, the object is per call and the mutation is not reported. Without the dump, Igor cannot tell, and keeps the finding.
-
 > 💡 The format is intentionally minimal so **any** framework can produce it (Laravel, Laminas, …). Symfony's `igor_service_map.json` is simply one richer producer of the same idea.
 >
 > If you **generate** this file from a framework command rather than committing it, a gitignored build path (e.g. `var/igor-container.json`) is also fine — just regenerate it in CI before running Igor, the same way the Symfony agent map is warmed up.
@@ -822,7 +820,7 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
 - **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\`, `Doctrine\`, `Twig\`, or `ApiPlatform\`).
 
-> 💡 **Pro Tip**: Igor audits the classes the container keeps as services, with their parent classes and traits. Entities, DTOs and other data classes are not audited when Symfony does not register them as services: excluded from the `resource`, removed as unused, or only typed as a controller argument (Symfony then registers an `.errored.` placeholder, which no object is built from; Igor ignores these placeholders even in a service map written by an older bundle). If one appears in the audit anyway, run `igor-php . --verbose` to see under which service id it was collected, and exclude its directory from autowiring:
+> 💡 **Pro Tip**: Igor audits the classes the container keeps as services, with their parent classes and traits. Entities, DTOs and other data classes are not audited when Symfony does not register them as services: excluded from the `resource`, removed as unused, or only typed as a controller argument (Symfony then registers an `.errored.` placeholder, which no object is built from). If one appears in the audit anyway, run `igor-php . --verbose` to see under which service id it was collected, and exclude its directory from autowiring:
 >
 > ```yaml
 > # config/services.yaml

@@ -277,7 +277,6 @@ func handleExplainSubcommand(args []string, configPath string) error {
 	cfg := config.LoadConfig(rootPath, configPath)
 
 	aud := auditor.NewAuditor(cfg)
-	aud.Root = rootPath
 
 	// Detect the framework (Symfony, then Laravel)
 	if bridge, _, err := detectFrameworkProject(rootPath, cfg); err == nil {
