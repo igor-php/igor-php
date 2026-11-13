@@ -820,7 +820,7 @@ When using the **Deep Audit** mode (Symfony), Igor might analyze fewer services 
 - **λ Closures / Synthetic**: Services that don't map to a physical PHP class (like Closures or synthetic services) cannot be statically analyzed.
 - **🛡️ Safe Namespace**: The class belongs to a namespace defined in `safe_namespaces` (like `Symfony\`, `Doctrine\`, `Twig\`, or `ApiPlatform\`).
 
-> 💡 **Pro Tip**: Igor audits the classes the container keeps as services, with their parent classes and traits. Entities, DTOs and other data classes are not audited when Symfony does not register them as services: excluded from the `resource`, removed as unused, or only typed as a controller argument (Symfony then registers an `.errored.` placeholder, which no object is built from). If one appears in the audit anyway, run `igor-php . --verbose` to see under which service id it was collected, and exclude its directory from autowiring:
+> 💡 **Pro Tip**: Igor audits the classes the container keeps as services, with their parent classes and traits. Entities, DTOs and other data classes are not audited when Symfony does not register them as services: excluded from the `resource`, removed as unused, or only typed as a controller argument (Symfony then registers an `.errored.` placeholder, which no object is built from; Igor ignores these placeholders even in a service map written by an older bundle). If one appears in the audit anyway, run `igor-php . --verbose` to see under which service id it was collected, and exclude its directory from autowiring:
 >
 > ```yaml
 > # config/services.yaml
