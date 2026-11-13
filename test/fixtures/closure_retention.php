@@ -277,6 +277,26 @@ final class DelegatingModifier
     }
 }
 
+// The constructor stores a generator: it holds the modifiers until it is consumed, without
+// returning or yielding them
+final class GeneratorModifier
+{
+    private \Generator $rows;
+
+    public function __construct(array $modifiers)
+    {
+        $this->rows = $this->apply($modifiers);
+    }
+
+    private function apply(array $modifiers): \Generator
+    {
+        yield 1;
+        foreach ($modifiers as $modifier) {
+            $modifier();
+        }
+    }
+}
+
 // The same shape, but the private method returns the modifiers: the object holds them
 final class ReturningModifier
 {
@@ -555,6 +575,15 @@ final class Consumer
     {
         $this->treeMapper->map(Consumer::class, new ReturningModifier([
             'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldByAStoredGeneratorForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new GeneratorModifier([
+            'rates' => static function () use ($optin) {
                 return $optin;
             },
         ]));

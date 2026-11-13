@@ -84,6 +84,8 @@ func TestParamFate(t *testing.T) {
 			ParamFate{Forwards: []ParamForward{wrap}, ResultKept: &ParamFate{Retained: true, Forwards: []ParamForward{wrap}}, ResultFrom: []ParamForward{wrap}}},
 		{"result of a dependency given it, stored", `$this->listeners[] = $this->registry->decorate($callback);`,
 			ParamFate{Forwards: []ParamForward{decorate}, ResultKept: &ParamFate{Retained: true}, ResultFrom: []ParamForward{decorate}}},
+		{"generator", `yield 1; $callback();`, ParamFate{Returned: true}},
+		{"generator in a closure only", `$gen = function () { yield 1; }; $callback();`, invoked},
 		{"result of a method given it, returned", `$result = $this->wrap($callback); return $result;`,
 			ParamFate{Returned: true, Forwards: []ParamForward{wrap}}},
 		{"local replaced by a value built from another variable", `$fn = $callback; $fn = $options['wrap']($fn); $this->untyped = $fn;`,

@@ -288,6 +288,23 @@ func (v *PHPVisitor) importsName(n *sitter.Node, name string) bool {
 	return false
 }
 
+// isGenerator reports a body that yields, outside the closures it declares: calling the method
+// returns a Generator.
+func isGenerator(n *sitter.Node) bool {
+	switch n.Kind() {
+	case "yield_expression":
+		return true
+	case "anonymous_function", "arrow_function", "function_definition", "class_declaration", "anonymous_class":
+		return false
+	}
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if isGenerator(n.Child(i)) {
+			return true
+		}
+	}
+	return false
+}
+
 // fateScanner follows the parameters of one method through its body.
 type fateScanner struct {
 	v      *PHPVisitor
@@ -387,6 +404,13 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	}
 	for _, i := range byRef {
 		s.fates[i].Unknown = true
+	}
+	if isGenerator(body) {
+		// A generator keeps its whole frame, arguments included, until it is consumed: what it is
+		// given lives as long as the generator the caller gets back
+		for i := range s.fates {
+			s.fates[i].Returned = true
+		}
 	}
 	out.Params = s.fates
 	out.Opaque = s.opaque
