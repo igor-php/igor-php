@@ -1,6 +1,7 @@
 package auditor
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -697,9 +698,9 @@ func (a *Auditor) classFile(class string) string {
 				}
 			}
 		}
-		if path == "" {
-			path = a.composerClassFile(class)
-		}
+	}
+	if path == "" {
+		path = a.composerClassFile(class)
 	}
 	if path != "" {
 		path = filepath.Clean(path)
@@ -757,7 +758,46 @@ func loadComposerAutoload(root string) *composerAutoload {
 	}
 	read("autoload_psr4.php", func(prefix string, paths []string) { out.psr4[prefix] = paths })
 	read("autoload_classmap.php", func(class string, paths []string) { out.classmap[strings.ToLower(class)] = paths[0] })
+	if len(out.psr4) == 0 {
+		// Dependencies not installed: the project's own PSR-4 namespaces still locate its classes
+		readComposerJSONPSR4(root, out.psr4)
+	}
 	return out
+}
+
+// readComposerJSONPSR4 reads the PSR-4 namespaces of the project's composer.json (autoload and
+// autoload-dev), whose directories are relative to the project root.
+func readComposerJSONPSR4(root string, psr4 map[string][]string) {
+	data, err := os.ReadFile(filepath.Join(root, "composer.json"))
+	if err != nil {
+		return
+	}
+	var manifest struct {
+		Autoload struct {
+			PSR4 map[string]json.RawMessage `json:"psr-4"`
+		} `json:"autoload"`
+		AutoloadDev struct {
+			PSR4 map[string]json.RawMessage `json:"psr-4"`
+		} `json:"autoload-dev"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return
+	}
+	for _, section := range []map[string]json.RawMessage{manifest.Autoload.PSR4, manifest.AutoloadDev.PSR4} {
+		for prefix, raw := range section {
+			// "App\\": "src/" or ["src/", "lib/"]
+			var dirs []string
+			var dir string
+			if json.Unmarshal(raw, &dir) == nil {
+				dirs = []string{dir}
+			} else if json.Unmarshal(raw, &dirs) != nil {
+				continue
+			}
+			for _, d := range dirs {
+				psr4[prefix] = append(psr4[prefix], filepath.Join(root, filepath.FromSlash(d)))
+			}
+		}
+	}
 }
 
 // phpUnquote undoes the escaping of a single-quoted PHP string.
@@ -768,12 +808,16 @@ func phpUnquote(s string) string {
 // composerClassFile locates class through the project's Composer autoloader: the class map,
 // then the longest PSR-4 prefix.
 func (a *Auditor) composerClassFile(class string) string {
-	if a.Symfony == nil || a.Symfony.Root == "" {
+	root := a.Root
+	if a.Symfony != nil && a.Symfony.Root != "" {
+		root = a.Symfony.Root
+	}
+	if root == "" {
 		return ""
 	}
 	a.mu.Lock()
 	if a.composer == nil {
-		a.composer = loadComposerAutoload(a.Symfony.Root)
+		a.composer = loadComposerAutoload(root)
 	}
 	autoload := a.composer
 	a.mu.Unlock()
