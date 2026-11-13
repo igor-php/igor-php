@@ -116,7 +116,10 @@ if ($before === null) {
         $changed = $changed || $delta !== 0;
         $lines[] = sprintf('| %s | %d | %d | %s |', $key, $old, $new, $delta === 0 ? '' : sprintf('%+d', $delta));
     }
-    $lines[] = sprintf('| files with findings | %d | %d | %s |', $baseline['files'] ?? 0, $files, $files === ($baseline['files'] ?? 0) ? '' : sprintf('%+d', $files - ($baseline['files'] ?? 0)));
+    $baselineFiles = $baseline['files'] ?? 0;
+    // Findings may move between files with the same totals per rule
+    $changed = $changed || $files !== $baselineFiles;
+    $lines[] = sprintf('| files with findings | %d | %d | %s |', $baselineFiles, $files, $files === $baselineFiles ? '' : sprintf('%+d', $files - $baselineFiles));
     $lines[] = '';
     $lines[] = $changed
         ? '⚠️ The findings changed: check the report in '.$options['results'].', then run `make corpus-update` if the change is intended.'

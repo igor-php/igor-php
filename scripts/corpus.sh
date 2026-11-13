@@ -13,6 +13,9 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${IGOR_CORPUS_DIR:-$HOME/.cache/igor-php/corpus}
+# Absolute: the steps below change directory
+mkdir -p "$WORK"
+WORK=$(cd "$WORK" && pwd)
 UPDATE=0
 ONLY=()
 for arg in "$@"; do
@@ -40,6 +43,7 @@ selected() {
 }
 
 # prepare clones the project at its pinned commit, installs it, and installs igor from this checkout.
+# It is called as `prepare ... || exit 1`, where Bash ignores set -e: every step returns on failure.
 prepare() {
     local project=$1 dir=$2
     local repo commit framework memory
@@ -49,31 +53,32 @@ prepare() {
     memory=$(jq -r '.memory // "512M"' <<<"$project")
 
     if [ ! -d "$dir/.git" ]; then
-        git init -q "$dir"
-        git -C "$dir" remote add origin "$repo"
+        git init -q "$dir" && git -C "$dir" remote add origin "$repo" || { echo "  ❌ git init failed" >&2; return 1; }
     fi
     if ! git -C "$dir" cat-file -e "$commit^{commit}" 2>/dev/null; then
         echo "  ↓ fetching $commit"
-        git -C "$dir" fetch -q --depth 1 origin "$commit"
+        git -C "$dir" fetch -q --depth 1 origin "$commit" || { echo "  ❌ cannot fetch $commit" >&2; return 1; }
     fi
     # Restore the project's own files: the steps below change composer.json and the bundles
-    git -C "$dir" checkout -q -f "$commit"
+    git -C "$dir" checkout -q -f "$commit" || { echo "  ❌ cannot check out $commit" >&2; return 1; }
 
     echo "  ⚙ composer install"
-    (cd "$dir" && COMPOSER_MEMORY_LIMIT=-1 composer install --no-interaction --no-progress --no-scripts -q)
+    (cd "$dir" && COMPOSER_MEMORY_LIMIT=-1 composer install --no-interaction --no-progress --no-scripts -q) \
+        || { echo "  ❌ composer install failed" >&2; return 1; }
 
     # igor from this checkout, as a user installs it: composer require --dev igor-php/igor-php
     echo "  ⚙ installing igor from the checkout"
     (cd "$dir" \
         && composer config repositories.igor-local "{\"type\": \"path\", \"url\": \"$ROOT\", \"options\": {\"symlink\": true}}" \
         && composer require --dev --no-update -q "igor-php/igor-php:*@dev" \
-        && COMPOSER_MEMORY_LIMIT=-1 composer update -q --no-interaction --no-progress --no-scripts igor-php/igor-php)
+        && COMPOSER_MEMORY_LIMIT=-1 composer update -q --no-interaction --no-progress --no-scripts igor-php/igor-php) \
+        || { echo "  ❌ installing igor failed" >&2; return 1; }
 
     local cmd
     while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
         echo "  ⚙ $cmd"
-        (cd "$dir" && bash -c "$cmd")
+        (cd "$dir" && bash -c "$cmd") || { echo "  ❌ setup command failed: $cmd" >&2; return 1; }
     done < <(jq -r '(.setup // [])[]' <<<"$project")
 
     case $framework in
@@ -85,7 +90,7 @@ prepare() {
                 if (!str_contains($bundles, "IgorPhpBundle")) {
                     $bundles = preg_replace("/\];\s*$/", "    IgorPhp\\IgorBundle\\IgorPhpBundle::class => [\"dev\" => true],\n];\n", $bundles);
                     file_put_contents($file, $bundles);
-                }' "$dir/config/bundles.php"
+                }' "$dir/config/bundles.php" || { echo "  ❌ cannot register IgorPhpBundle" >&2; return 1; }
             echo "  ⚙ cache:clear (writes the igor service map)"
             (cd "$dir" && rm -rf var/cache && APP_ENV=dev php -d "memory_limit=$memory" bin/console cache:clear --env=dev --no-interaction >"$WORK/results/$(basename "$dir").cache.log" 2>&1) \
                 || { echo "  ❌ cache:clear failed, see $WORK/results/$(basename "$dir").cache.log" >&2; return 1; }
