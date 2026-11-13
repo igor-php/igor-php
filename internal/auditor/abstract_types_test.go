@@ -52,7 +52,11 @@ final class Prototype {}`,
 				`app.handler`:             {Class: `App\Factory\Handler`, Shared: true},
 				`App\Factory\Prototype`:   {Class: `App\Factory\Prototype`, Shared: false},
 			},
-			Aliases: map[string]interface{}{`App\Factory\HandlerInterface`: "app.handler"},
+			Aliases: map[string]interface{}{
+				`App\Factory\HandlerInterface`: "app.handler",
+				// An internal interface: no source file to read
+				`Iterator`: map[string]interface{}{"id": "app.handler"},
+			},
 		},
 		ClassToFile: classToFile,
 	}
@@ -64,6 +68,7 @@ final class Prototype {}`,
 		`App\Factory\PersistentInterface`: true,  // implemented by Factory
 		`\App\Factory\FactoryInterface`:   true,  // extended by PersistentInterface
 		`App\Factory\HandlerInterface`:    true,  // aliased to app.handler
+		`\Iterator`:                       true,  // aliased, without a source file
 		`App\Factory\AbstractString`:      false, // no shared service extends it
 		`App\Factory\Temporary`:           false, // concrete, no definition
 		`App\Factory\Prototype`:           false, // concrete, not shared

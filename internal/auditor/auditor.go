@@ -670,10 +670,7 @@ func (a *Auditor) IsSharedService(className string) bool {
 // sharedSubtype reports whether the interface or abstract class t is aliased to a shared service,
 // or implemented or extended by one.
 func (a *Auditor) sharedSubtype(t string) bool {
-	decl, ok := a.classDeclaration(t)
-	if !ok || !decl.abstract {
-		return false
-	}
+	// An alias needs no declaration: an internal interface (\Iterator) has no source file
 	defs := a.Symfony.Container.Definitions
 	for id, target := range a.Symfony.Container.Aliases {
 		if strings.EqualFold(normalizeClassName(id), t) {
@@ -681,6 +678,10 @@ func (a *Auditor) sharedSubtype(t string) bool {
 				return true
 			}
 		}
+	}
+	decl, ok := a.classDeclaration(t)
+	if !ok || !decl.abstract {
+		return false
 	}
 	for _, def := range defs {
 		if !def.Shared || def.IsExcluded() || def.Class == "" {
