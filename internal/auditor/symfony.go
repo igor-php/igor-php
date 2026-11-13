@@ -108,6 +108,7 @@ func (b *SymfonyBridge) LoadContainer(env string) error {
 	if err := json.Unmarshal([]byte(jsonPart), &container); err != nil {
 		return fmt.Errorf("failed to parse Symfony container JSON: %v", err)
 	}
+	dropUnresolvedPlaceholders(&container)
 	b.Container = &container
 
 	// 3. Locate files
@@ -139,6 +140,7 @@ func (b *SymfonyBridge) tryLoadFromAgent(env string) (bool, error) {
 				continue
 			}
 
+			dropUnresolvedPlaceholders(&container)
 			b.Container = &container
 			fmt.Fprintf(os.Stderr, "⚡ Igor Agent detected: Using cached service map from %s\n", path)
 
@@ -252,4 +254,21 @@ func (b *SymfonyBridge) IsExcludedService(className string) bool {
 		}
 	}
 	return hasExcluded && !hasActive
+}
+
+// dropUnresolvedPlaceholders removes the ".errored." definitions Symfony registers for references it
+// cannot resolve (a controller argument typed with an entity), and the aliases to them. Bundles before
+// 0.11.0-beta.3 export them as shared services with a class: a binary newer than the bundle that
+// wrote the map would take an entity for a shared service.
+func dropUnresolvedPlaceholders(container *symbol.SymfonyContainer) {
+	for id := range container.Definitions {
+		if strings.HasPrefix(id, ".errored.") {
+			delete(container.Definitions, id)
+		}
+	}
+	for id, target := range container.Aliases {
+		if strings.HasPrefix(resolveAliasTarget(target), ".errored.") {
+			delete(container.Aliases, id)
+		}
+	}
 }
