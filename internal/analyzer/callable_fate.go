@@ -53,6 +53,10 @@ type ParamFate struct {
 	Trusts []string
 	// Returned is true when the method may return the value, or something holding it.
 	Returned bool
+	// Opened is true when the method reads a property of the value or calls a method on it
+	// ($box->callback, $box->get()). When the value is an object holding the closure rather than
+	// the closure itself, what it reads there may be the closure, which the summary does not follow.
+	Opened bool
 	// ResultKept is what the method does with the result of the calls in ResultFrom, which were
 	// given the value: $wrapped = $this->wrap($callback); $this->kept = $wrapped. It only applies
 	// when one of those methods may return what it was given. Its own ResultKept is the next
@@ -310,7 +314,7 @@ func (s *fateScanner) keepResults() {
 				kept, from = nil, nil
 				continue
 			}
-			k := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Forwards: maybe.Forwards}
+			k := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Opened: maybe.Opened, Forwards: maybe.Forwards}
 			if kept != nil && sameLevel(k, *kept, levelFrom, from) {
 				// $callback = $this->wrap($callback) in a loop: the next level repeats this one
 				continue
@@ -328,7 +332,7 @@ func (s *fateScanner) keepResults() {
 
 // sameLevel reports two levels of results with the same fate, given by the same calls.
 func sameLevel(a, b ParamFate, aFrom, bFrom []ParamForward) bool {
-	return a.Retained == b.Retained && a.Global == b.Global && a.Unknown == b.Unknown &&
+	return a.Retained == b.Retained && a.Global == b.Global && a.Unknown == b.Unknown && a.Opened == b.Opened &&
 		slices.Equal(a.Forwards, b.Forwards) && slices.Equal(aFrom, bFrom)
 }
 
@@ -718,6 +722,11 @@ func (s *fateScanner) step(p, cur *sitter.Node, indexes []int) *sitter.Node {
 	if s.stillHolds(p, cur) {
 		return p
 	}
+	if s.opens(p, cur) {
+		for _, i := range indexes {
+			s.fates[i].Opened = true
+		}
+	}
 	switch p.Kind() {
 	case "argument":
 		return s.argument(p, indexes)
@@ -769,6 +778,39 @@ func (s *fateScanner) stillHolds(p, cur *sitter.Node) bool {
 		// A call on the value itself: bindTo() gives a new closure holding it, the others use it
 		name := p.ChildByFieldName("name")
 		return sameNode(p.ChildByFieldName("object"), cur) && name != nil && strings.EqualFold(v.getContent(name), "bindTo")
+	}
+	return false
+}
+
+// opens reports p reading a property of cur or calling a method on it, other than the calls a
+// closure answers itself (bindTo(), call(), __invoke()).
+func (s *fateScanner) opens(p, cur *sitter.Node) bool {
+	if !sameNode(p.ChildByFieldName("object"), cur) {
+		return false
+	}
+	switch p.Kind() {
+	case "member_access_expression", "nullsafe_member_access_expression":
+		// $box->callback = $x writes the object, it does not read what it holds
+		for w := p; w.Parent() != nil; w = w.Parent() {
+			parent := w.Parent()
+			if (parent.Kind() == "assignment_expression" || parent.Kind() == "augmented_assignment_expression") && sameNode(parent.ChildByFieldName("left"), w) {
+				return false
+			}
+			if parent.Kind() != "subscript_expression" && parent.Kind() != "member_access_expression" {
+				break
+			}
+		}
+		return true
+	case "member_call_expression", "nullsafe_member_call_expression":
+		name := p.ChildByFieldName("name")
+		if name == nil {
+			return true
+		}
+		switch strings.ToLower(s.v.getContent(name)) {
+		case "bindto", "call", "__invoke":
+			return false
+		}
+		return true
 	}
 	return false
 }

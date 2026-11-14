@@ -342,6 +342,28 @@ final class PreparingModifier
     }
 }
 
+// Wraps the closure in a box, then takes it out of the box and stores it: the summary does not
+// follow the property read, so the result passed on stays unknown
+final class Unwrapper
+{
+    private ?\Closure $saved = null;
+
+    public function run(\Closure $callback): void
+    {
+        $this->remember($this->wrap($callback));
+    }
+
+    private function wrap(\Closure $callback): PublicBox
+    {
+        return new PublicBox($callback);
+    }
+
+    private function remember(PublicBox $box): void
+    {
+        $this->saved = $box->callback;
+    }
+}
+
 // The same chain, but the second method returns the wrapped closures: the object holds them
 final class PreparingAndKeepingModifier
 {
@@ -452,6 +474,7 @@ final class Consumer
         private Edges $edges,
         private Adapted $adapted,
         private Relay $relay,
+        private Unwrapper $unwrapper,
         private ListenerRegistry $registry,
         private Registry $contract,
         private Transactions $transactions,
@@ -649,6 +672,13 @@ final class Consumer
                 return $optin;
             },
         ]));
+    }
+
+    public function storedOutOfAWrapper(string $optin): void
+    {
+        $this->unwrapper->run(function () use ($optin) {
+            return $optin;
+        });
     }
 
     public function heldThroughAChainOfPrivateMethodsForAnUnreadableMapper(string $optin): void

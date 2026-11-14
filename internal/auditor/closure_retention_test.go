@@ -70,6 +70,7 @@ func TestResolveClosureLeaks(t *testing.T) {
 		{"calledByAConstructorForAnUnreadableMapper", "", "the case of #139: the constructor only calls the closure, whatever map() does"},
 		{"calledByADelegatingConstructor", "", "replace() gets the modifiers and only returns the transformed source"},
 		{"calledThroughAChainOfPrivateMethods", "", "the case of #139: prepareMappings() wraps the closures, replace() only calls them and keeps what they return"},
+		{"storedOutOfAWrapper", "WARNING", "remember() takes the closure out of the box wrap() returned: the property read is not followed"},
 		{"heldThroughAChainOfPrivateMethodsForAnUnreadableMapper", "WARNING", "keepAll() returns what prepareMappings() returned: the object keeps the closures, and map() cannot be read"},
 		{"heldThroughAReturningMethodForAnUnreadableMapper", "WARNING", "keepAll() returns the modifiers, the object keeps them, and map() cannot be read"},
 		{"heldByAStoredGeneratorForAnUnreadableMapper", "WARNING", "apply() is a generator: the stored generator holds the modifiers"},

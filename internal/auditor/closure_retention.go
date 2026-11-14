@@ -216,6 +216,9 @@ type retentionNode struct {
 	// dependency call) and the methods it calls on that object: what they store stays in the
 	// object, whose fate the outer call decides.
 	site bool
+	// carried is true when the argument is the result of a method given the closure, which may be
+	// an object holding it rather than the closure itself.
+	carried bool
 }
 
 // methodLookup is the outcome of looking a method up on a class.
@@ -257,11 +260,10 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 		queue = queue[1:]
 
 		found, fate, ok := a.paramFate(node)
-		for fate.ResultKept != nil && a.resultMayReturn(node, found, fate.ResultFrom) {
-			// $this->source = $this->replace($modifiers): what happens to the result counts
-			// only if replace() may return the closure. The next level, the result of a call
-			// given that result, counts only if that call returns it too
-			fate = mergeResultFate(fate)
+		fate, carried := a.followResults(node, found, fate)
+		if node.carried && fate.Opened {
+			// $box->callback: the closure may come out of the object it was given
+			unknown = true
 		}
 		if fate.Global || (fate.Retained && !node.fresh) {
 			return retentionKept, root
@@ -273,12 +275,14 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 		if !ok || fate.Unknown {
 			unknown = true
 		}
-		for _, f := range fate.Forwards {
+		for i, f := range append(slices.Clone(fate.Forwards), carried...) {
 			next, ok := a.forwardNode(node, found, f)
 			if !ok {
 				unknown = true
 				continue
 			}
+			// A call result passed on may be an object holding the closure
+			next.carried = node.carried || i >= len(fate.Forwards)
 			if !seen[next] {
 				seen[next] = true
 				queue = append(queue, next)
@@ -328,6 +332,19 @@ func (a *Auditor) resultMayReturn(node retentionNode, found resolvedMethod, from
 	return false
 }
 
+// followResults adds to fate what the method does with the results that may hold the closure,
+// one level at a time: $this->source = $this->replace($modifiers) counts only if replace() may
+// return the closure, and the result of a call given that result only if that call returns it
+// too. It also returns the methods those results are passed on to.
+func (a *Auditor) followResults(node retentionNode, found resolvedMethod, fate analyzer.ParamFate) (analyzer.ParamFate, []analyzer.ParamForward) {
+	var carried []analyzer.ParamForward
+	for fate.ResultKept != nil && a.resultMayReturn(node, found, fate.ResultFrom) {
+		carried = append(carried, fate.ResultKept.Forwards...)
+		fate = mergeResultFate(fate)
+	}
+	return fate, carried
+}
+
 // mergeResultFate adds to a parameter's fate what the method does with a call result that may
 // hold it.
 func mergeResultFate(fate analyzer.ParamFate) analyzer.ParamFate {
@@ -335,8 +352,8 @@ func mergeResultFate(fate analyzer.ParamFate) analyzer.ParamFate {
 	fate.Retained = fate.Retained || result.Retained
 	fate.Global = fate.Global || result.Global
 	fate.Unknown = fate.Unknown || result.Unknown
-	// The result passed on to another method: followed like the value itself
-	fate.Forwards = append(slices.Clone(fate.Forwards), result.Forwards...)
+	// The result passed on to another method is followed by the caller, as a value that may hold
+	// the closure (carried)
 	fate.ResultKept, fate.ResultFrom = result.ResultKept, result.ResultFrom
 	return fate
 }
