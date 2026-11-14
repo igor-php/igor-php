@@ -107,8 +107,14 @@ func TestResolveClosureLeaks(t *testing.T) {
 		t.Errorf("the fixture has %d closure findings, the test covers %d", len(before), len(cases))
 	}
 	for _, f := range results[0].Findings {
-		if f.Rule == symbol.RuleClosureStateLeak && f.Severity == "WARNING" && !strings.Contains(f.Remediation, "could not read") {
-			t.Errorf("%s: a downgraded finding must say igor could not read the method: %q", f.ContextMethod, f.Remediation)
+		if f.Rule == symbol.RuleClosureStateLeak && f.Severity == "WARNING" && !strings.Contains(f.Remediation, "could not read") && !strings.Contains(f.Remediation, "could not prove") && !strings.Contains(f.Remediation, "found no declaration") {
+			t.Errorf("%s: a downgraded finding must say why igor is unsure (could not read, could not prove, found no declaration): %q", f.ContextMethod, f.Remediation)
+		}
+		if f.ContextMethod == "visitedThroughAnInterface" && !strings.Contains(f.Remediation, "could not read") {
+			t.Errorf("an interface method has no body to read: %q", f.Remediation)
+		}
+		if f.ContextMethod == "storedOutOfAWrapper" && !strings.Contains(f.Remediation, `could not prove that App\Closure\Unwrapper::run() only calls the closure`) {
+			t.Errorf("Unwrapper::run() is read; only the closure's path could not be followed: %q", f.Remediation)
 		}
 		if f.ContextMethod == "unreadableConstructorTheCallDrops" && !strings.Contains(f.Remediation, `Vendor\Unknown\Thing::__construct()`) {
 			t.Errorf("the warning must name the constructor igor could not read: %q", f.Remediation)

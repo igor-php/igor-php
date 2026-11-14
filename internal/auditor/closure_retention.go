@@ -29,8 +29,14 @@ const (
 // maxRetentionNodes bounds the methods followed to decide one call.
 const maxRetentionNodes = 200
 
-// unreadClosureHint replaces the remediation of a finding igor could not confirm.
+// unreadClosureHint replaces the remediation of a finding igor could not confirm, when the method
+// itself could not be read (no file, an interface or abstract method, a type igor cannot resolve).
 const unreadClosureHint = "Igor could not read %s to tell whether it keeps the closure or only calls it. If it only calls it, add the finding to the baseline; if it keeps it, register the callback once at boot instead."
+
+// unprovenClosureHint replaces it when igor read the method but could not prove what happens to
+// the closure: a subclass may override the method, or the closure, or an object holding it, goes
+// on to code the summary does not follow.
+const unprovenClosureHint = "Igor could not prove that %s only calls the closure rather than keeping it. If it only calls it, add the finding to the baseline; if it keeps it, register the callback once at boot instead."
 
 func (a *Auditor) recordClassFile(class, path string) {
 	if class == "" || path == "" {
@@ -73,7 +79,7 @@ func (a *Auditor) ResolveClosureLeaks(results []symbol.AuditStatus) bool {
 			case retentionUnknown:
 				if !isRegistrationName(outermost(ref).Method) && f.Severity == "ERROR" {
 					f.Severity = "WARNING"
-					f.Remediation = strings.Replace(unreadClosureHint, "%s", describeCall(unread, class), 1)
+					f.Remediation = strings.Replace(a.uncertainHint(unread, class), "%s", describeCall(unread, class), 1)
 					changed = true
 				}
 			}
@@ -119,6 +125,60 @@ func (a *Auditor) verdictOf(ref *symbol.ClosureArgRef, callerClass string, carri
 		return retentionKept, unread, outerClass
 	}
 	return retentionUnknown, ref, class
+}
+
+// undeclaredClosureHint replaces it when igor read the class it resolved, its traits and parents,
+// and none declares the method: it comes from a subclass, or from __call().
+const undeclaredClosureHint = "Igor found no declaration of %s: the method is not declared on that class or its parents, so the object may be a subclass that declares it, or the call may go through __call(). If it only calls the closure, add the finding to the baseline; if it keeps it, register the callback once at boot instead."
+
+// uncertainHint tells whether igor could read the method it names in the warning: "could not
+// read" sent a reporter looking for a missing file when the method was read and only the rest of
+// the closure's path could not be followed.
+func (a *Auditor) uncertainHint(ref *symbol.ClosureArgRef, class string) string {
+	start := normalizeClassName(class)
+	if start == "" {
+		start = normalizeClassName(ref.Class)
+	}
+	if start == "" || ref.Method == "" {
+		return unreadClosureHint
+	}
+	if _, readable := a.classCallables(start); !readable {
+		return unreadClosureHint
+	}
+	found, lookup := a.findCallableMethod(start, strings.ToLower(ref.Method), map[string]bool{})
+	switch {
+	case lookup == lookupFound && found.method.HasBody:
+		return unprovenClosureHint
+	case lookup == lookupAbsent && !a.mayComeFromAnInterface(start, strings.ToLower(ref.Method), map[string]bool{}):
+		// Factory::afterInstantiate(), declared only on its subclass ObjectFactory
+		return undeclaredClosureHint
+	}
+	return unreadClosureHint
+}
+
+// mayComeFromAnInterface reports a method declared by an interface class implements or extends,
+// through its parents too, or an interface on the way that cannot be read: interface Child extends
+// Parent {} declares visit() without a body to read, it is not missing.
+func (a *Auditor) mayComeFromAnInterface(class, method string, seen map[string]bool) bool {
+	class = normalizeClassName(class)
+	if class == "" || seen[strings.ToLower(class)] {
+		return false
+	}
+	seen[strings.ToLower(class)] = true
+	info, ok := a.classCallables(class)
+	if !ok {
+		return true
+	}
+	for _, iface := range info.Interfaces {
+		ifaceInfo, readable := a.classCallables(iface)
+		if !readable {
+			return true
+		}
+		if _, declared := ifaceInfo.Methods[method]; declared || a.mayComeFromAnInterface(iface, method, seen) {
+			return true
+		}
+	}
+	return info.Parent != "" && a.mayComeFromAnInterface(info.Parent, method, seen)
 }
 
 // outermost returns the call made on the dependency, for a closure given to a constructor.

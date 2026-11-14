@@ -246,3 +246,63 @@ interface Sub extends \Top, Other {}`))
 		t.Errorf("Leaf: %+v", leaf)
 	}
 }
+
+// "use function count;" imports PHP's own count(), as code styles that import native functions
+// do: the call stays trusted, and no function of the namespace can take its place. A function
+// imported from a namespace is the project's own, whatever comment or spacing surrounds it.
+func TestFunctionImports(t *testing.T) {
+	for _, tc := range []struct {
+		name, imports string
+		unknown       bool
+		trusts        bool
+	}{
+		{"no import", "", false, true},
+		{"native import", "use function array_map;", false, false},
+		{"native import fully qualified", `use function \array_map;`, false, false},
+		{"native import in a list", "use function count, array_map;", false, false},
+		{"project import", `use function Vendor\array_map;`, true, false},
+		{"project import with a comment", `use function Vendor\array_map; // helper`, true, false},
+		{"project import in a group", `use function Vendor\{tally, array_map};`, true, false},
+		{"project import aliased with a tab", "use function Vendor\\keep\tas\tarray_map;", true, false},
+		{"another project function", `use function Vendor\array_mapper;`, false, true},
+		{"aliased away", `use function Vendor\array_map as mapper;`, false, true},
+		{"class alias in a mixed group", `use Vendor\{function helper, SomeClass as array_map};`, false, true},
+		{"function in a mixed group", `use Vendor\{SomeClass, function array_map};`, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code := "<?php\nnamespace App;\n" + tc.imports + "\nclass Subject {\n    public function run(callable $callback, array $items) {\n        array_map($callback, $items);\n    }\n}\n"
+			method := SummarizeCallables([]byte(code))["App\\Subject"].Methods["run"]
+			if len(method.Params) == 0 {
+				t.Fatalf("method not summarized:\n%s", code)
+			}
+			fate := method.Params[0]
+			if fate.Unknown != tc.unknown {
+				t.Errorf("unknown = %v, want %v", fate.Unknown, tc.unknown)
+			}
+			if got := len(fate.Trusts) > 0; got != tc.trusts {
+				t.Errorf("trusts App\\array_map = %v (%v), want %v", got, fate.Trusts, tc.trusts)
+			}
+		})
+	}
+}
+
+// An import only applies to its own namespace block: "use function array_map;" in namespace Other
+// does not make the array_map() of namespace App PHP's own, where App\array_map() may exist.
+func TestFunctionImportsAreScopedToTheirNamespace(t *testing.T) {
+	class := "class Subject {\n    public function run(callable $callback, array $items) {\n        array_map($callback, $items);\n    }\n}\n"
+	for name, code := range map[string]string{
+		"statements":                      "<?php\nnamespace Other;\nuse function array_map;\nnamespace App;\n" + class,
+		"bracketed blocks":                "<?php\nnamespace Other {\nuse function array_map;\n}\nnamespace App {\n" + class + "}\n",
+		"same namespace in another block": "<?php\nnamespace App {\nuse function array_map;\n}\nnamespace App {\n" + class + "}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			method := SummarizeCallables([]byte(code))["App\\Subject"].Methods["run"]
+			if len(method.Params) == 0 {
+				t.Fatalf("method not summarized:\n%s", code)
+			}
+			if trusts := method.Params[0].Trusts; len(trusts) == 0 {
+				t.Errorf("the import of another block must not apply: App\\array_map() is not ruled out, got trusts %v", trusts)
+			}
+		})
+	}
+}
