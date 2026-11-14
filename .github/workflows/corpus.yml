@@ -24,11 +24,12 @@ jobs:
     name: List the projects
     runs-on: ubuntu-latest
     outputs:
-      names: ${{ steps.list.outputs.names }}
+      projects: ${{ steps.list.outputs.projects }}
     steps:
       - uses: actions/checkout@v4
+      # Each project with the PHP version its lock requires (8.4 unless it says otherwise)
       - id: list
-        run: echo "names=$(jq -c '[.[].name]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
+        run: echo "projects=$(jq -c '[.[] | {project: .name, php: (.php // "8.4")}]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
 
   corpus:
     name: Corpus (${{ matrix.project }})
@@ -38,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: ${{ fromJSON(needs.projects.outputs.names) }}
+        include: ${{ fromJSON(needs.projects.outputs.projects) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +56,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php }}
           extensions: ctype, dom, gd, iconv, intl, json, mbstring, pdo_sqlite, zip
           tools: composer
 
