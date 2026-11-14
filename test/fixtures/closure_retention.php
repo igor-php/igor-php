@@ -297,6 +297,77 @@ final class GeneratorModifier
     }
 }
 
+// The reporter's full shape (#139): the closures are wrapped by one private method, whose result
+// is given to another that only calls them and keeps what they return
+final class ClosureMapping
+{
+    public function __construct(private \Closure $closure)
+    {
+    }
+
+    public function __invoke(mixed $value): mixed
+    {
+        return ($this->closure)($value);
+    }
+}
+
+final class PreparingModifier
+{
+    private array $source;
+
+    public function __construct(iterable $source, array $map)
+    {
+        $this->source = $this->replace($source, $this->prepareMappings($map));
+    }
+
+    private function prepareMappings(array $map): array
+    {
+        $mappings = [];
+        foreach ($map as $key => $closure) {
+            $mappings[$key] = new ClosureMapping($closure);
+        }
+
+        return $mappings;
+    }
+
+    private function replace(iterable $source, array $mappings): array
+    {
+        $out = [];
+        foreach ($source as $key => $value) {
+            $modifier = $mappings[$key] ?? null;
+            $out[$key] = $modifier === null ? $value : $modifier($value);
+        }
+
+        return $out;
+    }
+}
+
+// The same chain, but the second method returns the wrapped closures: the object holds them
+final class PreparingAndKeepingModifier
+{
+    private array $mappings;
+
+    public function __construct(array $map)
+    {
+        $this->mappings = $this->keepAll($this->prepareMappings($map));
+    }
+
+    private function prepareMappings(array $map): array
+    {
+        $mappings = [];
+        foreach ($map as $key => $closure) {
+            $mappings[$key] = new ClosureMapping($closure);
+        }
+
+        return $mappings;
+    }
+
+    private function keepAll(array $mappings): array
+    {
+        return $mappings;
+    }
+}
+
 // The same shape, but the private method returns the modifiers: the object holds them
 final class ReturningModifier
 {
@@ -565,6 +636,24 @@ final class Consumer
     public function calledByADelegatingConstructor(string $optin): void
     {
         $this->treeMapper->map(Consumer::class, new DelegatingModifier([], [
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function calledThroughAChainOfPrivateMethods(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new PreparingModifier([], [
+            'rates' => static function (array $value) use ($optin) {
+                return $optin;
+            },
+        ]));
+    }
+
+    public function heldThroughAChainOfPrivateMethodsForAnUnreadableMapper(string $optin): void
+    {
+        $this->treeMapper->map(Consumer::class, new PreparingAndKeepingModifier([
             'rates' => static function (array $value) use ($optin) {
                 return $optin;
             },

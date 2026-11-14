@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/igor-php/igor-php/internal/analyzer"
@@ -256,9 +257,10 @@ func (a *Auditor) closureRetention(ref *symbol.ClosureArgRef, callerClass string
 		queue = queue[1:]
 
 		found, fate, ok := a.paramFate(node)
-		if fate.ResultKept != nil && a.resultMayReturn(node, found, fate.ResultFrom) {
+		for fate.ResultKept != nil && a.resultMayReturn(node, found, fate.ResultFrom) {
 			// $this->source = $this->replace($modifiers): what happens to the result counts
-			// only if replace() may return the closure
+			// only if replace() may return the closure. The next level, the result of a call
+			// given that result, counts only if that call returns it too
 			fate = mergeResultFate(fate)
 		}
 		if fate.Global || (fate.Retained && !node.fresh) {
@@ -332,8 +334,10 @@ func mergeResultFate(fate analyzer.ParamFate) analyzer.ParamFate {
 	result := *fate.ResultKept
 	fate.Retained = fate.Retained || result.Retained
 	fate.Global = fate.Global || result.Global
-	// Passed on again: where it goes from there is not followed
-	fate.Unknown = fate.Unknown || result.Unknown || len(result.Forwards) > 0
+	fate.Unknown = fate.Unknown || result.Unknown
+	// The result passed on to another method: followed like the value itself
+	fate.Forwards = append(slices.Clone(fate.Forwards), result.Forwards...)
+	fate.ResultKept, fate.ResultFrom = result.ResultKept, result.ResultFrom
 	return fate
 }
 
