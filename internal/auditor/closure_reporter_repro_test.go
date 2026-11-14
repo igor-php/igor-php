@@ -13,15 +13,20 @@ import (
 // count(), imported with "use function count;", as code styles that import native functions do.
 // That import names the PHP function itself, so the closure is only read, and the finding goes.
 // The same code with "use function Demo\count;" calls the project's own count(): igor cannot
-// know what it does, and the finding stays a warning.
+// know what it does, and the finding stays a warning. When a file Composer always loads declares
+// Demo\count(), an unqualified count() calls it, but "use function count;" still calls PHP's.
 func TestReporterReproOfIssue139(t *testing.T) {
 	for _, tc := range []struct {
 		name, use string
-		want      string // "" when the finding is dropped
+		// declared is true when a file Composer always loads declares Demo\count()
+		declared bool
+		want     string // "" when the finding is dropped
 	}{
-		{"native count imported", "use function count;", ""},
-		{"native count imported fully qualified", `use function \count;`, ""},
-		{"project count imported", `use function Demo\count;`, "WARNING"},
+		{"native count imported", "use function count;", false, ""},
+		{"native count imported fully qualified", `use function \count;`, false, ""},
+		{"project count imported", `use function Demo\count;`, false, "WARNING"},
+		{"native count imported, Demo\\count declared", "use function count;", true, ""},
+		{"no import, Demo\\count declared", "", true, "WARNING"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -103,6 +108,10 @@ final class PriceClient
     }
 }
 `,
+			}
+			if tc.declared {
+				files["vendor/composer/autoload_files.php"] = "<?php\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\nreturn array(\n    'a1b2' => $baseDir . '/src/functions.php',\n);\n"
+				files["src/functions.php"] = "<?php\nnamespace Demo;\nfunction count(array $map): int { $GLOBALS['kept'][] = $map; return 1; }\n"
 			}
 			for name, code := range files {
 				if err := os.WriteFile(filepath.Join(root, name), []byte(code), 0o644); err != nil {

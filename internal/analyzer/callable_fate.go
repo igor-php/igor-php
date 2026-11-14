@@ -1076,6 +1076,10 @@ func (s *fateScanner) trust(call *sitter.Node, name string, indexes []int) {
 	if s.v.namespace == "" || fn == nil || strings.HasPrefix(s.v.getContent(fn), "\\") {
 		return
 	}
+	if fqn, imported := s.v.functionImports(call)[strings.ToLower(name)]; imported && fqn == strings.ToLower(name) {
+		// use function count; resolves to PHP's count(), never to a function of the namespace
+		return
+	}
 	qualified := s.v.namespace + "\\" + name
 	for _, i := range indexes {
 		s.fates[i].Trusts = appendUnique(s.fates[i].Trusts, qualified)
@@ -1109,29 +1113,80 @@ func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes
 	return nil
 }
 
-// importsOtherFunction reports a "use function" statement (lowercased) that gives name to a
-// namespaced function: use function App\count; or use function App\{count}; or use function
-// App\tally as count;. use function count; imports the PHP function itself, as code styles that
-// import native functions do, and keeps the call global.
-func importsOtherFunction(stmt, name string) bool {
-	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(stmt, "use function "), ";"))
+// functionImports returns the functions a file imports with "use function", by lowercased local
+// name: the lowercased imported name, without its leading backslash. They are read from the syntax
+// tree, so a comment after the statement or a tab around "as" does not hide one.
+func (v *PHPVisitor) functionImports(n *sitter.Node) map[string]string {
+	root := n
+	for root.Parent() != nil {
+		root = root.Parent()
+	}
+	imports := map[string]string{}
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		for i := uint(0); i < n.ChildCount(); i++ {
+			c := n.Child(i)
+			switch c.Kind() {
+			case "namespace_use_declaration":
+				v.readFunctionImport(c, imports)
+			case "namespace_definition", "compound_statement":
+				walk(c)
+			}
+		}
+	}
+	walk(root)
+	return imports
+}
+
+// readFunctionImport adds the names a "use function" declaration imports to imports.
+func (v *PHPVisitor) readFunctionImport(decl *sitter.Node, imports map[string]string) {
+	isFunction := false
 	prefix := ""
-	if open := strings.Index(body, "{"); open >= 0 {
-		prefix = strings.TrimSpace(body[:open])
-		body = strings.TrimSuffix(strings.TrimSpace(body[open+1:]), "}")
-	}
-	for _, item := range strings.Split(body, ",") {
-		fqn, alias, aliased := strings.Cut(strings.TrimSpace(item), " as ")
-		fqn = strings.TrimPrefix(prefix+strings.TrimSpace(fqn), "\\")
-		local := strings.TrimSpace(alias)
-		if !aliased {
-			local = fqn[strings.LastIndex(fqn, "\\")+1:]
+	var clauses []*sitter.Node
+	for i := uint(0); i < decl.ChildCount(); i++ {
+		c := decl.Child(i)
+		switch c.Kind() {
+		case "function":
+			isFunction = true
+		case "namespace_name":
+			// use function App\{count, tally}
+			prefix = v.getContent(c) + "\\"
+		case "namespace_use_clause":
+			clauses = append(clauses, c)
+		case "namespace_use_group":
+			for j := uint(0); j < c.NamedChildCount(); j++ {
+				if g := c.NamedChild(j); g.Kind() == "namespace_use_clause" {
+					clauses = append(clauses, g)
+				}
+			}
 		}
-		if local == name && fqn != name {
-			return true
-		}
 	}
-	return false
+	for _, clause := range clauses {
+		// The keyword is on the declaration for a group (use function App\{a, b}), and on the
+		// first clause otherwise (use function App\a, App\b)
+		clauseIsFunction := isFunction
+		var name *sitter.Node
+		for j := uint(0); j < clause.ChildCount(); j++ {
+			switch c := clause.Child(j); c.Kind() {
+			case "function":
+				clauseIsFunction = true
+			case "name", "qualified_name":
+				if name == nil {
+					name = c
+				}
+			}
+		}
+		isFunction = clauseIsFunction
+		if !clauseIsFunction || name == nil {
+			continue
+		}
+		fqn := strings.ToLower(strings.TrimPrefix(prefix+v.getContent(name), "\\"))
+		local := fqn[strings.LastIndex(fqn, "\\")+1:]
+		if alias := clause.ChildByFieldName("alias"); alias != nil {
+			local = strings.ToLower(v.getContent(alias))
+		}
+		imports[local] = fqn
+	}
 }
 
 // isGlobalFunction reports a call that can only reach the PHP function called name: not a
@@ -1144,11 +1199,13 @@ func (v *PHPVisitor) isGlobalFunction(call *sitter.Node, name string) bool {
 	if strings.Contains(strings.TrimPrefix(v.getContent(fn), "\\"), "\\") {
 		return false
 	}
+	// use function App\count; calls the project's count(); use function count; imports PHP's own,
+	// as code styles that import native functions do
+	if fqn, imported := v.functionImports(call)[strings.ToLower(name)]; imported && fqn != strings.ToLower(name) {
+		return false
+	}
 	for _, line := range v.lines {
 		line = strings.ToLower(strings.TrimSpace(line))
-		if strings.HasPrefix(line, "use function ") && importsOtherFunction(line, name) {
-			return false
-		}
 		if strings.HasPrefix(line, "function "+name+"(") || strings.HasPrefix(line, "function "+name+" (") {
 			return false
 		}
