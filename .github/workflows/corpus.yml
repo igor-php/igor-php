@@ -28,8 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Each project with the PHP version its lock requires (8.4 unless it says otherwise)
+      # A block scalar: the ": " of the jq object would start a YAML mapping in a plain scalar
       - id: list
-        run: echo "projects=$(jq -c '[.[] | {project: .name, php: (.php // "8.4")}]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "projects=$(jq -c '[.[] | {project: .name, php: (.php // "8.4")}]' corpus/projects.json)" >> "$GITHUB_OUTPUT"
 
   corpus:
     name: Corpus (${{ matrix.project }})
