@@ -200,3 +200,59 @@ final class Registry
 	}
 	t.Fatalf("the closure finding is gone: %+v", results[0].Findings)
 }
+
+// An interface that inherits the method from a parent interface declares it: the warning says
+// igor could not read it (no body), not that it found no declaration.
+func TestInheritedInterfaceMethodHint(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"vendor/composer", "src"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"vendor/composer/autoload_psr4.php": "<?php\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\nreturn array(\n    'Demo\\\\' => array($baseDir . '/src'),\n);\n",
+		"src/ParentVisitor.php":             "<?php\nnamespace Demo;\ninterface ParentVisitor { public function visit(callable $c): void; }\n",
+		"src/ChildVisitor.php":              "<?php\nnamespace Demo;\ninterface ChildVisitor extends ParentVisitor {}\n",
+		"src/Walker.php": `<?php
+namespace Demo;
+final class Walker
+{
+    public function __construct(private ChildVisitor $visitor) {}
+
+    public function walk(string $name): void
+    {
+        $this->visitor->visit(static function () use ($name) {
+            return $name;
+        });
+    }
+}
+`,
+	}
+	for name, code := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(root, "src", "Walker.php")
+	aud := NewAuditor(config.Config{})
+	aud.Symfony = &SymfonyBridge{Root: root,
+		Container:   &symbol.SymfonyContainer{Definitions: map[string]symbol.SymfonyService{`Demo\Walker`: {Class: `Demo\Walker`, Shared: true}}},
+		ClassToFile: map[string]string{`Demo\Walker`: path},
+	}
+	findings, err := aud.Audit(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []symbol.AuditStatus{{FilePath: path, Findings: findings}}
+	aud.ResolveClosureLeaks(results)
+	for _, f := range results[0].Findings {
+		if f.Rule == symbol.RuleClosureStateLeak {
+			if f.Severity != "WARNING" || !strings.Contains(f.Remediation, "could not read") {
+				t.Errorf("got %s %q", f.Severity, f.Remediation)
+			}
+			return
+		}
+	}
+	t.Fatalf("the closure finding is gone: %+v", results[0].Findings)
+}

@@ -149,11 +149,36 @@ func (a *Auditor) uncertainHint(ref *symbol.ClosureArgRef, class string) string 
 	switch {
 	case lookup == lookupFound && found.method.HasBody:
 		return unprovenClosureHint
-	case lookup == lookupAbsent:
+	case lookup == lookupAbsent && !a.mayComeFromAnInterface(start, strings.ToLower(ref.Method), map[string]bool{}):
 		// Factory::afterInstantiate(), declared only on its subclass ObjectFactory
 		return undeclaredClosureHint
 	}
 	return unreadClosureHint
+}
+
+// mayComeFromAnInterface reports a method declared by an interface class implements or extends,
+// through its parents too, or an interface on the way that cannot be read: interface Child extends
+// Parent {} declares visit() without a body to read, it is not missing.
+func (a *Auditor) mayComeFromAnInterface(class, method string, seen map[string]bool) bool {
+	class = normalizeClassName(class)
+	if class == "" || seen[strings.ToLower(class)] {
+		return false
+	}
+	seen[strings.ToLower(class)] = true
+	info, ok := a.classCallables(class)
+	if !ok {
+		return true
+	}
+	for _, iface := range info.Interfaces {
+		ifaceInfo, readable := a.classCallables(iface)
+		if !readable {
+			return true
+		}
+		if _, declared := ifaceInfo.Methods[method]; declared || a.mayComeFromAnInterface(iface, method, seen) {
+			return true
+		}
+	}
+	return info.Parent != "" && a.mayComeFromAnInterface(info.Parent, method, seen)
 }
 
 // outermost returns the call made on the dependency, for a closure given to a constructor.
