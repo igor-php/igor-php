@@ -1117,31 +1117,52 @@ func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes
 // name: the lowercased imported name, without its leading backslash. They are read from the syntax
 // tree, so a comment after the statement or a tab around "as" does not hide one.
 func (v *PHPVisitor) functionImports(n *sitter.Node) map[string]string {
-	root := n
-	for root.Parent() != nil {
-		root = root.Parent()
-	}
 	imports := map[string]string{}
-	var walk func(*sitter.Node)
-	walk = func(n *sitter.Node) {
-		for i := uint(0); i < n.ChildCount(); i++ {
-			c := n.Child(i)
-			switch c.Kind() {
-			case "namespace_use_declaration":
-				v.readFunctionImport(c, imports)
-			case "namespace_definition", "compound_statement":
-				walk(c)
+	// An import only applies to its namespace block: the body of a bracketed namespace, or the
+	// statements from a namespace declaration to the next one
+	for p := n.Parent(); p != nil; p = p.Parent() {
+		if p.Kind() == "namespace_definition" {
+			if body := p.ChildByFieldName("body"); body != nil {
+				v.readUseDeclarations(body, 0, body.EndByte(), imports)
+				return imports
 			}
 		}
+		if p.Parent() == nil {
+			start, end := uint(0), p.EndByte()
+			for i := uint(0); i < p.ChildCount(); i++ {
+				c := p.Child(i)
+				if c.Kind() != "namespace_definition" {
+					continue
+				}
+				if c.StartByte() <= n.StartByte() {
+					start = c.StartByte()
+				} else {
+					end = c.StartByte()
+					break
+				}
+			}
+			v.readUseDeclarations(p, start, end, imports)
+		}
 	}
-	walk(root)
 	return imports
+}
+
+// readUseDeclarations reads the "use function" declarations among the children of container that
+// start in [start, end).
+func (v *PHPVisitor) readUseDeclarations(container *sitter.Node, start, end uint, imports map[string]string) {
+	for i := uint(0); i < container.ChildCount(); i++ {
+		c := container.Child(i)
+		if c.Kind() == "namespace_use_declaration" && c.StartByte() >= start && c.StartByte() < end {
+			v.readFunctionImport(c, imports)
+		}
+	}
 }
 
 // readFunctionImport adds the names a "use function" declaration imports to imports.
 func (v *PHPVisitor) readFunctionImport(decl *sitter.Node, imports map[string]string) {
 	isFunction := false
 	prefix := ""
+	grouped := false
 	var clauses []*sitter.Node
 	for i := uint(0); i < decl.ChildCount(); i++ {
 		c := decl.Child(i)
@@ -1154,6 +1175,7 @@ func (v *PHPVisitor) readFunctionImport(decl *sitter.Node, imports map[string]st
 		case "namespace_use_clause":
 			clauses = append(clauses, c)
 		case "namespace_use_group":
+			grouped = true
 			for j := uint(0); j < c.NamedChildCount(); j++ {
 				if g := c.NamedChild(j); g.Kind() == "namespace_use_clause" {
 					clauses = append(clauses, g)
@@ -1162,8 +1184,9 @@ func (v *PHPVisitor) readFunctionImport(decl *sitter.Node, imports map[string]st
 		}
 	}
 	for _, clause := range clauses {
-		// The keyword is on the declaration for a group (use function App\{a, b}), and on the
-		// first clause otherwise (use function App\a, App\b)
+		// The keyword is on the declaration for a group (use function App\{a, b}), on the first
+		// clause of a plain list (use function App\a, App\b), or on each clause of a mixed group
+		// (use App\{function a, SomeClass}), where it does not carry over
 		clauseIsFunction := isFunction
 		var name *sitter.Node
 		for j := uint(0); j < clause.ChildCount(); j++ {
@@ -1176,7 +1199,9 @@ func (v *PHPVisitor) readFunctionImport(decl *sitter.Node, imports map[string]st
 				}
 			}
 		}
-		isFunction = clauseIsFunction
+		if !grouped {
+			isFunction = clauseIsFunction
+		}
 		if !clauseIsFunction || name == nil {
 			continue
 		}
