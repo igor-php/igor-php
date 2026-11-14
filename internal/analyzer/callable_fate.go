@@ -1109,6 +1109,31 @@ func (s *fateScanner) functionArgument(call, args *sitter.Node, pos int, indexes
 	return nil
 }
 
+// importsOtherFunction reports a "use function" statement (lowercased) that gives name to a
+// namespaced function: use function App\count; or use function App\{count}; or use function
+// App\tally as count;. use function count; imports the PHP function itself, as code styles that
+// import native functions do, and keeps the call global.
+func importsOtherFunction(stmt, name string) bool {
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(stmt, "use function "), ";"))
+	prefix := ""
+	if open := strings.Index(body, "{"); open >= 0 {
+		prefix = strings.TrimSpace(body[:open])
+		body = strings.TrimSuffix(strings.TrimSpace(body[open+1:]), "}")
+	}
+	for _, item := range strings.Split(body, ",") {
+		fqn, alias, aliased := strings.Cut(strings.TrimSpace(item), " as ")
+		fqn = strings.TrimPrefix(prefix+strings.TrimSpace(fqn), "\\")
+		local := strings.TrimSpace(alias)
+		if !aliased {
+			local = fqn[strings.LastIndex(fqn, "\\")+1:]
+		}
+		if local == name && fqn != name {
+			return true
+		}
+	}
+	return false
+}
+
 // isGlobalFunction reports a call that can only reach the PHP function called name: not a
 // qualified name (App\array_map()), not a function the file imports or declares.
 func (v *PHPVisitor) isGlobalFunction(call *sitter.Node, name string) bool {
@@ -1121,7 +1146,7 @@ func (v *PHPVisitor) isGlobalFunction(call *sitter.Node, name string) bool {
 	}
 	for _, line := range v.lines {
 		line = strings.ToLower(strings.TrimSpace(line))
-		if strings.HasPrefix(line, "use function ") && strings.Contains(line, name) {
+		if strings.HasPrefix(line, "use function ") && importsOtherFunction(line, name) {
 			return false
 		}
 		if strings.HasPrefix(line, "function "+name+"(") || strings.HasPrefix(line, "function "+name+" (") {

@@ -65,9 +65,13 @@ Sentry's `Hub::withScope()`). A closure given to a constructor in the call's arg
 (`new ArrayModifier($source, [$closure])`) is judged in that constructor first: one that only calls
 it drops the finding, one that stores it in the new object leaves the decision to what the call
 does with that object.
-A WARNING means igor could not read the method (interface without a container map, abstract
-class, untyped property, named argument) and its name does not say it registers a callback: read
-the method yourself.
+A WARNING means igor could not decide, and the method's name does not say it registers a
+callback: read the method yourself. Its message says which case it is:
+- "could not read": igor had no body to read (interface without a container map, a class it
+  cannot locate, an untyped property);
+- "could not prove": igor read the method, but could not follow the closure to the end (a subclass
+  may override it, an abstract class, a named argument, or the closure, or an object holding it,
+  goes on to code igor does not follow).
 
 **False positive**: a WARNING on a method that calls the closure and returns. Add it to the
 baseline, or type the property with the concrete class so igor can read the method.

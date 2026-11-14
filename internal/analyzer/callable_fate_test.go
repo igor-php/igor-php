@@ -246,3 +246,22 @@ interface Sub extends \Top, Other {}`))
 		t.Errorf("Leaf: %+v", leaf)
 	}
 }
+
+// "use function count;" imports PHP's own count(): a code style, not a shadowing function.
+func TestImportsOtherFunction(t *testing.T) {
+	for stmt, want := range map[string]bool{
+		`use function count;`:                   false,
+		`use function \count;`:                  false,
+		`use function count, array_keys;`:       false,
+		`use function app\count;`:               true,
+		`use function app\{count, tally};`:      true,
+		`use function app\tally as count;`:      true,
+		`use function app\counter;`:             false,
+		`use function app\count as tally;`:      false,
+		`use function app\{tally, count as c};`: false,
+	} {
+		if got := importsOtherFunction(stmt, "count"); got != want {
+			t.Errorf("importsOtherFunction(%q) = %v, want %v", stmt, got, want)
+		}
+	}
+}
