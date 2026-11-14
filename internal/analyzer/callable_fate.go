@@ -53,9 +53,15 @@ type ParamFate struct {
 	Trusts []string
 	// Returned is true when the method may return the value, or something holding it.
 	Returned bool
+	// Opened is true when the method reads a property of the value or calls a method on it
+	// ($box->callback, $box->get()). When the value is an object holding the closure rather than
+	// the closure itself, what it reads there may be the closure, which the summary does not follow.
+	Opened bool
 	// ResultKept is what the method does with the result of the calls in ResultFrom, which were
 	// given the value: $wrapped = $this->wrap($callback); $this->kept = $wrapped. It only applies
-	// when one of those methods may return what it was given.
+	// when one of those methods may return what it was given. Its own ResultKept is the next
+	// level, for the calls given that result: in $this->source = $this->replace($this->prepare($map)),
+	// the stored value holds $map only if prepare() returns it and replace() returns what it gets.
 	ResultKept *ParamFate
 	ResultFrom []ParamForward
 }
@@ -288,20 +294,46 @@ func (v *PHPVisitor) importsName(n *sitter.Node, name string) bool {
 	return false
 }
 
+// resultLevels is how many calls deep the results that may hold a parameter are told apart:
+// prepare($map) is level 1, replace(prepare($map)) level 2. Deeper results share the last level.
+const resultLevels = 3
+
 // keepResults folds the fate of the call results that may hold a parameter (the slots after
-// count) into that parameter: $wrapped = $this->wrap($callback); $this->kept = $wrapped is kept
-// if wrap() returns it.
+// count, one set per level) into that parameter, as a chain of ResultKept: $wrapped =
+// $this->wrap($callback); $this->kept = $wrapped is kept if wrap() returns it.
 func (s *fateScanner) keepResults() {
 	for i := 0; i < s.count; i++ {
-		maybe := s.fates[s.count+i]
-		if len(s.resultFrom[i]) > 0 && (maybe.Retained || maybe.Global || maybe.Unknown || len(maybe.Forwards) > 0) {
-			kept := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Forwards: maybe.Forwards}
-			s.fates[i].ResultKept = &kept
-			s.fates[i].ResultFrom = s.resultFrom[i]
+		var kept *ParamFate
+		var from []ParamForward
+		for level := resultLevels; level >= 1; level-- {
+			slot := level*s.count + i
+			maybe := s.fates[slot]
+			s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
+			levelFrom := s.resultFrom[slot]
+			if len(levelFrom) == 0 || !(maybe.Retained || maybe.Global || maybe.Unknown || len(maybe.Forwards) > 0 || kept != nil) {
+				kept, from = nil, nil
+				continue
+			}
+			k := ParamFate{Retained: maybe.Retained, Global: maybe.Global, Unknown: maybe.Unknown, Opened: maybe.Opened, Forwards: maybe.Forwards}
+			if kept != nil && sameLevel(k, *kept, levelFrom, from) {
+				// $callback = $this->wrap($callback) in a loop: the next level repeats this one
+				continue
+			}
+			k.ResultKept, k.ResultFrom = kept, from
+			kept, from = &k, levelFrom
 		}
-		s.fates[i].Trusts = append(s.fates[i].Trusts, maybe.Trusts...)
+		if kept != nil {
+			s.fates[i].ResultKept = kept
+			s.fates[i].ResultFrom = from
+		}
 	}
 	s.fates = s.fates[:s.count]
+}
+
+// sameLevel reports two levels of results with the same fate, given by the same calls.
+func sameLevel(a, b ParamFate, aFrom, bFrom []ParamForward) bool {
+	return a.Retained == b.Retained && a.Global == b.Global && a.Unknown == b.Unknown && a.Opened == b.Opened &&
+		slices.Equal(a.Forwards, b.Forwards) && slices.Equal(aFrom, bFrom)
 }
 
 // isGenerator reports a body that yields, outside the closures it declares: calling the method
@@ -335,8 +367,9 @@ type fateScanner struct {
 	fates  []ParamFate
 	grew   bool
 	opaque bool
-	// count is the number of parameters. The index count+i stands for a value that may hold
-	// parameter i: the result of a method that was given it, listed in resultFrom[i].
+	// count is the number of parameters. The index level*count+i stands for a value that may hold
+	// parameter i through level calls: the result of a method given it (level 1), or given such a
+	// result (level 2). resultFrom lists the methods of each such index.
 	count      int
 	resultFrom map[int][]ParamForward
 	// arrayParams are the parameters that are arrays passed by value (array $options, a
@@ -395,7 +428,7 @@ func (v *PHPVisitor) methodCallables(method *sitter.Node) MethodCallables {
 	// A local may be given a parameter after a line that uses it (in a loop): scan until the
 	// set of locals holding a parameter stops growing
 	for round := 0; round < 8; round++ {
-		s.fates = make([]ParamFate, 2*count)
+		s.fates = make([]ParamFate, (resultLevels+1)*count)
 		s.resultFrom = map[int][]ParamForward{}
 		s.grew = false
 		s.scan(body)
@@ -689,6 +722,11 @@ func (s *fateScanner) step(p, cur *sitter.Node, indexes []int) *sitter.Node {
 	if s.stillHolds(p, cur) {
 		return p
 	}
+	if s.opens(p, cur) {
+		for _, i := range indexes {
+			s.fates[i].Opened = true
+		}
+	}
 	switch p.Kind() {
 	case "argument":
 		return s.argument(p, indexes)
@@ -740,6 +778,39 @@ func (s *fateScanner) stillHolds(p, cur *sitter.Node) bool {
 		// A call on the value itself: bindTo() gives a new closure holding it, the others use it
 		name := p.ChildByFieldName("name")
 		return sameNode(p.ChildByFieldName("object"), cur) && name != nil && strings.EqualFold(v.getContent(name), "bindTo")
+	}
+	return false
+}
+
+// opens reports p reading a property of cur or calling a method on it, other than the calls a
+// closure answers itself (bindTo(), call(), __invoke()).
+func (s *fateScanner) opens(p, cur *sitter.Node) bool {
+	if !sameNode(p.ChildByFieldName("object"), cur) {
+		return false
+	}
+	switch p.Kind() {
+	case "member_access_expression", "nullsafe_member_access_expression":
+		// $box->callback = $x writes the object, it does not read what it holds
+		for w := p; w.Parent() != nil; w = w.Parent() {
+			parent := w.Parent()
+			if (parent.Kind() == "assignment_expression" || parent.Kind() == "augmented_assignment_expression") && sameNode(parent.ChildByFieldName("left"), w) {
+				return false
+			}
+			if parent.Kind() != "subscript_expression" && parent.Kind() != "member_access_expression" {
+				break
+			}
+		}
+		return true
+	case "member_call_expression", "nullsafe_member_call_expression":
+		name := p.ChildByFieldName("name")
+		if name == nil {
+			return true
+		}
+		switch strings.ToLower(s.v.getContent(name)) {
+		case "bindto", "call", "__invoke":
+			return false
+		}
+		return true
 	}
 	return false
 }
@@ -983,13 +1054,10 @@ func (s *fateScanner) constructorArgument(call *sitter.Node, pos int, positional
 func (s *fateScanner) resultMayHold(call *sitter.Node, indexes []int, f ParamForward) {
 	maybe := make([]int, len(indexes))
 	for i, index := range indexes {
-		maybe[i] = index
-		if index < s.count {
-			maybe[i] = index + s.count
-		}
-		param := maybe[i] - s.count
-		if !slices.Contains(s.resultFrom[param], f) {
-			s.resultFrom[param] = append(s.resultFrom[param], f)
+		level := min(index/s.count+1, resultLevels)
+		maybe[i] = level*s.count + index%s.count
+		if !slices.Contains(s.resultFrom[maybe[i]], f) {
+			s.resultFrom[maybe[i]] = append(s.resultFrom[maybe[i]], f)
 		}
 	}
 	s.follow(call, maybe)
@@ -998,10 +1066,7 @@ func (s *fateScanner) resultMayHold(call *sitter.Node, indexes []int, f ParamFor
 // returned records a value the method may return: a parameter, or the result of a call given one.
 func (s *fateScanner) returned(indexes []int) {
 	for _, i := range indexes {
-		if i >= s.count {
-			i -= s.count
-		}
-		s.fates[i].Returned = true
+		s.fates[i%s.count].Returned = true
 	}
 }
 
