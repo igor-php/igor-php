@@ -1,0 +1,16 @@
+{
+    "project": "api-platform-demo",
+    "commit": "34848a6b054a40ae719f4863751a57487551cd57",
+    "files": 40,
+    "counts": {
+        "DetectClosureStateLeak WARNING": 2,
+        "DetectSingletonMutation ERROR": 2,
+        "IncompleteReset WARNING": 8,
+        "LocalStaticVariable ERROR": 1,
+        "MagicMethodDestruct ERROR": 2,
+        "ProcessStateMutation WARNING": 3,
+        "StateMutation ERROR": 166,
+        "SuperglobalsUsage WARNING": 13,
+        "UnsafeStateRestore ERROR": 1
+    }
+}

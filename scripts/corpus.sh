@@ -48,12 +48,13 @@ selected() {
 # prepare clones the project at its pinned commit, installs it, and installs igor from this checkout.
 # It is called as `prepare ... || exit 1`, where Bash ignores set -e: every step returns on failure.
 prepare() {
-    local project=$1 dir=$2
-    local repo commit framework memory
+    local project=$1 dir=$2 app=$3
+    local repo commit framework memory name
     repo=$(jq -r .repo <<<"$project")
     commit=$(jq -r .commit <<<"$project")
     framework=$(jq -r .framework <<<"$project")
     memory=$(jq -r '.memory // "512M"' <<<"$project")
+    name=$(jq -r .name <<<"$project")
 
     if [ ! -d "$dir/.git" ]; then
         git init -q "$dir" && git -C "$dir" remote add origin "$repo" || { echo "  ❌ git init failed" >&2; return 1; }
@@ -66,12 +67,12 @@ prepare() {
     git -C "$dir" checkout -q -f "$commit" || { echo "  ❌ cannot check out $commit" >&2; return 1; }
 
     echo "  ⚙ composer install"
-    (cd "$dir" && COMPOSER_MEMORY_LIMIT=-1 composer install --no-interaction --no-progress --no-scripts -q) \
+    (cd "$app" && COMPOSER_MEMORY_LIMIT=-1 composer install --no-interaction --no-progress --no-scripts -q) \
         || { echo "  ❌ composer install failed" >&2; return 1; }
 
     # igor from this checkout, as a user installs it: composer require --dev igor-php/igor-php
     echo "  ⚙ installing igor from the checkout"
-    (cd "$dir" \
+    (cd "$app" \
         && composer config repositories.igor-local "{\"type\": \"path\", \"url\": \"$ROOT\", \"options\": {\"symlink\": true}}" \
         && composer require --dev --no-update -q "igor-php/igor-php:*@dev" \
         && COMPOSER_MEMORY_LIMIT=-1 composer update -q --no-interaction --no-progress --no-scripts igor-php/igor-php) \
@@ -81,7 +82,7 @@ prepare() {
     while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
         echo "  ⚙ $cmd"
-        (cd "$dir" && bash -c "$cmd") || { echo "  ❌ setup command failed: $cmd" >&2; return 1; }
+        (cd "$app" && bash -c "$cmd") || { echo "  ❌ setup command failed: $cmd" >&2; return 1; }
     done < <(jq -r '(.setup // [])[]' <<<"$project")
 
     case $framework in
@@ -93,10 +94,10 @@ prepare() {
                 if (!str_contains($bundles, "IgorPhpBundle")) {
                     $bundles = preg_replace("/\];\s*$/", "    IgorPhp\\IgorBundle\\IgorPhpBundle::class => [\"dev\" => true],\n];\n", $bundles);
                     file_put_contents($file, $bundles);
-                }' "$dir/config/bundles.php" || { echo "  ❌ cannot register IgorPhpBundle" >&2; return 1; }
+                }' "$app/config/bundles.php" || { echo "  ❌ cannot register IgorPhpBundle" >&2; return 1; }
             echo "  ⚙ cache:clear (writes the igor service map)"
-            (cd "$dir" && rm -rf var/cache && APP_ENV=dev php -d "memory_limit=$memory" bin/console cache:clear --env=dev --no-interaction >"$WORK/results/$(basename "$dir").cache.log" 2>&1) \
-                || { echo "  ❌ cache:clear failed, see $WORK/results/$(basename "$dir").cache.log" >&2; return 1; }
+            (cd "$app" && rm -rf var/cache && APP_ENV=dev php -d "memory_limit=$memory" bin/console cache:clear --env=dev --no-interaction >"$WORK/results/$name.cache.log" 2>&1) \
+                || { echo "  ❌ cache:clear failed, see $WORK/results/$name.cache.log" >&2; return 1; }
             ;;
         laravel)
             # IgorServiceProvider is discovered by Laravel; igor runs php artisan igor:dump itself
@@ -115,6 +116,9 @@ while IFS= read -r project; do
     echo
     echo "▶ $name"
     dir="$WORK/$name"
+    # The application may live in a subdirectory of the repository (api/ in api-platform/demo)
+    root=$(jq -r '.root // ""' <<<"$project")
+    app="$dir${root:+/$root}"
     rm -f "$WORK/results/$name.status"
     if ! (
         # The project's environment variables (a database driver, a disabled feature...), for its
@@ -123,10 +127,10 @@ while IFS= read -r project; do
             [ -n "$key" ] && export "$key=$value"
         done < <(jq -r '(.env // {}) | to_entries[] | "\(.key)=\(.value)"' <<<"$project")
 
-        prepare "$project" "$dir" || exit 1
+        prepare "$project" "$dir" "$app" || exit 1
         echo "  🔍 igor"
         igor_status=0
-        "$WORK/igor" --output json "$dir" >"$WORK/results/$name.json" 2>"$WORK/results/$name.log" || igor_status=$?
+        "$WORK/igor" --output json "$app" >"$WORK/results/$name.json" 2>"$WORK/results/$name.log" || igor_status=$?
         echo "$igor_status" >"$WORK/results/$name.status"
     ); then
         status=1
@@ -135,7 +139,7 @@ while IFS= read -r project; do
     igor_status=$(cat "$WORK/results/$name.status")
 
     args=(--name "$name" --framework "$(jq -r .framework <<<"$project")" --commit "$(jq -r .commit <<<"$project")"
-        --dir "$dir" --results "$WORK/results/$name.json" --log "$WORK/results/$name.log"
+        --dir "$app" --results "$WORK/results/$name.json" --log "$WORK/results/$name.log"
         --igor-status "$igor_status" --baseline "$ROOT/corpus/baseline/$name.json")
     [ "$UPDATE" -eq 1 ] && args+=(--update)
     [ "$STRICT" -eq 1 ] && args+=(--strict)
