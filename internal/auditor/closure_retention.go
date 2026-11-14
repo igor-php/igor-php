@@ -127,6 +127,10 @@ func (a *Auditor) verdictOf(ref *symbol.ClosureArgRef, callerClass string, carri
 	return retentionUnknown, ref, class
 }
 
+// undeclaredClosureHint replaces it when igor read the class it resolved, its traits and parents,
+// and none declares the method: it comes from a subclass, or from __call().
+const undeclaredClosureHint = "Igor found no declaration of %s: the method is not declared on that class or its parents, so the object may be a subclass that declares it, or the call may go through __call(). If it only calls the closure, add the finding to the baseline; if it keeps it, register the callback once at boot instead."
+
 // uncertainHint tells whether igor could read the method it names in the warning: "could not
 // read" sent a reporter looking for a missing file when the method was read and only the rest of
 // the closure's path could not be followed.
@@ -141,8 +145,13 @@ func (a *Auditor) uncertainHint(ref *symbol.ClosureArgRef, class string) string 
 	if _, readable := a.classCallables(start); !readable {
 		return unreadClosureHint
 	}
-	if found, lookup := a.findCallableMethod(start, strings.ToLower(ref.Method), map[string]bool{}); lookup == lookupFound && found.method.HasBody {
+	found, lookup := a.findCallableMethod(start, strings.ToLower(ref.Method), map[string]bool{})
+	switch {
+	case lookup == lookupFound && found.method.HasBody:
 		return unprovenClosureHint
+	case lookup == lookupAbsent:
+		// Factory::afterInstantiate(), declared only on its subclass ObjectFactory
+		return undeclaredClosureHint
 	}
 	return unreadClosureHint
 }

@@ -107,8 +107,8 @@ func TestResolveClosureLeaks(t *testing.T) {
 		t.Errorf("the fixture has %d closure findings, the test covers %d", len(before), len(cases))
 	}
 	for _, f := range results[0].Findings {
-		if f.Rule == symbol.RuleClosureStateLeak && f.Severity == "WARNING" && !strings.Contains(f.Remediation, "could not read") && !strings.Contains(f.Remediation, "could not prove") {
-			t.Errorf("%s: a downgraded finding must say igor could not read the method, or could not prove what it does: %q", f.ContextMethod, f.Remediation)
+		if f.Rule == symbol.RuleClosureStateLeak && f.Severity == "WARNING" && !strings.Contains(f.Remediation, "could not read") && !strings.Contains(f.Remediation, "could not prove") && !strings.Contains(f.Remediation, "found no declaration") {
+			t.Errorf("%s: a downgraded finding must say why igor is unsure (could not read, could not prove, found no declaration): %q", f.ContextMethod, f.Remediation)
 		}
 		if f.ContextMethod == "visitedThroughAnInterface" && !strings.Contains(f.Remediation, "could not read") {
 			t.Errorf("an interface method has no body to read: %q", f.Remediation)

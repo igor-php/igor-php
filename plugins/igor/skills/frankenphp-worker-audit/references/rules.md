@@ -71,7 +71,10 @@ callback: read the method yourself. Its message says which case it is:
   cannot locate, an untyped property);
 - "could not prove": igor read the method, but could not follow the closure to the end (a subclass
   may override it, an abstract class, a named argument, or the closure, or an object holding it,
-  goes on to code igor does not follow).
+  goes on to code igor does not follow);
+- "found no declaration": the class igor resolved, its traits and parents do not declare the
+  method, so the object may be a subclass that declares it (foundry's `Factory::afterInstantiate()`
+  is declared on `ObjectFactory`), or the call goes through `__call()`.
 
 **False positive**: a WARNING on a method that calls the closure and returns. Add it to the
 baseline, or type the property with the concrete class so igor can read the method.

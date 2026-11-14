@@ -3,6 +3,7 @@ package auditor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/igor-php/igor-php/internal/config"
@@ -141,4 +142,61 @@ final class PriceClient
 			}
 		})
 	}
+}
+
+// A receiver typed with an abstract class that does not declare the method, as foundry's
+// Factory::afterInstantiate() (declared on ObjectFactory only): the warning says igor found no
+// declaration on that class, not that it could not read it.
+func TestUndeclaredMethodHint(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"vendor/composer", "src"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"vendor/composer/autoload_psr4.php": "<?php\n$vendorDir = dirname(__DIR__);\n$baseDir = dirname($vendorDir);\nreturn array(\n    'Demo\\\\' => array($baseDir . '/src'),\n);\n",
+		"src/Factory.php":                   "<?php\nnamespace Demo;\nabstract class Factory {}\n",
+		"src/ObjectFactory.php":             "<?php\nnamespace Demo;\nclass ObjectFactory extends Factory { private array $after = []; public function afterInstantiate(callable $c): static { $this->after[] = $c; return $this; } }\n",
+		"src/Registry.php": `<?php
+namespace Demo;
+final class Registry
+{
+    public function __construct(private Factory $factory) {}
+
+    public function get(string $name): Factory
+    {
+        return $this->factory->afterInstantiate(static function (object $o) use ($name) {
+            return [$name, $o];
+        });
+    }
+}
+`,
+	}
+	for name, code := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(code), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(root, "src", "Registry.php")
+	aud := NewAuditor(config.Config{})
+	aud.Symfony = &SymfonyBridge{Root: root,
+		Container:   &symbol.SymfonyContainer{Definitions: map[string]symbol.SymfonyService{`Demo\Registry`: {Class: `Demo\Registry`, Shared: true}}},
+		ClassToFile: map[string]string{`Demo\Registry`: path},
+	}
+	findings, err := aud.Audit(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []symbol.AuditStatus{{FilePath: path, Findings: findings}}
+	aud.ResolveClosureLeaks(results)
+	for _, f := range results[0].Findings {
+		if f.Rule == symbol.RuleClosureStateLeak {
+			if f.Severity != "WARNING" || !strings.Contains(f.Remediation, `found no declaration of Demo\Factory::afterInstantiate()`) {
+				t.Errorf("got %s %q", f.Severity, f.Remediation)
+			}
+			return
+		}
+	}
+	t.Fatalf("the closure finding is gone: %+v", results[0].Findings)
 }
