@@ -18,7 +18,10 @@ $json = file_get_contents('php://stdin');
 $data = json_decode($json, true);
 
 $mapping = [];
+// Class => whether a shared definition uses it. A parent class or a trait reached only through
+// non-shared definitions (a controller, a Livewire component) never holds state across requests.
 $classesToCheck = [];
+$sharedHierarchy = [];
 
 // 1. Classes from definitions
 foreach ($data['definitions'] ?? [] as $id => $def) {
@@ -28,19 +31,21 @@ foreach ($data['definitions'] ?? [] as $id => $def) {
         continue;
     }
     if (isset($def['class']) && $def['class']) {
-        $classesToCheck[$def['class']] = true;
+        $classesToCheck[$def['class']] = ($classesToCheck[$def['class']] ?? false) || ($def['shared'] ?? true);
     }
 }
 
 // 2. Classes from aliases
 foreach ($data['aliases'] ?? [] as $id => $target) {
     if (class_exists($id) || interface_exists($id) || trait_exists($id)) {
-        $classesToCheck[$id] = true;
+        $targetId = is_array($target) ? ($target['id'] ?? null) : $target;
+        $shared = $data['definitions'][(string) $targetId]['shared'] ?? true;
+        $classesToCheck[$id] = ($classesToCheck[$id] ?? false) || $shared;
     }
 }
 
 // 3. Perform Reflection
-foreach ($classesToCheck as $class => $_) {
+foreach ($classesToCheck as $class => $isShared) {
     try {
         if (class_exists($class) || interface_exists($class) || trait_exists($class)) {
             $reflection = new ReflectionClass($class);
@@ -76,6 +81,9 @@ foreach ($classesToCheck as $class => $_) {
             foreach ($hierarchy as $item) {
                 $name = $item->getName();
                 $file = $item->getFileName();
+                if ($isShared) {
+                    $sharedHierarchy[$name] = true;
+                }
                 if ($file && file_exists($file)) {
                     $mapping[$name] = $file;
                 }
@@ -84,4 +92,4 @@ foreach ($classesToCheck as $class => $_) {
     } catch (Throwable $e) {}
 }
 
-echo json_encode((object)$mapping);
+echo json_encode(['files' => (object) $mapping, 'shared' => array_keys($sharedHierarchy)]);

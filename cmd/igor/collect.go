@@ -43,7 +43,8 @@ func collectFiles(rootPath string, cfg config.Config, aud *auditor.Auditor) []sy
 				ServiceID: "Inherited/" + class,
 				FilePath:  path,
 				Status:    "⏳ PENDING",
-				IsShared:  true,
+				// Still audited when only non-shared services use it: its static state persists
+				IsShared: !aud.Symfony.OnlyInNonSharedHierarchy(class),
 			})
 			processedFiles[path] = true
 		}
@@ -300,7 +301,7 @@ func collectSingleSymfonyFile(cleanTarget string, fqcns []string, cfg config.Con
 			ServiceID: "Inherited/" + fqcn,
 			FilePath:  cleanTarget,
 			Status:    "⏳ PENDING",
-			IsShared:  true,
+			IsShared:  !aud.Symfony.OnlyInNonSharedHierarchy(fqcn),
 		}}
 	}
 

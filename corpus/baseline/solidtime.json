@@ -1,14 +1,11 @@
 {
     "project": "solidtime",
     "commit": "9c4e9f373acebe07e160baa0a3d0a7c0122efab2",
-    "files": 59,
+    "files": 29,
     "counts": {
         "DetectClosureStateLeak ERROR": 1,
-        "DetectClosureStateLeak WARNING": 2,
-        "DetectSingletonMutation ERROR": 4,
         "LocalStaticVariable ERROR": 1,
-        "StaleDependency ERROR": 2,
-        "StateMutation ERROR": 239,
-        "UnsafeStateRestore ERROR": 1
+        "StaleDependency ERROR": 1,
+        "StateMutation ERROR": 92
     }
 }
