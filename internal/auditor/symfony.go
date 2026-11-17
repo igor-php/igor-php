@@ -32,6 +32,10 @@ type SymfonyBridge struct {
 	Config      config.Config
 	Container   *symbol.SymfonyContainer
 	ClassToFile map[string]string
+	// SharedHierarchy holds the classes, parent classes and traits of the shared definitions.
+	// A class of ClassToFile missing from it is only used by non-shared definitions (controllers,
+	// Livewire components): its instance state never outlives a request. Nil when unknown.
+	SharedHierarchy map[string]bool
 }
 
 // NewSymfonyBridge creates a new bridge for a given project root.
@@ -191,19 +195,44 @@ func (b *SymfonyBridge) locateFilesViaReflection(jsonPart string) error {
 	start := strings.Index(strOutput, "{")
 	end := strings.LastIndex(strOutput, "}")
 	if start == -1 || end == -1 || end < start {
-		// Fallback to try unmarshaling the entire stdout if no braces found (highly unlikely if it ran successfully)
-		if err := json.Unmarshal(stdout.Bytes(), &b.ClassToFile); err != nil {
-			return fmt.Errorf("failed to parse reflection mapping (no JSON object found in output: %q): %v", strOutput, err)
-		}
-		return nil
+		return fmt.Errorf("failed to parse reflection mapping (no JSON object found in output: %q)", strOutput)
 	}
 
-	cleanJSON := strOutput[start : end+1]
-	if err := json.Unmarshal([]byte(cleanJSON), &b.ClassToFile); err != nil {
+	return b.parseReflectionMapping([]byte(strOutput[start : end+1]))
+}
+
+// parseReflectionMapping reads the output of find_class_files.php: the file of each class and
+// the classes used by a shared definition.
+func (b *SymfonyBridge) parseReflectionMapping(data []byte) error {
+	var mapping struct {
+		Files  map[string]string `json:"files"`
+		Shared []string          `json:"shared"`
+	}
+	if err := json.Unmarshal(data, &mapping); err != nil {
 		return fmt.Errorf("failed to parse reflection mapping: %v", err)
 	}
-
+	if mapping.Files == nil {
+		mapping.Files = make(map[string]string)
+	}
+	b.ClassToFile = mapping.Files
+	b.SharedHierarchy = make(map[string]bool, len(mapping.Shared))
+	for _, class := range mapping.Shared {
+		b.SharedHierarchy[normalizeClassName(class)] = true
+	}
 	return nil
+}
+
+// OnlyInNonSharedHierarchy reports whether the class is a parent class or a trait that only
+// non-shared definitions use: it is located through them, but no shared definition reaches it.
+func (b *SymfonyBridge) OnlyInNonSharedHierarchy(className string) bool {
+	if b == nil || b.SharedHierarchy == nil {
+		return false
+	}
+	className = normalizeClassName(className)
+	if _, located := b.ClassToFile[className]; !located {
+		return false
+	}
+	return !b.SharedHierarchy[className]
 }
 
 // IsSharedService checks if a FQCN is a shared service in Symfony.

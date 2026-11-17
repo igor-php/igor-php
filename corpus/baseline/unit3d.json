@@ -1,9 +1,8 @@
 {
     "project": "unit3d",
     "commit": "8b88f4c8182eb3d3912ffef425c3224dcfd596f4",
-    "files": 15,
+    "files": 10,
     "counts": {
-        "DetectSingletonMutation ERROR": 2,
-        "StateMutation ERROR": 54
+        "StateMutation ERROR": 40
     }
 }

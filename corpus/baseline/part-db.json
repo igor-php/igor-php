@@ -1,7 +1,7 @@
 {
     "project": "part-db",
     "commit": "eddccadacf3aaf8508fc6eef1b117c70fe23e161",
-    "files": 129,
+    "files": 128,
     "counts": {
         "DetectClosureStateLeak ERROR": 1,
         "DetectClosureStateLeak WARNING": 2,
@@ -12,7 +12,7 @@
         "MagicMethodDestruct ERROR": 1,
         "MissingResetTag ERROR": 2,
         "ProcessStateMutation WARNING": 7,
-        "StateMutation ERROR": 315,
+        "StateMutation ERROR": 310,
         "SuperglobalsUsage WARNING": 31
     }
 }

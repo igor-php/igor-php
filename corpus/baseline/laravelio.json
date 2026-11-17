@@ -1,12 +1,11 @@
 {
     "project": "laravelio",
     "commit": "b9d33e281c25c8f764ae144d95eb736e01c8fa0e",
-    "files": 79,
+    "files": 54,
     "counts": {
-        "DetectClosureStateLeak WARNING": 2,
-        "DetectSingletonMutation ERROR": 21,
+        "DetectSingletonMutation ERROR": 15,
         "ProcessStateMutation WARNING": 8,
-        "StateMutation ERROR": 334,
+        "StateMutation ERROR": 220,
         "SuperglobalsUsage WARNING": 4
     }
 }

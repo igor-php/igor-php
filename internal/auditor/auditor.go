@@ -537,7 +537,11 @@ func (a *Auditor) IsExplicitlyNonShared(className string) bool {
 	if hasShared {
 		return false
 	}
-	return hasNonShared
+	if hasNonShared {
+		return true
+	}
+	// Not a definition: a parent class or a trait is non-shared when only non-shared definitions use it
+	return a.Symfony.OnlyInNonSharedHierarchy(className)
 }
 
 func (a *Auditor) IsResettable(className string) bool {
