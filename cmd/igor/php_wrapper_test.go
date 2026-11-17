@@ -594,17 +594,15 @@ namespace {
         fwrite(STDERR, "A ResetInterface service no Octane listener references must not be resettable\n");
         exit(1);
     }
-    // Without Octane, the listener still in config/octane.php never runs
-    $expected = $argv[2] === 'octane';
-    if ($isResettable('App\\Service\\ListenedCollector') !== $expected) {
-        fwrite(STDERR, "A service referenced by an Octane request listener must be resettable only when Octane runs\n");
+    if ($isResettable('App\\Service\\ListenedCollector') !== true) {
+        fwrite(STDERR, "A service referenced by an Octane request listener must be resettable\n");
         exit(1);
     }
     echo "SUCCESS\n";
 }
 `
 
-	for _, model := range []string{"octane", "worker"} {
+	for _, model := range []string{"octane"} {
 		cmd := exec.Command("php", "-r", phpScript, "--", dir, model)
 		cmd.Dir = filepath.Join("..", "..")
 		output, err := cmd.CombinedOutput()
@@ -614,7 +612,7 @@ namespace {
 	}
 }
 
-func TestServiceMapBuilder_PersistenceModelWithAndWithoutOctane(t *testing.T) {
+func TestServiceMapBuilder_OctaneModel(t *testing.T) {
 	requirePHP(t)
 
 	phpScript := `
@@ -664,7 +662,12 @@ namespace {
         public function offsetUnset($k): void {}
     };
 
-    $map = (new \IgorPhp\Laravel\ServiceMapBuilder($app))->build();
+    try {
+        $map = (new \IgorPhp\Laravel\ServiceMapBuilder($app))->build();
+    } catch (\LogicException $e) {
+        echo json_encode(['error' => $e->getMessage()]), "\n";
+        return;
+    }
     $shared = array_map(fn (array $definition) => $definition['shared'], $map['definitions']);
     ksort($shared);
     echo json_encode(['persistence' => $map['persistence'] ?? null, 'shared' => $shared]), "\n";
@@ -682,14 +685,20 @@ namespace {
 		var built struct {
 			Persistence string          `json:"persistence"`
 			Shared      map[string]bool `json:"shared"`
+			Error       string          `json:"error"`
 		}
 		if err := json.Unmarshal(output, &built); err != nil {
 			t.Fatalf("ServiceMapBuilder (%s) printed no JSON: %v\nOutput: %s", model, err, string(output))
 		}
-		// The rule reads the model from the map: the container and the config are only
-		// per request under Octane (#121)
-		if built.Persistence != model {
-			t.Errorf("%s model: the map says persistence %q", model, built.Persistence)
+		if model != "octane" {
+			// Laravel runs in a worker through Octane: without it, no map is built
+			if !strings.Contains(built.Error, "Laravel Octane is not installed") {
+				t.Errorf("without Octane, build() must refuse, got %+v", built)
+			}
+			return nil
+		}
+		if built.Persistence != "octane" {
+			t.Errorf("the map says persistence %q", built.Persistence)
 		}
 		return built.Shared
 	}
@@ -701,19 +710,8 @@ namespace {
 		"App\\Service\\ScopedService": false,
 		"App\\Service\\Transient":     false,
 	}
-	// Without Octane the same application serves every request: singletons and scoped bindings persist,
-	// including a factory singleton, built to learn its class
-	worker := map[string]bool{
-		"App\\Service\\Booted":        true,
-		"App\\Service\\LazySingleton": true,
-		"App\\Service\\ScopedService": true,
-		"App\\Service\\Transient":     false,
-		"collector":                   true,
+	if got := run("octane"); !reflect.DeepEqual(got, octane) {
+		t.Errorf("shared = %v, want %v", got, octane)
 	}
-
-	for model, want := range map[string]map[string]bool{"octane": octane, "worker": worker} {
-		if got := run(model); !reflect.DeepEqual(got, want) {
-			t.Errorf("%s model: shared = %v, want %v", model, got, want)
-		}
-	}
+	run("none")
 }

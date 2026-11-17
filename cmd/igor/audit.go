@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -153,6 +154,10 @@ func detectFrameworkProject(rootPath string, cfg config.Config) (*auditor.Symfon
 
 	// Not a Symfony project: try Laravel. Its map is optional, so a failure only disables the Deep Audit.
 	lb, err := auditor.DetectLaravel(rootPath, cfg)
+	if errors.Is(err, auditor.ErrOctaneRequired) {
+		// Not a degraded audit: without Octane, nothing tells what persists between requests
+		return nil, "", err
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  Warning: Laravel Deep Audit disabled: %v\n", err)
 		fmt.Fprintln(os.Stderr, "   Falling back to standard directory scan.")

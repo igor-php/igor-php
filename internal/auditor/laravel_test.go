@@ -1,7 +1,7 @@
 package auditor
 
 import (
-	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/igor-php/igor-php/internal/config"
-	"github.com/igor-php/igor-php/pkg/symbol"
 )
 
 // fakeArtisan writes an artisan script that answers `igor:dump` like the Laravel provider does,
@@ -111,46 +110,24 @@ func TestDetectLaravel_DumpFails(t *testing.T) {
 	}
 }
 
-// The worker model written by igor:dump reaches the stale dependency rule: without Octane, the
-// container and the config are shared by every request, the request is not (#121).
-func TestAudit_LaravelPersistenceModel(t *testing.T) {
-	var container symbol.SymfonyContainer
-	if err := json.Unmarshal([]byte(`{"persistence": "worker", "definitions": {}}`), &container); err != nil {
-		t.Fatal(err)
+// Without Octane, igor:dump refuses to build the map (exit code 3): igor stops with the way to
+// install Octane, instead of falling back to a directory scan.
+func TestDetectLaravel_OctaneMissing(t *testing.T) {
+	root := t.TempDir()
+	fakeArtisan(t, root, "fwrite(STDERR, 'Laravel Octane is not installed.');\nexit(3);\n")
+
+	_, err := DetectLaravel(root, config.Config{})
+	if !errors.Is(err, ErrOctaneRequired) {
+		t.Fatalf("expected ErrOctaneRequired, got %v", err)
 	}
-	if container.Persistence != symbol.PersistenceWorker {
-		t.Fatalf("the map's persistence field must be read, got %q", container.Persistence)
+	if !strings.Contains(err.Error(), "Laravel Octane is not installed.") {
+		t.Errorf("the error must carry the igor:dump output, got: %v", err)
 	}
 
-	path := filepath.Join(t.TempDir(), "ReportService.php")
-	if err := os.WriteFile(path, []byte(`<?php
-namespace App\Services;
-use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Http\Request;
-final class ReportService {
-    public function __construct(private Application $app, private Request $request) {}
-}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	stale := func(persistence string) []string {
-		aud := NewAuditor(config.Config{})
-		aud.UseFramework(&SymfonyBridge{Framework: FrameworkLaravel, Container: &symbol.SymfonyContainer{Persistence: persistence}})
-		findings, err := aud.Audit(path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var props []string
-		for _, f := range findings {
-			if f.Rule == symbol.RuleStaleDependency {
-				props = append(props, f.Message)
-			}
-		}
-		return props
-	}
-	if got := stale(symbol.PersistenceOctane); len(got) != 2 {
-		t.Errorf("under Octane, the container and the request are stale: got %q", got)
-	}
-	if got := stale(symbol.PersistenceWorker); len(got) != 1 || !strings.Contains(got[0], "'request'") {
-		t.Errorf("without Octane, only the request is stale: got %q", got)
+	// Any other failure keeps its own error
+	other := t.TempDir()
+	fakeArtisan(t, other, "exit(1);\n")
+	if _, err := DetectLaravel(other, config.Config{}); errors.Is(err, ErrOctaneRequired) {
+		t.Errorf("a failure that is not exit code 3 must not be read as a missing Octane: %v", err)
 	}
 }

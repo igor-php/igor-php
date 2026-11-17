@@ -16,8 +16,9 @@ Work in this order and keep the user informed in plain words at each step.
 ## 1. Set up (only what is missing)
 
 1. **Framework.** `bin/console` → Symfony. `artisan` → Laravel (check `laravel/octane` in
-   `composer.json`: without it, igor uses the plain worker model where every `singleton()` and
-   `scoped()` persists). Neither → plain PHP: igor scans the directories of `igor.json`.
+   `composer.json`: igor requires it and stops otherwise; propose `composer require laravel/octane`
+   and `php artisan octane:install --server=frankenphp`, the first step of a move to worker mode).
+   Neither → plain PHP: igor scans the directories of `igor.json`.
 2. **Binary.** Use `vendor/bin/igor-php` if it exists, else `igor-php` or `igor` on the PATH.
    Otherwise install it: `composer require --dev igor-php/igor-php` (the Composer package
    downloads the matching binary on first run). Ask before installing if the user did not ask
