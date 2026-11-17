@@ -51,7 +51,8 @@
     "php": "8.5",
     "setup": [
       "cp -n .env.example .env || true",
-      "php artisan key:generate --force --no-interaction"
+      "php artisan key:generate --force --no-interaction",
+      "COMPOSER_MEMORY_LIMIT=-1 composer require --no-interaction --no-progress --no-scripts -q laravel/octane:2.24.0"
     ]
   }
 ]

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,6 +139,23 @@ func TestDetectFrameworkProject_LaravelDumpFailsFallsBack(t *testing.T) {
 	bridge, _, err := detectFrameworkProject(tempDir, config.DefaultConfig())
 	if err != nil || bridge != nil {
 		t.Errorf("expected a fallback to the directory scan (nil, nil), got %v, %v", bridge, err)
+	}
+}
+
+// Without Octane, igor:dump exits with code 3: igor stops with its message instead of falling back
+// to a directory scan, which would report every file of the project.
+func TestDetectFrameworkProject_LaravelWithoutOctaneStops(t *testing.T) {
+	if _, err := exec.LookPath("php"); err != nil {
+		t.Skip("php is not available")
+	}
+	tempDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tempDir, "artisan"), []byte("<?php fwrite(STDERR, 'Laravel Octane is not installed.'); exit(3);"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	bridge, degraded, err := detectFrameworkProject(tempDir, config.DefaultConfig())
+	if !errors.Is(err, auditor.ErrOctaneRequired) || bridge != nil || degraded != "" {
+		t.Errorf("expected the audit to stop with ErrOctaneRequired, got %v, %q, %v", bridge, degraded, err)
 	}
 }
 

@@ -9,9 +9,9 @@ of the container, then runs the listeners of `config/octane.php`.
   `octane.warm`), and everything they keep (their dependencies).
 - **Per request**: `bind()` and `scoped()` bindings, bindings listed in `octane.flush`, and
   singletons first resolved during a request (they live in the sandbox).
-- **Without Octane** (a custom FrankenPHP worker loop reusing one application): every `singleton()`
-  and `scoped()` persists once resolved. Only `bind()` is per request. The container and the config
-  are the same for every request: a singleton keeping them is not stale, keeping the `Request` is.
+- **Without Octane**: igor stops and says to install it (`composer require laravel/octane`, then
+  `php artisan octane:install --server=frankenphp`). Laravel runs in a FrankenPHP worker through
+  Octane, so the audit describes the application as it will run under Octane.
 
 Igor learns this from `php artisan igor:dump` (registered by `IgorServiceProvider` through package
 discovery), which writes `bootstrap/cache/igor_service_map.json`. If the app cannot boot from the
@@ -25,8 +25,7 @@ The `Illuminate\` and `Laravel\` namespaces are skipped: Octane resets the frame
 rebuilt for each request. The simplest fix when the service needs the request, the user or the
 config, with two limits:
 - a persistent singleton that receives it (constructor, property) keeps the first instance
-  anyway: fix that parent too (resolve the service at call time, inject a closure, or reset it);
-- without Octane, `scoped()` persists like `singleton()`: resolve the value at call time instead.
+  anyway: fix that parent too (resolve the service at call time, inject a closure, or reset it).
 
 **Reset a persistent service** (Octane's `kernel.reset`): give it a `reset()` method and call it
 from a listener on `RequestReceived` in `config/octane.php`:

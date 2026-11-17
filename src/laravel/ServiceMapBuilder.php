@@ -15,9 +15,8 @@ use Illuminate\Contracts\Foundation\Application;
  * a request lives in the request's clone and is dropped with it, like bind() and scoped()
  * services and the bindings listed in octane.flush.
  *
- * Without Octane (a custom FrankenPHP worker loop), the same application serves every request:
- * every singleton persists once resolved, and so do scoped() bindings, which nothing forgets
- * between HTTP requests. Only bind() services are built per request.
+ * A Laravel application runs in a FrankenPHP worker through Octane: without it, the map cannot
+ * say what persists (see octaneInstalled()), and igor:dump refuses to write one.
  */
 final class ServiceMapBuilder
 {
@@ -51,8 +50,18 @@ final class ServiceMapBuilder
     {
     }
 
+    /** Octane runs Laravel in a worker: igor audits an application as it runs under Octane. */
+    public static function octaneInstalled(): bool
+    {
+        return class_exists('Laravel\\Octane\\Octane');
+    }
+
     public function build(): array
     {
+        if (!self::octaneInstalled()) {
+            throw new \LogicException('Laravel Octane is not installed.');
+        }
+
         $this->definitions = [];
         $this->entrypointFiles = [];
         $this->warm();
@@ -61,10 +70,8 @@ final class ServiceMapBuilder
             return [$this->instances, $this->scopedInstances, $this->aliases];
         })->call($this->app);
 
-        $octane = $this->usesOctane();
-
         // Bindings Octane drops before every request never outlive it
-        $transient = $octane ? array_fill_keys(array_merge($scoped, $this->config('octane.flush', [])), true) : [];
+        $transient = array_fill_keys(array_merge($scoped, $this->config('octane.flush', [])), true);
 
         // 1. Objects of the base application: they persist across requests
         foreach ($instances as $abstract => $instance) {
@@ -73,17 +80,10 @@ final class ServiceMapBuilder
             }
         }
 
-        // 2. Other bindings. Under Octane: bind(), scoped(), flushed or lazy singletons, created per
-        // request. Without it, a singleton or scoped binding persists from its first resolution on
+        // 2. Other bindings: bind(), scoped(), flushed or lazy singletons, created per request
         foreach ($this->app->getBindings() as $abstract => $binding) {
             if (!isset($this->definitions[$abstract])) {
-                $shared = !$octane && ($binding['shared'] ?? false);
-                $class = $this->concreteClass($abstract, $binding['concrete'] ?? null);
-                // A persistent factory singleton must still be audited: build it to learn its class
-                if ($class === null && $shared) {
-                    $class = $this->resolvedClass($abstract);
-                }
-                $this->addDefinition($abstract, $class, $shared);
+                $this->addDefinition($abstract, $this->concreteClass($abstract, $binding['concrete'] ?? null), false);
             }
         }
 
@@ -98,9 +98,9 @@ final class ServiceMapBuilder
         }
 
         return [
-            // Under Octane, each request gets its own clone of the container and the config: a
-            // persistent service that keeps them keeps a stale copy. Without it, they are shared
-            'persistence' => $octane ? 'octane' : 'worker',
+            // Each request gets its own clone of the container and the config: a persistent
+            // service that keeps them keeps a stale copy
+            'persistence' => 'octane',
             'definitions' => $this->definitions,
             'aliases' => $aliases,
             'entrypoint_files' => array_keys($this->entrypointFiles),
@@ -112,12 +112,6 @@ final class ServiceMapBuilder
     public function getWarnings(): array
     {
         return $this->warnings;
-    }
-
-    /** Octane serves each request from a clone of the application: without it, nothing is dropped between requests. */
-    private function usesOctane(): bool
-    {
-        return class_exists('Laravel\\Octane\\Octane');
     }
 
     /** Resolves the octane.warm services like Octane does when a worker boots. */
@@ -273,8 +267,7 @@ final class ServiceMapBuilder
      */
     private function isResettable(string $class): bool
     {
-        // Without Octane, no listener runs between requests, whatever config/octane.php still lists
-        if (!$this->usesOctane() || !method_exists($class, 'reset')) {
+        if (!method_exists($class, 'reset')) {
             return false;
         }
 

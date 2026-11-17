@@ -2,6 +2,7 @@ package auditor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,27 @@ import (
 // LaravelSafeNamespaces are the framework namespaces skipped when a Laravel project is detected:
 // Octane resets the framework's own state between requests.
 var LaravelSafeNamespaces = []string{"Illuminate\\", "Laravel\\"}
+
+// ErrOctaneRequired is returned for a Laravel project without Laravel Octane: igor audits a Laravel
+// application as it runs in a FrankenPHP worker, which Octane provides. igor stops on it instead of
+// falling back to a directory scan.
+var ErrOctaneRequired = errors.New("Laravel Octane is not installed")
+
+// octaneMissingExitCode is the exit code of `php artisan igor:dump` without Octane
+// (IgorPhp\Laravel\Console\DumpServiceMapCommand::OCTANE_MISSING).
+const octaneMissingExitCode = 3
+
+// octaneMissingError carries the message of igor:dump, which says how to install Octane.
+type octaneMissingError struct{ output string }
+
+func (e octaneMissingError) Error() string {
+	if e.output == "" {
+		return ErrOctaneRequired.Error()
+	}
+	return e.output
+}
+
+func (e octaneMissingError) Unwrap() error { return ErrOctaneRequired }
 
 // DetectLaravel finds a Laravel project (its artisan script) and loads the service map exported
 // by `php artisan igor:dump`. It returns nil, nil when the project is not a Laravel project.
@@ -44,6 +66,10 @@ func (b *SymfonyBridge) loadLaravelServiceMap() error {
 	cmd := exec.Command("php", filepath.Join(b.Root, b.ConsolePath), "igor:dump", "--path="+path, "--no-ansi", "--no-interaction")
 	cmd.Dir = b.Root
 	if output, err := cmd.CombinedOutput(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == octaneMissingExitCode {
+			return octaneMissingError{output: strings.TrimSpace(string(output))}
+		}
 		return fmt.Errorf("`php artisan igor:dump` failed: %v\n%s\n👉 make sure IgorPhp\\Laravel\\IgorServiceProvider is registered (package discovery does it when igor-php is installed with Composer)",
 			err, strings.TrimSpace(string(output)))
 	}

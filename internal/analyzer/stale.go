@@ -13,9 +13,6 @@ import (
 type staleDependency struct {
 	what string
 	hint string
-	// clonedByOctane is true for the container and the config: only Octane gives each request its
-	// own copy. Without it, every request shares them, and keeping them is not stale.
-	clonedByOctane bool
 }
 
 var staleDependencies = map[string]staleDependency{
@@ -37,14 +34,12 @@ var staleDependencies = map[string]staleDependency{
 
 var (
 	staleContainer = staleDependency{
-		what:           "the application container",
-		hint:           "Resolve the container when you need it, with the app() helper, or inject a closure that returns it.",
-		clonedByOctane: true,
+		what: "the application container",
+		hint: "Resolve the container when you need it, with the app() helper, or inject a closure that returns it.",
 	}
 	staleConfig = staleDependency{
-		what:           "the configuration repository",
-		hint:           "Read the configuration when you need it, with the config() helper, or copy the values you need in the constructor.",
-		clonedByOctane: true,
+		what: "the configuration repository",
+		hint: "Read the configuration when you need it, with the config() helper, or copy the values you need in the constructor.",
 	}
 )
 
@@ -134,7 +129,7 @@ func (v *PHPVisitor) staleType(typeStr string) (staleDependency, string, bool) {
 		// Class names are case-insensitive in PHP
 		fqcn := v.resolveFQCN(name)
 		for class, dep := range staleDependencies {
-			if strings.EqualFold(class, fqcn) && !(dep.clonedByOctane && v.persistence == symbol.PersistenceWorker) {
+			if strings.EqualFold(class, fqcn) {
 				return dep, class, true
 			}
 		}

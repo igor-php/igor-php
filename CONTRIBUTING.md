@@ -120,7 +120,7 @@ The `Corpus` workflow (`.github/workflows/corpus.yml`) runs it on every pull req
 
 The projects are installed once in `IGOR_CORPUS_DIR` (default `~/.cache/igor-php/corpus`), so only the first run pays for `composer install`; the full report of each run is in `results/` there. It needs `git`, `composer`, `go`, `jq` and `php`: the local PHP runs every project, so run each project with a PHP version its lock accepts: `make corpus PROJECT=part-db` works with PHP 8.4, `api-platform/demo` and laravel.io need PHP 8.5, and solidtime requires PHP 8.3 exactly, so no single local PHP runs `make corpus` on every project. Each project runs its own code (`composer install`, `cache:clear`): keep them pinned to a commit.
 
-A project entry can also set `"framework": "laravel"`, `setup` commands (`cp .env.example .env`, `php artisan key:generate`) and `env` variables, for the applications that need them to boot; `root` when the application is in a subdirectory of the repository (`"root": "api"` for `api-platform/demo`); and `php`, the PHP version the `Corpus` workflow installs for it (8.4 by default) when its lock requires another one.
+A project entry can also set `"framework": "laravel"`, `setup` commands (`cp .env.example .env`, `php artisan key:generate`, or `composer require laravel/octane:<version>` for a Laravel application without Octane, which igor requires: laravel.io) and `env` variables, for the applications that need them to boot; `root` when the application is in a subdirectory of the repository (`"root": "api"` for `api-platform/demo`); and `php`, the PHP version the `Corpus` workflow installs for it (8.4 by default) when its lock requires another one.
 
 ### 3. Linting
 We use `golangci-lint` to maintain Go code quality:

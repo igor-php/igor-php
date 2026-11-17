@@ -10,9 +10,9 @@ import (
 	php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 )
 
-// staleProperties runs the stale dependency rule under a worker model and returns the properties
+// staleProperties runs the stale dependency rule on a Laravel service and returns the properties
 // it reports, sorted.
-func staleProperties(t *testing.T, persistence string) []string {
+func staleProperties(t *testing.T) []string {
 	t.Helper()
 	content := []byte(`<?php
 namespace App\Services;
@@ -40,7 +40,6 @@ final class ReportService
 
 	v := NewVisitor(content, &mockEngine{})
 	v.SetFramework(FrameworkLaravel)
-	v.SetPersistence(persistence)
 	v.Walk(tree.RootNode())
 
 	props := []string{}
@@ -53,32 +52,19 @@ final class ReportService
 	return props
 }
 
-func TestStaleDependency_PersistenceModel(t *testing.T) {
-	request := "Property 'request' of ReportService keeps the HTTP request (Illuminate\\Http\\Request) across requests."
-	eitherRequest := "Property 'either' of ReportService keeps the HTTP request (Illuminate\\Http\\Request) across requests."
-	eitherApp := "Property 'either' of ReportService keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests."
-	octane := []string{
+// Octane serves each request from its own clone of the container and the config: a persistent
+// service that keeps them, or the request, keeps the first request's copy (#121).
+func TestStaleDependency_LaravelProperties(t *testing.T) {
+	want := []string{
 		"Property 'app' of ReportService keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests.",
 		"Property 'config' of ReportService keeps the configuration repository (Illuminate\\Contracts\\Config\\Repository) across requests.",
 		"Property 'container' of ReportService keeps the application container (Illuminate\\Container\\Container) across requests.",
-		eitherApp,
+		"Property 'either' of ReportService keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests.",
 		"Property 'maybeApp' of ReportService keeps the application container (Illuminate\\Contracts\\Foundation\\Application) across requests.",
-		request,
+		"Property 'request' of ReportService keeps the HTTP request (Illuminate\\Http\\Request) across requests.",
 	}
-	sort.Strings(octane)
-
-	cases := []struct {
-		persistence string
-		want        []string
-		why         string
-	}{
-		{symbol.PersistenceOctane, octane, "Octane clones the container and the config for every request"},
-		{"", octane, "an unknown model (Symfony, or a map written before the field) keeps every finding"},
-		{symbol.PersistenceWorker, []string{eitherRequest, request}, "without Octane, only the request belongs to one request"},
-	}
-	for _, c := range cases {
-		if got := staleProperties(t, c.persistence); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("persistence %q (%s):\n got  %q\n want %q", c.persistence, c.why, got, c.want)
-		}
+	sort.Strings(want)
+	if got := staleProperties(t); !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %q\nwant %q", got, want)
 	}
 }
