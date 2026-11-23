@@ -37,6 +37,8 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 	ignoreExternalBaselineFlag := fs.Bool("ignore-external-baseline", false, "Ignore baseline files defined in external vendor packages")
 	stdinFilePathFlag := fs.String("stdin-filepath", "", "Path of the file when passing file content via standard input (stdin)")
 	includeIgnoredFlag := fs.Bool("include-ignored", false, "Include baseline-ignored findings marked with ignored: true")
+	var fixFlag fixerFlag
+	fs.Var(&fixFlag, "fixer", "Fix fixable findings in place: --fixer for safe fixes, --fixer=risky to also apply fixes that can change behavior")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "🧟 Igor-PHP v%s - The faithful assistant for FrankenPHP Workers\n\n", Version)
@@ -53,6 +55,8 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		fmt.Fprintf(os.Stderr, "  %s --output json .\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s --container-dump igor-container.json .\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s --generate-baseline\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --fixer .\n", binName)
+		fmt.Fprintf(os.Stderr, "  %s --fixer=risky .\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s -c custom-igor.json .\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s init\n", binName)
 		fmt.Fprintf(os.Stderr, "  %s review igor-export.json\n", binName)
@@ -86,8 +90,13 @@ func parseFlagsAndInit(args []string) (config.Config, string, bool, error) {
 		return config.Config{}, "", true, fmt.Errorf("baseline management flags (--generate-baseline, --check-baseline, --prune-baseline) cannot be used with a single file target or --stdin-filepath")
 	}
 
+	if err := validateFixerFlags(fixFlag.level, *stdinFilePathFlag, *generateBaselineFlag, *checkBaselineFlag, *pruneBaselineFlag); err != nil {
+		return config.Config{}, "", true, err
+	}
+
 	cfg := config.LoadConfig(rootPath, configPath)
 	cfg.TargetFile = targetFile
+	cfg.FixLevel = fixFlag.level
 
 	if *stdinFilePathFlag != "" {
 		stdinBytes, err := io.ReadAll(os.Stdin)

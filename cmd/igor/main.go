@@ -65,6 +65,9 @@ func main() {
 	// 6b. Rank findings by call-site reachability from application code
 	aud.MarkReachability(results)
 
+	// 6c. Apply fixes, then re-audit so the report shows what remains
+	results, fixes := applyFixesAndReaudit(results, auditList, aud, cfg, baseline, rootPath)
+
 	// 7a. Handle Baseline Checking
 	if cfg.CheckBaseline {
 		staleEntries := config.IdentifyStaleEntries(baseline, results, rootPath)
@@ -118,7 +121,7 @@ func main() {
 	// 8. Report Results
 	reportAllFindings(rep, results, rootPath)
 
-	if !rep.PrintSummary(results, rootPath) {
+	if !fixes.passed(rep.PrintSummary(results, rootPath)) {
 		os.Exit(1)
 	}
 }
