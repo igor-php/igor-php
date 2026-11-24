@@ -64,14 +64,18 @@ func (f *fixer) fixSuperglobals(findings []symbol.Finding) {
 			f.skipped(RuleSuperglobals, finding.Line, reason)
 			continue
 		}
-		requestVar := f.requestInScope(node)
+		requestVar, note := f.requestInScope(node), ""
 		if requestVar == "" {
-			f.skipped(RuleSuperglobals, finding.Line, "no Symfony Request parameter in scope")
-			continue
+			var reason string
+			requestVar, note, reason = f.injectRequest(node)
+			if reason != "" {
+				f.skipped(RuleSuperglobals, finding.Line, reason)
+				continue
+			}
 		}
 		replacement := fmt.Sprintf("%s->%s->all()", requestVar, bag)
 		f.edits = append(f.edits, edit{start: node.StartByte(), end: node.EndByte(), text: replacement})
-		f.applied(RuleSuperglobals, finding.Line, fmt.Sprintf("replaced %s with %s", name, replacement))
+		f.applied(RuleSuperglobals, finding.Line, fmt.Sprintf("%sreplaced %s with %s", note, name, replacement))
 	}
 }
 
@@ -253,4 +257,134 @@ func (f *fixer) skipBlankLine(pos uint) uint {
 		return cursor + 1
 	}
 	return pos
+}
+
+var routeAttributeFQCNs = map[string]bool{
+	`symfony\component\routing\attribute\route`:  true,
+	`symfony\component\routing\annotation\route`: true,
+}
+
+// injectRequest adds a Request parameter to the Symfony route action enclosing
+// node, which Symfony's argument resolver then fills in. It returns the variable
+// name, a note describing the change, or the reason it cannot be done.
+func (f *fixer) injectRequest(node *sitter.Node) (string, string, string) {
+	method := enclosingMethod(node)
+	if method == nil {
+		return "", "", "no Symfony Request parameter in scope"
+	}
+	if name, done := f.injected[method.StartByte()]; done {
+		return name, "", ""
+	}
+	name := f.text(method.ChildByFieldName("name"))
+	if reason := f.injectionProblem(method, name); reason != "" {
+		return "", "", reason
+	}
+
+	params := method.ChildByFieldName("parameters")
+	decl := f.resolveImport(requestFQCN) + " $request"
+	if first := params.NamedChild(0); first == nil {
+		at := params.Child(0).EndByte()
+		f.edits = append(f.edits, edit{start: at, end: at, text: decl})
+	} else if first.StartPosition().Row == params.StartPosition().Row {
+		f.edits = append(f.edits, edit{start: first.StartByte(), end: first.StartByte(), text: decl + ", "})
+	} else {
+		text := decl + "," + f.newline + f.lineIndent(first.StartByte())
+		f.edits = append(f.edits, edit{start: first.StartByte(), end: first.StartByte(), text: text})
+	}
+	f.injected[method.StartByte()] = "$request"
+	return "$request", fmt.Sprintf("added `%s` to %s(), ", decl, name), ""
+}
+
+// enclosingMethod returns the method whose own scope contains node. Closures
+// have their own scope; arrow functions share their parent's.
+func enclosingMethod(node *sitter.Node) *sitter.Node {
+	for a := node.Parent(); a != nil; a = a.Parent() {
+		switch a.Kind() {
+		case "method_declaration":
+			return a
+		case "anonymous_function", "function_definition":
+			return nil
+		}
+	}
+	return nil
+}
+
+func (f *fixer) injectionProblem(method *sitter.Node, name string) string {
+	if !f.isRouteAction(method) {
+		return "no Symfony Request parameter in scope and not a #[Route] action"
+	}
+	for i := uint(0); i < method.ChildCount(); i++ {
+		if method.Child(i).Kind() == "static_modifier" {
+			return "route action is static"
+		}
+	}
+	if method.ChildByFieldName("parameters") == nil || method.ChildByFieldName("body") == nil {
+		return "route action has no parameter list or body"
+	}
+	if f.isCalledDirectly(name) {
+		return fmt.Sprintf("%s() is also called directly in this file", name)
+	}
+	used := false
+	walk(method, func(n *sitter.Node) bool {
+		if n.Kind() == "variable_name" && f.text(n) == "$request" {
+			used = true
+		}
+		return !used
+	})
+	if used {
+		return "a $request variable already exists in the action"
+	}
+	return ""
+}
+
+// isRouteAction reports whether method carries Symfony's #[Route] attribute.
+func (f *fixer) isRouteAction(method *sitter.Node) bool {
+	found := false
+	for i := uint(0); i < method.ChildCount(); i++ {
+		list := method.Child(i)
+		if list.Kind() != "attribute_list" {
+			continue
+		}
+		walk(list, func(n *sitter.Node) bool {
+			if n.Kind() != "attribute" {
+				return true
+			}
+			if nameNode := n.NamedChild(0); nameNode != nil && routeAttributeFQCNs[strings.ToLower(f.resolveName(f.text(nameNode)))] {
+				found = true
+			}
+			return false
+		})
+	}
+	return found
+}
+
+// resolveName resolves a class reference through the file's imports.
+func (f *fixer) resolveName(name string) string {
+	if fq, ok := strings.CutPrefix(name, `\`); ok {
+		return fq
+	}
+	if target, ok := f.imports[name]; ok {
+		return target
+	}
+	return ""
+}
+
+// isCalledDirectly reports whether the file calls the method, or names it in a
+// string such as a [$this, 'method'] callable, which a new parameter would break.
+func (f *fixer) isCalledDirectly(name string) bool {
+	called := false
+	walk(f.root, func(n *sitter.Node) bool {
+		switch n.Kind() {
+		case "member_call_expression", "nullsafe_member_call_expression", "scoped_call_expression":
+			if strings.EqualFold(f.text(n.ChildByFieldName("name")), name) {
+				called = true
+			}
+		case "string_content":
+			if strings.EqualFold(f.text(n), name) {
+				called = true
+			}
+		}
+		return !called
+	})
+	return called
 }

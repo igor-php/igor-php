@@ -84,8 +84,10 @@ type fixer struct {
 	classes map[string][]*classInfo
 	imports map[string]string
 	newline string
-	// resetName caches the name used for ResetInterface once resolved.
-	resetName string
+	// importNames caches how each imported FQCN is referenced once resolved.
+	importNames map[string]string
+	// injected maps a method's start byte to the Request variable added to it.
+	injected map[uint]string
 }
 
 // Apply fixes the given findings in content and returns the rewritten source.
@@ -101,11 +103,12 @@ func Apply(content []byte, findings []symbol.Finding, opts Options) (Result, err
 	}
 
 	f := &fixer{
-		content: content,
-		root:    tree.RootNode(),
-		opts:    opts,
-		newline: detectNewline(content),
-		result:  Result{Content: content},
+		content:  content,
+		root:     tree.RootNode(),
+		opts:     opts,
+		newline:  detectNewline(content),
+		result:   Result{Content: content},
+		injected: make(map[uint]string),
 	}
 	f.classes = f.collectClasses()
 	f.imports = f.collectImports()

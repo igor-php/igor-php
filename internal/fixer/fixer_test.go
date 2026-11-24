@@ -352,3 +352,114 @@ class Counter
 		t.Errorf("second run changed the file:\n%s", twice)
 	}
 }
+
+func TestSuperglobalInjectsRequestIntoRouteAction(t *testing.T) {
+	src := `<?php
+namespace App\Controller;
+
+use Symfony\Component\Routing\Attribute\Route;
+
+class C
+{
+    #[Route('/a')]
+    public function a(int $id = 0): Response
+    {
+        $x = $_GET['x'] ?? '';
+        $y = $_GET['y'] ?? '';
+        $f = fn () => $_POST['z'];
+    }
+
+    #[Route('/b')]
+    public function b(
+        string $slug,
+    ): Response {
+        return $_COOKIE['c'];
+    }
+}
+`
+	out, res := fix(t, src, LevelRisky)
+	if len(res.Applied) != 4 {
+		t.Fatalf("expected 4 fixes, got %+v (skipped %+v)", res.Applied, res.Skipped)
+	}
+	for _, want := range []string{
+		"use Symfony\\Component\\Routing\\Attribute\\Route;\nuse Symfony\\Component\\HttpFoundation\\Request;\n",
+		"public function a(Request $request, int $id = 0): Response",
+		"$x = $request->query->all()['x'] ?? '';",
+		"$y = $request->query->all()['y'] ?? '';",
+		"fn () => $request->request->all()['z'];",
+		"public function b(\n        Request $request,\n        string $slug,\n    ): Response {",
+		"return $request->cookies->all()['c'];",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Count(out, "Request $request") != 2 {
+		t.Errorf("expected one injected parameter per action:\n%s", out)
+	}
+	if remaining := audit(t, out); len(remaining) != 0 {
+		t.Errorf("findings remain after fix: %+v", remaining)
+	}
+}
+
+func TestSuperglobalInjectionUsesExistingImportOrFQCN(t *testing.T) {
+	aliased := `<?php
+namespace App;
+use Symfony\Component\HttpFoundation\Request as HttpRequest;
+use Symfony\Component\Routing\Attribute\Route;
+class C {
+    #[Route('/a')]
+    public function a() { return $_GET['x']; }
+}
+`
+	out, _ := fix(t, aliased, LevelRisky)
+	if !strings.Contains(out, "public function a(HttpRequest $request)") {
+		t.Errorf("alias not reused:\n%s", out)
+	}
+
+	clash := `<?php
+namespace App;
+use Other\Request;
+use Symfony\Component\Routing\Attribute\Route;
+class C {
+    #[Route('/a')]
+    public function a() { return $_GET['x']; }
+}
+`
+	out, _ = fix(t, clash, LevelRisky)
+	if !strings.Contains(out, "public function a(\\Symfony\\Component\\HttpFoundation\\Request $request)") {
+		t.Errorf("expected the FQCN when Request is taken:\n%s", out)
+	}
+}
+
+func TestSuperglobalInjectionRefusals(t *testing.T) {
+	header := "<?php\nnamespace App;\nuse Symfony\\Component\\Routing\\Attribute\\Route;\nclass C {\n"
+	cases := map[string]string{
+		"not a route":       "public function a() { return $_GET['x']; }",
+		"foreign Route":     "#[\\Other\\Route('/a')]\npublic function a() { return $_GET['x']; }",
+		"static action":     "#[Route('/a')]\npublic static function a() { return $_GET['x']; }",
+		"called directly":   "#[Route('/a')]\npublic function a() { return $_GET['x']; }\npublic function b() { return $this->a(); }",
+		"callable string":   "#[Route('/a')]\npublic function a() { return $_GET['x']; }\npublic function b() { return [$this, 'a']; }",
+		"$request taken":    "#[Route('/a')]\npublic function a(string $request) { return $_GET['x']; }",
+		"inside a closure":  "#[Route('/a')]\npublic function a() { return function () { return $_GET['x']; }; }",
+		"written in action": "#[Route('/a')]\npublic function a() { $_GET['x'] = 1; }",
+	}
+	for name, method := range cases {
+		t.Run(name, func(t *testing.T) {
+			src := header + method + "\n}\n"
+			out, res := fix(t, src, LevelRisky)
+			if out != src || len(res.Applied) != 0 {
+				t.Errorf("expected no change, applied %+v:\n%s", res.Applied, out)
+			}
+		})
+	}
+}
+
+func TestAddedUseKeepsBlankLineBeforeCode(t *testing.T) {
+	src := "<?php\nnamespace App;\nclass C {\n    private int $n = 0;\n    public function r(): void { $this->n++; }\n}\n"
+	out, _ := fix(t, src, LevelRisky)
+	want := "namespace App;\n\nuse Symfony\\Contracts\\Service\\ResetInterface;\n\nclass C implements ResetInterface {"
+	if !strings.Contains(out, want) {
+		t.Errorf("missing %q in:\n%s", want, out)
+	}
+}

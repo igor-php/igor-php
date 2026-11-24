@@ -206,7 +206,7 @@ igor-php --fixer=risky .
 | :--- | :--- | :--- | :--- |
 | `safe` | `IncompleteReset` | Adds `$this->prop = <default>;` to `reset()` | The property has a declared default, and is not written by the constructor, a setter, `boot()`, `warmUp()` or a `#[Required]` method |
 | `risky` | `StateMutation` | Adds `implements ResetInterface` and generates `reset()` | Every mutated property of the class can be restored, the class has no parent, and `symfony/service-contracts` is installed |
-| `risky` | `SuperglobalsUsage` | Rewrites `$_GET['id']` to `$request->query->all()['id']` (also `$_POST`, `$_COOKIE`, `$_SERVER`) | It is a read and a Symfony `Request` parameter is in scope |
+| `risky` | `SuperglobalsUsage` | Rewrites `$_GET['id']` to `$request->query->all()['id']` (also `$_POST`, `$_COOKIE`, `$_SERVER`). In a `#[Route]` action without a `Request`, first adds `Request $request` as its first parameter | It is a read, and a Symfony `Request` parameter is in scope or can be added: the action is not static, not called directly in the file, and has no `$request` variable yet |
 | `risky` | `ProcessStateMutation` | Removes `gc_disable()` | It is a standalone statement and the file never calls `gc_enable()` |
 
 - **Review risky fixes**: a generated `reset()` clears state that may be intentionally kept across requests, such as a cache, and only runs if the service is autoconfigured or tagged `kernel.reset`. In a sub-request, `$request` can differ from the superglobals.
