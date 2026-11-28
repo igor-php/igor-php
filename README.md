@@ -4,6 +4,9 @@
 </p>
 
 <p align="center">
+  <a href="https://igor-php.dev">
+    <img src="https://img.shields.io/badge/website-igor--php.dev-green?style=flat-square" alt="Website" />
+  </a>
   <a href="https://github.com/igor-php/igor-php/actions/workflows/ci.yml">
     <img src="https://github.com/igor-php/igor-php/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
   </a>
@@ -27,6 +30,8 @@
 </p>
 
 **The faithful assistant for your FrankenPHP Workers.**
+
+🌐 **Website: [igor-php.dev](https://igor-php.dev)**
 
 ⭐️ **If you find Igor useful, please consider leaving a star! It encourages us to keep maintaining and improving the project.**
 

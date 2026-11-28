@@ -2,8 +2,14 @@
     "name": "igor-php/igor-php",
     "description": "The faithful assistant for your FrankenPHP Workers: finds the state that leaks between requests in Symfony and Laravel Octane apps, from the CLI, PhpStorm, Claude Code or any MCP client.",
     "keywords": ["frankenphp", "linter", "static-analysis", "symfony", "laravel", "octane", "worker", "memory-leak", "mcp"],
+    "homepage": "https://igor-php.dev",
     "type": "library",
     "license": "MIT",
+    "support": {
+        "docs": "https://igor-php.dev",
+        "issues": "https://github.com/igor-php/igor-php/issues",
+        "source": "https://github.com/igor-php/igor-php"
+    },
     "authors": [
         {
             "name": "Kevin MARTINS",
